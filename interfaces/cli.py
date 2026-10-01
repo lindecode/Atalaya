@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import argparse
+import subprocess
 import sys
+import tomllib
+from pathlib import Path
 from typing import Sequence
 
 from bootstrap import build_analyze_service, build_collect_service, build_report_service, build_repository, build_status_service
@@ -15,6 +18,7 @@ def _parser() -> argparse.ArgumentParser:
     commands.add_parser("status", help="Muestra el estado y tamaño de la base de datos")
     commands.add_parser("analyze", help="Ejecuta reglas y correlación local opcional")
     commands.add_parser("report", help="Genera un informe Markdown")
+    commands.add_parser("gui", help="Abre la interfaz local Streamlit")
     alert = commands.add_parser("alert", help="Cambia el estado de una alerta").add_subparsers(dest="alert_action", required=True)
     for action in ("confirm", "dismiss"):
         sub = alert.add_parser(action)
@@ -68,6 +72,16 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command == "report":
         print(build_report_service().execute())
         return 0
+    if args.command == "gui":
+        project = Path(__file__).resolve().parents[1]
+        config = tomllib.loads((project / ".streamlit" / "config.toml").read_text(encoding="utf-8"))
+        address = config.get("server", {}).get("address")
+        if address not in {"localhost", "127.0.0.1", "::1"}:
+            raise SystemExit("La GUI solo puede escuchar en loopback")
+        try:
+            return subprocess.call([sys.executable, "-m", "streamlit", "run", "interfaces/gui/app.py"], cwd=project)
+        except KeyboardInterrupt:
+            return 0
     if args.command == "alert":
         repository = build_repository()
         repository.initialize()

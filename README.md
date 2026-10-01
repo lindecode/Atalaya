@@ -45,6 +45,16 @@ error y conserva las alertas deterministas. Los datos se delimitan y recortan
 antes de entrar al prompt; nombres de archivo y demás evidencia nunca se
 interpretan como instrucciones.
 
+## Interfaz local (Fase 3)
+
+```powershell
+.\.venv\Scripts\python.exe network-llm\main.py gui
+```
+
+Abra `http://127.0.0.1:8501`. Streamlit escucha exclusivamente en loopback,
+desactiva telemetría y no usa HTML inseguro para representar evidencia. Las
+tablas pueden filtrarse, ordenarse y descargarse localmente como CSV.
+
 Los datos se guardan en `network-llm/data/network_llm.db`. Los eventos de
 Security requieren ejecutar la terminal como administrador. El canal operacional
 de RDP se intenta de forma independiente y se omite con un aviso si no está

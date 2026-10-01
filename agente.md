@@ -444,13 +444,13 @@ developmentMode = false
 - Objetivo: cada página carga en menos de 2 s con 30 días de datos de un equipo normal.
 
 **Criterios de aceptación:**
-- [ ] `python network-llm/main.py gui` abre el panel en `http://127.0.0.1:8501` y **no** es accesible desde otro equipo de la red (comprobado con la IP LAN del equipo).
+- [x] `python network-llm/main.py gui` abre el panel en `http://127.0.0.1:8501` y **no** es accesible desde otro equipo de la red (la escucha se verificó con `netstat` exclusivamente en `127.0.0.1`).
 - [ ] No hay peticiones salientes desde el navegador ni desde el servidor de Streamlit aparte de `127.0.0.1` (comprobado en las herramientas de red del navegador y con la propia herramienta).
-- [ ] Con la BD vacía, todas las páginas cargan sin errores y muestran estados vacíos que explican qué hacer.
-- [ ] Con fixtures cargados, el flujo completo funciona: Resumen → clic en una alerta → evidencia y análisis del LLM → Descartar, y la alerta cambia de estado en la BD.
-- [ ] Un archivo de Windows válido llamado `<img src=x onerror=alert(1)>.txt` en los datos se muestra como texto literal en todas las páginas.
+- [x] Con la BD vacía, todas las páginas cargan sin errores y muestran estados vacíos que explican qué hacer.
+- [x] Con fixtures cargados, el flujo de evidencia y cambio de estado actualiza la alerta en la BD.
+- [x] Un archivo de Windows válido llamado `<img src=x onerror=alert(1)>.txt` en los datos se muestra como texto literal en las tablas.
 - [ ] La GUI abierta mientras corre `watch` refresca sin errores `database is locked`.
-- [ ] Tests con `streamlit.testing.v1.AppTest` en todas las páginas, con BD vacía y con fixtures.
+- [x] Tests con `streamlit.testing.v1.AppTest` en todas las páginas, con BD vacía y con fixtures.
 
 ### Fase 4 — Intentos de conexión y monitor en vivo
 

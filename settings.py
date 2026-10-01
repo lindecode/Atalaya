@@ -24,8 +24,8 @@ def _default_watch_dirs() -> tuple[Path, ...]:
 @dataclass(frozen=True, slots=True)
 class Settings:
     project_dir: Path = PROJECT_DIR
-    database_path: Path = PROJECT_DIR / "data" / "network_llm.db"
-    reports_dir: Path = PROJECT_DIR / "reports"
+    database_path: Path = field(default_factory=lambda: Path(os.environ.get("NETWORK_LLM_DB", PROJECT_DIR / "data" / "network_llm.db")))
+    reports_dir: Path = field(default_factory=lambda: Path(os.environ.get("NETWORK_LLM_REPORTS", PROJECT_DIR / "reports")))
     backup_dir: Path = PROJECT_DIR / "data" / "backups"
     watch_dirs: tuple[Path, ...] = field(default_factory=_default_watch_dirs)
     scan_hours: int = 24

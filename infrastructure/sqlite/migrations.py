@@ -130,5 +130,12 @@ MIGRATIONS: tuple[str, ...] = (
     CREATE INDEX idx_alert_st ON alerts(status, severity);
     CREATE INDEX idx_evidence_entity ON alert_evidence(entity_type, entity_id);
     """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_conn_remote_ts ON connections(raddr, ts);
+    CREATE INDEX IF NOT EXISTS idx_conn_process_ts ON connections(process_name, ts);
+    CREATE INDEX IF NOT EXISTS idx_file_action_ts ON file_events(action, ts);
+    CREATE INDEX IF NOT EXISTS idx_persistence_first_seen ON persistence_items(first_seen);
+    CREATE INDEX IF NOT EXISTS idx_alert_rule_ts ON alerts(rule_id, ts);
+    CREATE INDEX IF NOT EXISTS idx_runs_kind_started ON runs(kind, started_at);
+    """,
 )
-
