@@ -138,4 +138,15 @@ MIGRATIONS: tuple[str, ...] = (
     CREATE INDEX IF NOT EXISTS idx_alert_rule_ts ON alerts(rule_id, ts);
     CREATE INDEX IF NOT EXISTS idx_runs_kind_started ON runs(kind, started_at);
     """,
+    """
+    CREATE TABLE sysmon_events (
+      id INTEGER PRIMARY KEY,
+      ts TEXT NOT NULL,
+      event_id INTEGER NOT NULL,
+      record_id INTEGER NOT NULL UNIQUE,
+      process_name TEXT,
+      data_json TEXT NOT NULL
+    );
+    CREATE INDEX idx_sysmon_event_ts ON sysmon_events(event_id, ts);
+    """,
 )

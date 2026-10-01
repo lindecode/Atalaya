@@ -15,7 +15,7 @@ from settings import Settings
 
 TABLES = (
     "runs", "connections", "auth_events", "file_events", "firewall_events",
-    "persistence_items", "baseline", "alerts", "llm_analyses", "cursors",
+    "persistence_items", "baseline", "alerts", "llm_analyses", "cursors", "sysmon_events",
 )
 
 
@@ -112,6 +112,15 @@ class SQLiteRepository:
                         (ts, action, proto, src_ip, src_port, dst_ip, dst_port, direction, dedup_key)
                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                         tuple(v[key] for key in ("ts", "action", "proto", "src_ip", "src_port", "dst_ip", "dst_port", "direction", "dedup_key")),
+                    )
+                    inserted += max(cursor.rowcount, 0)
+            elif result.item_kind == "sysmon_events":
+                for item in result.items:
+                    v = asdict(item)
+                    cursor = db.execute(
+                        """INSERT OR IGNORE INTO sysmon_events(ts, event_id, record_id, process_name, data_json)
+                        VALUES (?, ?, ?, ?, ?)""",
+                        (v["ts"], v["event_id"], v["record_id"], v["process_name"], json.dumps(v["data"], ensure_ascii=False)),
                     )
                     inserted += max(cursor.rowcount, 0)
             elif result.item_kind == "persistence_items":
@@ -301,3 +310,33 @@ class SQLiteRepository:
         value = dict(row)
         value["collectors"] = json.loads(value["collectors"]) if value["collectors"] else {}
         return value
+
+    def backup(self, destination: Path) -> Path:
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        with self._connect(readonly=True) as source, sqlite3.connect(destination) as target:
+            source.backup(target)
+        return destination
+
+    def purge(self, cutoff: str) -> dict[str, int]:
+        deleted = {}
+        statements = {
+            "connections": "DELETE FROM connections WHERE ts<?",
+            "auth_events": "DELETE FROM auth_events WHERE ts<?",
+            "file_events": "DELETE FROM file_events WHERE ts<?",
+            "firewall_events": "DELETE FROM firewall_events WHERE ts<?",
+            "sysmon_events": "DELETE FROM sysmon_events WHERE ts<?",
+            "llm_analyses": "DELETE FROM llm_analyses WHERE ts<?",
+            "runs": "DELETE FROM runs WHERE started_at<? AND id NOT IN (SELECT run_id FROM llm_analyses WHERE run_id IS NOT NULL)",
+            "alerts": "DELETE FROM alerts WHERE ts<? AND status!='confirmed'",
+        }
+        with self._connect() as db:
+            for table, sql in statements.items():
+                cursor = db.execute(sql, (cutoff,))
+                deleted[table] = max(cursor.rowcount, 0)
+        connection = self._connect()
+        try:
+            connection.isolation_level = None
+            connection.execute("VACUUM")
+        finally:
+            connection.close()
+        return deleted

@@ -75,6 +75,32 @@ Finalice con Ctrl+C; el lote pendiente se guarda antes de cerrar. Para iniciarlo
 con la sesión puede crear manualmente una tarea programada que ejecute ese mismo
 comando. La aplicación no instala ni modifica tareas por sí sola.
 
+## Sysmon y chat (Fase 5)
+
+Sysmon es opcional. Descárguelo manualmente desde
+[Microsoft Sysinternals](https://learn.microsoft.com/sysinternals/downloads/sysmon)
+y use una configuración revisada, por ejemplo `sysmon-config` de
+SwiftOnSecurity. La herramienta nunca lo descarga ni instala; únicamente intenta
+leer `Microsoft-Windows-Sysmon/Operational` y se degrada si no existe.
+
+```powershell
+.\.venv\Scripts\python.exe network-llm\main.py chat "¿quién intentó conectarse por RDP esta semana?"
+```
+
+El chat puede llamar únicamente a consultas parametrizadas y limitadas para
+alertas, accesos, conexiones, archivos y persistencia. No acepta ni genera SQL
+libre.
+
+## Mantenimiento
+
+```powershell
+.\.venv\Scripts\python.exe network-llm\main.py backup
+.\.venv\Scripts\python.exe network-llm\main.py purge --days 30
+```
+
+El backup usa la API consistente de SQLite. La purga conserva las alertas
+confirmadas y sus instantáneas de evidencia.
+
 Los datos se guardan en `network-llm/data/network_llm.db`. Los eventos de
 Security requieren ejecutar la terminal como administrador. El canal operacional
 de RDP se intenta de forma independiente y se omite con un aviso si no está

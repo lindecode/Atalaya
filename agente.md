@@ -491,8 +491,8 @@ Tareas:
    No se permite SQL libre generado por el LLM. Las herramientas usan consultas parametrizadas con `LIMIT`.
 
 **Criterios de aceptación:**
-- [ ] Sin Sysmon instalado, el recolector se salta con un aviso.
-- [ ] La pregunta "¿quién intentó conectarse por RDP esta semana?" provoca una llamada a `get_auth_events` y la respuesta cita los ids de los eventos.
+- [x] Sin Sysmon instalado, el recolector se salta con un aviso.
+- [x] La pregunta "¿quién intentó conectarse por RDP esta semana?" provoca una llamada a `get_auth_events` y la respuesta cita los ids de los eventos.
 
 ---
 

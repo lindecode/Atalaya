@@ -5,9 +5,11 @@ from application.analyze import AnalyzeService
 from application.reports import ReportService
 from application.status import StatusService
 from application.watch import WatchService
+from application.chat import ChatService
 from infrastructure.clock import SystemClock
 from infrastructure.ollama.analyzer import OllamaAnalyzer
 from infrastructure.sqlite.repositories import SQLiteRepository
+from infrastructure.sqlite.chat_tools import SQLiteQueryTools
 from infrastructure.windows.common import WindowsSystemInfo
 from infrastructure.windows.connections import PsutilConnectionCollector
 from infrastructure.windows.event_log import RDP_CHANNEL, SECURITY_CHANNEL, WindowsEventLogCollector
@@ -15,6 +17,7 @@ from infrastructure.windows.files import RecentFileCollector
 from infrastructure.windows.firewall import FirewallLogCollector
 from infrastructure.windows.persistence import WindowsPersistenceCollector
 from infrastructure.windows.notifier import WindowsNotifier
+from infrastructure.windows.sysmon import SysmonCollector
 from settings import Settings
 
 
@@ -35,6 +38,9 @@ def build_collect_service(settings: Settings | None = None) -> CollectService:
         RecentFileCollector(effective),
         WindowsPersistenceCollector(effective),
         FirewallLogCollector(effective.firewall_log_path),
+        SysmonCollector("sysmon_network", (3,), "connections"),
+        SysmonCollector("sysmon_files", (11, 23), "file_events"),
+        SysmonCollector("sysmon_process_registry", (1, 12, 13), "sysmon_events"),
     )
     return CollectService(repository, collectors, SystemClock(), WindowsSystemInfo())
 
@@ -57,3 +63,8 @@ def build_report_service(settings: Settings | None = None) -> ReportService:
 def build_watch_service(settings: Settings | None = None) -> WatchService:
     effective = settings or Settings()
     return WatchService(build_repository(effective), SystemClock(), WindowsSystemInfo(), WindowsNotifier(), effective)
+
+
+def build_chat_service(settings: Settings | None = None) -> ChatService:
+    effective = settings or Settings()
+    return ChatService(effective, SQLiteQueryTools(effective))

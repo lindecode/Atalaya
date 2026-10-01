@@ -4,10 +4,11 @@ import argparse
 import subprocess
 import sys
 import tomllib
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Sequence
 
-from bootstrap import build_analyze_service, build_collect_service, build_report_service, build_repository, build_status_service, build_watch_service
+from bootstrap import build_analyze_service, build_chat_service, build_collect_service, build_report_service, build_repository, build_status_service, build_watch_service
 from infrastructure.clock import SystemClock
 
 
@@ -20,6 +21,11 @@ def _parser() -> argparse.ArgumentParser:
     commands.add_parser("report", help="Genera un informe Markdown")
     commands.add_parser("gui", help="Abre la interfaz local Streamlit")
     commands.add_parser("watch", help="Monitoriza archivos en vivo hasta Ctrl+C")
+    chat = commands.add_parser("chat", help="Pregunta al analista local")
+    chat.add_argument("question", nargs="?")
+    commands.add_parser("backup", help="Crea una copia consistente de SQLite")
+    purge = commands.add_parser("purge", help="Aplica la retención local")
+    purge.add_argument("--days", type=int, default=30)
     alert = commands.add_parser("alert", help="Cambia el estado de una alerta").add_subparsers(dest="alert_action", required=True)
     for action in ("confirm", "dismiss"):
         sub = alert.add_parser(action)
@@ -86,6 +92,25 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command == "watch":
         result = build_watch_service().execute()
         print(f"Watch #{result['run_id']}: eventos={result['events']}; alertas={result['alerts']}")
+        return 0
+    if args.command == "chat":
+        question = args.question or input("Pregunta: ")
+        result = build_chat_service().ask(question)
+        print(result["answer"])
+        for call in result["tool_calls"]:
+            print(f"- {call['name']}: ids={call['ids']}")
+        return 0
+    if args.command == "backup":
+        repository = build_repository(); repository.initialize()
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+        destination = repository.settings.backup_dir / f"network_llm_{stamp}.db"
+        print(repository.backup(destination))
+        return 0
+    if args.command == "purge":
+        if args.days < 1: raise SystemExit("--days debe ser positivo")
+        repository = build_repository(); repository.initialize()
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=args.days)).isoformat()
+        print(repository.purge(cutoff))
         return 0
     if args.command == "alert":
         repository = build_repository()

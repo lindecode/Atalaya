@@ -70,7 +70,18 @@ def reports():
 
 def chat():
     st.title("Chat")
-    empty("El chat local con herramientas de solo lectura se habilita en la Fase 5.")
+    prompt = st.chat_input("Pregunta sobre alertas, accesos, conexiones, archivos o persistencia")
+    if prompt:
+        from bootstrap import build_chat_service
+        with st.chat_message("user"): st.write(prompt)
+        try:
+            result = build_chat_service().ask(prompt)
+            with st.chat_message("assistant"):
+                st.write(result["answer"])
+                with st.expander("Herramientas y evidencia"):
+                    st.json(result["tool_calls"])
+        except Exception as exc:
+            st.error(f"Chat local no disponible: {exc}")
 
 
 def state():
@@ -80,4 +91,12 @@ def state():
     st.json(status)
     st.subheader("Ejecuciones")
     table(query.rows("runs", None, 100), key="runs")
-
+    st.subheader("Mantenimiento")
+    if st.button("Crear backup"):
+        from datetime import datetime, timezone
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+        st.success(str(repository.backup(repository.settings.backup_dir / f"network_llm_{stamp}.db")))
+    confirm = st.checkbox("Confirmo que deseo aplicar la retención de 30 días")
+    if st.button("Purgar", disabled=not confirm):
+        from datetime import datetime, timedelta, timezone
+        st.json(repository.purge((datetime.now(timezone.utc) - timedelta(days=30)).isoformat()))

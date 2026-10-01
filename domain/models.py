@@ -78,6 +78,15 @@ class FirewallEvent:
 
 
 @dataclass(frozen=True, slots=True)
+class SysmonEvent:
+    ts: str
+    event_id: int
+    record_id: int
+    process_name: str | None
+    data: dict[str, Any]
+
+
+@dataclass(frozen=True, slots=True)
 class CollectionRequest:
     now: str
     cursor: dict[str, Any] | None = None
@@ -86,7 +95,7 @@ class CollectionRequest:
 @dataclass(frozen=True, slots=True)
 class CollectionResult:
     collector: str
-    item_kind: Literal["connections", "auth_events", "file_events", "firewall_events", "persistence_items"]
+    item_kind: Literal["connections", "auth_events", "file_events", "firewall_events", "persistence_items", "sysmon_events"]
     items: tuple[Any, ...]
     status: CollectionStatus
     warnings: tuple[str, ...] = ()

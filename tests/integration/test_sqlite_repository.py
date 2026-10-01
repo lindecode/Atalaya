@@ -49,3 +49,20 @@ def test_cursor_is_saved_with_collection(tmp_path):
     result = CollectionResult("security", "auth_events", (), "ok", next_cursor={"record_id": 100})
     repository.save_collection(run_id, result, NOW)
     assert repository.get_cursor("security") == {"record_id": 100}
+
+
+def test_backup_and_purge_preserve_confirmed_alert_snapshot(tmp_path):
+    from domain.models import AlertCandidate, EvidenceRef
+    repository = make_repository(tmp_path)
+    alert_id = repository.save_alerts([AlertCandidate(
+        "2020-01-01T00:00:00+00:00", "R13", "critical", "Borrado", "security",
+        {}, (EvidenceRef("auth_event", 99, {"id": 99, "event_id": 1102}),), "old",
+    )])[0]
+    repository.update_alert_status(alert_id, "confirmed", None, NOW)
+    destination = tmp_path / "backup.db"
+    assert repository.backup(destination).exists()
+    repository.purge("2025-01-01T00:00:00+00:00")
+    alerts = repository.get_alerts()
+    assert alerts[0]["id"] == alert_id
+    assert alerts[0]["status"] == "confirmed"
+    assert repository.get_new_alerts() == []
