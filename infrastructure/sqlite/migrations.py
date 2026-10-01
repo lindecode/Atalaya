@@ -1,0 +1,134 @@
+MIGRATIONS: tuple[str, ...] = (
+    """
+    CREATE TABLE runs (
+      id INTEGER PRIMARY KEY,
+      kind TEXT NOT NULL,
+      started_at TEXT NOT NULL,
+      finished_at TEXT,
+      is_admin INTEGER NOT NULL,
+      collectors TEXT,
+      status TEXT,
+      heartbeat_at TEXT
+    );
+    CREATE TABLE connections (
+      id INTEGER PRIMARY KEY,
+      run_id INTEGER REFERENCES runs(id),
+      ts TEXT NOT NULL,
+      source TEXT NOT NULL,
+      proto TEXT,
+      direction TEXT,
+      laddr TEXT, lport INTEGER,
+      raddr TEXT, rport INTEGER,
+      state TEXT,
+      pid INTEGER,
+      process_name TEXT,
+      process_path TEXT,
+      process_user TEXT,
+      signed INTEGER,
+      dedup_key TEXT UNIQUE
+    );
+    CREATE TABLE auth_events (
+      id INTEGER PRIMARY KEY,
+      ts TEXT NOT NULL,
+      channel TEXT NOT NULL,
+      event_id INTEGER NOT NULL,
+      record_id INTEGER NOT NULL,
+      logon_type INTEGER,
+      target_user TEXT,
+      source_ip TEXT,
+      source_host TEXT,
+      process_name TEXT,
+      status_code TEXT,
+      raw_xml TEXT,
+      UNIQUE(channel, record_id)
+    );
+    CREATE TABLE file_events (
+      id INTEGER PRIMARY KEY,
+      ts TEXT NOT NULL,
+      source TEXT NOT NULL,
+      action TEXT NOT NULL,
+      path TEXT NOT NULL,
+      dest_path TEXT,
+      extension TEXT,
+      size INTEGER,
+      sha256 TEXT,
+      process_name TEXT,
+      dedup_key TEXT UNIQUE
+    );
+    CREATE TABLE firewall_events (
+      id INTEGER PRIMARY KEY,
+      ts TEXT NOT NULL,
+      action TEXT,
+      proto TEXT,
+      src_ip TEXT, src_port INTEGER,
+      dst_ip TEXT, dst_port INTEGER,
+      direction TEXT,
+      dedup_key TEXT UNIQUE
+    );
+    CREATE TABLE persistence_items (
+      id INTEGER PRIMARY KEY,
+      first_seen TEXT NOT NULL,
+      last_seen TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      location TEXT NOT NULL,
+      name TEXT NOT NULL DEFAULT '',
+      command TEXT,
+      active INTEGER NOT NULL DEFAULT 1,
+      last_missing_at TEXT,
+      UNIQUE(kind, location, name)
+    );
+    CREATE TABLE baseline (
+      id INTEGER PRIMARY KEY,
+      kind TEXT NOT NULL,
+      value TEXT NOT NULL,
+      first_seen TEXT NOT NULL,
+      last_seen TEXT NOT NULL,
+      times_seen INTEGER NOT NULL DEFAULT 1,
+      approved INTEGER NOT NULL DEFAULT 0,
+      UNIQUE(kind, value)
+    );
+    CREATE TABLE alerts (
+      id INTEGER PRIMARY KEY,
+      ts TEXT NOT NULL,
+      rule_id TEXT NOT NULL,
+      severity TEXT NOT NULL,
+      title TEXT NOT NULL,
+      evidence TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'new',
+      status_note TEXT,
+      status_at TEXT,
+      dedup_key TEXT UNIQUE
+    );
+    CREATE TABLE llm_analyses (
+      id INTEGER PRIMARY KEY,
+      run_id INTEGER REFERENCES runs(id),
+      ts TEXT NOT NULL,
+      model TEXT NOT NULL,
+      alert_ids TEXT NOT NULL,
+      prompt_chars INTEGER,
+      result_json TEXT,
+      error TEXT,
+      duration_ms INTEGER
+    );
+    CREATE TABLE cursors (
+      source TEXT PRIMARY KEY,
+      value_json TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE TABLE alert_evidence (
+      alert_id INTEGER NOT NULL REFERENCES alerts(id) ON DELETE CASCADE,
+      entity_type TEXT NOT NULL,
+      entity_id INTEGER NOT NULL,
+      snapshot_json TEXT NOT NULL,
+      PRIMARY KEY (alert_id, entity_type, entity_id)
+    );
+    CREATE INDEX idx_conn_ts ON connections(ts);
+    CREATE INDEX idx_auth_ts ON auth_events(ts, event_id);
+    CREATE INDEX idx_auth_ip ON auth_events(source_ip);
+    CREATE INDEX idx_file_ts ON file_events(ts);
+    CREATE INDEX idx_fw_src ON firewall_events(src_ip, ts);
+    CREATE INDEX idx_alert_st ON alerts(status, severity);
+    CREATE INDEX idx_evidence_entity ON alert_evidence(entity_type, entity_id);
+    """,
+)
+

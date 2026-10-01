@@ -1,0 +1,10 @@
+data/
+reports/
+*.db
+*.db-wal
+*.db-shm
+__pycache__/
+*.py[cod]
+.pytest_cache/
+pytest-cache-files-*/
+tests/.pytest-tmp/

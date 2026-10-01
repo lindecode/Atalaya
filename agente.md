@@ -62,7 +62,7 @@ Cada recolector devuelve modelos normalizados y un resultado común; nunca abre 
 @dataclass(frozen=True)
 class CollectionResult(Generic[T]):
     items: tuple[T, ...]
-    status: Literal["ok", "skipped", "error"]
+    status: Literal["ok", "partial", "skipped", "error"]
     warnings: tuple[str, ...] = ()
     next_cursor: Cursor | None = None
 
@@ -350,10 +350,12 @@ Tareas:
 6. `application/collect.py` ejecuta los recolectores registrados, persiste cada lote de forma transaccional, avanza el cursor solo tras confirmar la escritura e imprime un resumen: número de filas nuevas por tipo, recolectores saltados y motivo.
 
 **Criterios de aceptación:**
-- [ ] `python network-llm/main.py collect` funciona **sin** administrador: salta el registro de Seguridad, avisa y termina con estado `partial`.
-- [ ] Con administrador también lee los eventos de autenticación.
-- [ ] Dos ejecuciones seguidas no duplican eventos; las instantáneas de conexión permanecen distinguibles por ejecución.
-- [ ] `status` muestra el tamaño de la BD, el número de filas por tabla y la fecha de la última ejecución.
+- [x] `python network-llm/main.py collect` funciona **sin** administrador: salta el registro de Seguridad, avisa y termina con estado `partial`.
+- [ ] Con administrador también lee los eventos de autenticación. **Pendiente de prueba manual en una terminal elevada.** El mapeo XML se cubre con un fixture sintético.
+- [x] Dos ejecuciones seguidas no duplican eventos; las instantáneas de conexión permanecen distinguibles por ejecución.
+- [x] `status` muestra el tamaño de la BD, el número de filas por tabla y la fecha de la última ejecución.
+
+**Estado (2026-10-01):** implementación y pruebas automatizadas completas (`5 passed`); no se inicia la Fase 2 hasta realizar la prueba manual elevada indicada arriba.
 
 ### Fase 2 — Reglas, baseline y LLM
 

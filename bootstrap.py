@@ -1,0 +1,36 @@
+from __future__ import annotations
+
+from application.collect import CollectService
+from application.status import StatusService
+from infrastructure.clock import SystemClock
+from infrastructure.sqlite.repositories import SQLiteRepository
+from infrastructure.windows.common import WindowsSystemInfo
+from infrastructure.windows.connections import PsutilConnectionCollector
+from infrastructure.windows.event_log import RDP_CHANNEL, SECURITY_CHANNEL, WindowsEventLogCollector
+from infrastructure.windows.files import RecentFileCollector
+from infrastructure.windows.persistence import WindowsPersistenceCollector
+from settings import Settings
+
+
+def build_repository(settings: Settings | None = None) -> SQLiteRepository:
+    return SQLiteRepository(settings or Settings())
+
+
+def build_collect_service(settings: Settings | None = None) -> CollectService:
+    effective = settings or Settings()
+    repository = build_repository(effective)
+    collectors = (
+        PsutilConnectionCollector(),
+        WindowsEventLogCollector(
+            "security_events", SECURITY_CHANNEL,
+            (4624, 4625, 4648, 4672, 4698, 4720, 4732, 1102), requires_admin=True,
+        ),
+        WindowsEventLogCollector("rdp_events", RDP_CHANNEL, (1149,)),
+        RecentFileCollector(effective),
+        WindowsPersistenceCollector(effective),
+    )
+    return CollectService(repository, collectors, SystemClock(), WindowsSystemInfo())
+
+
+def build_status_service(settings: Settings | None = None) -> StatusService:
+    return StatusService(build_repository(settings))
