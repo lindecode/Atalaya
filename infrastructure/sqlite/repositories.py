@@ -7,7 +7,7 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
-from domain.models import CollectionResult
+from domain.models import AlertCandidate, CollectionResult, EvidenceView
 from infrastructure.sqlite.connection import connect
 from infrastructure.sqlite.migrations import MIGRATIONS
 from settings import Settings
@@ -158,3 +158,136 @@ class SQLiteRepository:
                 if row["collectors"]:
                     result["last_run"]["collectors"] = json.loads(row["collectors"])
         return result
+
+    @staticmethod
+    def _rows(db: sqlite3.Connection, sql: str, params: tuple[Any, ...]) -> tuple[dict[str, Any], ...]:
+        return tuple(dict(row) for row in db.execute(sql, params).fetchall())
+
+    def load_evidence(self, since: str) -> EvidenceView:
+        with self._connect(readonly=True) as db:
+            baseline = frozenset(
+                (str(row["kind"]), str(row["value"]))
+                for row in db.execute("SELECT kind, value FROM baseline WHERE approved=1")
+            )
+            return EvidenceView(
+                auth_events=self._rows(db, "SELECT * FROM auth_events WHERE ts>=? ORDER BY ts", (since,)),
+                connections=self._rows(db, "SELECT * FROM connections WHERE ts>=? ORDER BY ts", (since,)),
+                file_events=self._rows(db, "SELECT * FROM file_events WHERE ts>=? ORDER BY ts", (since,)),
+                firewall_events=self._rows(db, "SELECT * FROM firewall_events WHERE ts>=? ORDER BY ts", (since,)),
+                persistence_items=self._rows(db, "SELECT * FROM persistence_items WHERE first_seen>=? ORDER BY first_seen", (since,)),
+                baseline=baseline,
+            )
+
+    def save_alerts(self, candidates: list[AlertCandidate]) -> list[int]:
+        inserted_ids: list[int] = []
+        with self._connect() as db:
+            for alert in candidates:
+                dedup = hashlib.sha256(f"{alert.rule_id}|{alert.entity}|{alert.window_key}".encode("utf-8")).hexdigest()
+                cursor = db.execute(
+                    """INSERT OR IGNORE INTO alerts(ts, rule_id, severity, title, evidence, dedup_key)
+                    VALUES (?, ?, ?, ?, ?, ?)""",
+                    (alert.ts, alert.rule_id, alert.severity, alert.title, json.dumps(alert.summary, ensure_ascii=False), dedup),
+                )
+                if cursor.rowcount <= 0:
+                    continue
+                alert_id = int(cursor.lastrowid)
+                inserted_ids.append(alert_id)
+                for evidence in alert.evidence:
+                    db.execute(
+                        """INSERT INTO alert_evidence(alert_id, entity_type, entity_id, snapshot_json)
+                        VALUES (?, ?, ?, ?)""",
+                        (alert_id, evidence.entity_type, evidence.entity_id, json.dumps(evidence.snapshot, ensure_ascii=False)),
+                    )
+        return inserted_ids
+
+    def get_new_alerts(self, limit: int = 500) -> list[dict[str, Any]]:
+        with self._connect(readonly=True) as db:
+            alerts = [dict(row) for row in db.execute(
+                "SELECT * FROM alerts WHERE status='new' ORDER BY CASE severity WHEN 'critical' THEN 4 WHEN 'high' THEN 3 WHEN 'medium' THEN 2 ELSE 1 END DESC, ts LIMIT ?",
+                (limit,),
+            )]
+            for alert in alerts:
+                alert["evidence"] = json.loads(alert["evidence"])
+                alert["examples"] = [json.loads(row[0]) for row in db.execute(
+                    "SELECT snapshot_json FROM alert_evidence WHERE alert_id=? LIMIT 10", (alert["id"],)
+                )]
+        return alerts
+
+    def save_llm_analysis(self, run_id: int, ts: str, model: str, alert_ids: list[int], prompt_chars: int,
+                          result: dict[str, Any] | None, error: str | None, duration_ms: int) -> None:
+        with self._connect() as db:
+            db.execute(
+                """INSERT INTO llm_analyses(run_id, ts, model, alert_ids, prompt_chars, result_json, error, duration_ms)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                (run_id, ts, model, json.dumps(alert_ids), prompt_chars,
+                 json.dumps(result, ensure_ascii=False) if result else None, error, duration_ms),
+            )
+            if result and not error:
+                db.executemany("UPDATE alerts SET status='analyzed', status_at=? WHERE id=? AND status='new'", ((ts, alert_id) for alert_id in alert_ids))
+
+    def update_alert_status(self, alert_id: int, status: str, note: str | None, ts: str) -> None:
+        if status not in {"new", "analyzed", "dismissed", "confirmed"}:
+            raise ValueError("Estado de alerta inválido")
+        with self._connect() as db:
+            cursor = db.execute("UPDATE alerts SET status=?, status_note=?, status_at=? WHERE id=?", (status, note, ts, alert_id))
+            if cursor.rowcount != 1:
+                raise KeyError(f"Alerta inexistente: {alert_id}")
+
+    def approve_baseline(self, kind: str, value: str, ts: str) -> None:
+        with self._connect() as db:
+            db.execute(
+                """INSERT INTO baseline(kind, value, first_seen, last_seen, times_seen, approved)
+                VALUES (?, ?, ?, ?, 1, 1)
+                ON CONFLICT(kind, value) DO UPDATE SET last_seen=excluded.last_seen, approved=1""",
+                (kind, value, ts, ts),
+            )
+
+    def observe_baseline(self, view: EvidenceView, ts: str) -> None:
+        observations: set[tuple[str, str]] = set()
+        for row in view.connections:
+            process = str(row.get("process_name") or "")
+            if process:
+                observations.add(("process_net", process))
+            if row.get("direction") == "listen":
+                observations.add(("listen_port", f"{process or '?'}|{row.get('lport')}"))
+            if row.get("raddr"):
+                observations.add(("remote_ip", str(row["raddr"])))
+        for row in view.auth_events:
+            if row.get("source_ip") and row.get("event_id") == 4624:
+                observations.add(("logon_source", str(row["source_ip"])))
+        with self._connect() as db:
+            for kind, value in observations:
+                db.execute(
+                    """INSERT INTO baseline(kind, value, first_seen, last_seen, times_seen, approved)
+                    VALUES (?, ?, ?, ?, 1, 0)
+                    ON CONFLICT(kind, value) DO UPDATE SET last_seen=excluded.last_seen, times_seen=baseline.times_seen+1""",
+                    (kind, value, ts, ts),
+                )
+
+    def latest_analysis(self) -> dict[str, Any] | None:
+        with self._connect(readonly=True) as db:
+            row = db.execute("SELECT * FROM llm_analyses ORDER BY id DESC LIMIT 1").fetchone()
+            if not row:
+                return None
+            value = dict(row)
+            value["alert_ids"] = json.loads(value["alert_ids"])
+            value["result_json"] = json.loads(value["result_json"]) if value["result_json"] else None
+            return value
+
+    def get_alerts(self, limit: int = 1000) -> list[dict[str, Any]]:
+        with self._connect(readonly=True) as db:
+            alerts = [dict(row) for row in db.execute(
+                "SELECT * FROM alerts ORDER BY CASE severity WHEN 'critical' THEN 4 WHEN 'high' THEN 3 WHEN 'medium' THEN 2 ELSE 1 END DESC, ts DESC LIMIT ?", (limit,)
+            )]
+        for alert in alerts:
+            alert["evidence"] = json.loads(alert["evidence"])
+        return alerts
+
+    def latest_run(self, kind: str) -> dict[str, Any] | None:
+        with self._connect(readonly=True) as db:
+            row = db.execute("SELECT * FROM runs WHERE kind=? ORDER BY id DESC LIMIT 1", (kind,)).fetchone()
+        if not row:
+            return None
+        value = dict(row)
+        value["collectors"] = json.loads(value["collectors"]) if value["collectors"] else {}
+        return value

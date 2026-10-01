@@ -78,3 +78,32 @@ class CollectionResult:
     status: CollectionStatus
     warnings: tuple[str, ...] = ()
     next_cursor: dict[str, Any] | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class EvidenceRef:
+    entity_type: str
+    entity_id: int
+    snapshot: dict[str, Any]
+
+
+@dataclass(frozen=True, slots=True)
+class AlertCandidate:
+    ts: str
+    rule_id: str
+    severity: Literal["low", "medium", "high", "critical"]
+    title: str
+    entity: str
+    summary: dict[str, Any]
+    evidence: tuple[EvidenceRef, ...]
+    window_key: str
+
+
+@dataclass(frozen=True, slots=True)
+class EvidenceView:
+    auth_events: tuple[dict[str, Any], ...] = ()
+    connections: tuple[dict[str, Any], ...] = ()
+    file_events: tuple[dict[str, Any], ...] = ()
+    firewall_events: tuple[dict[str, Any], ...] = ()
+    persistence_items: tuple[dict[str, Any], ...] = ()
+    baseline: frozenset[tuple[str, str]] = frozenset()

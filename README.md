@@ -29,6 +29,22 @@ Desde la raíz del repositorio:
 .\.venv\Scripts\python.exe network-llm\main.py status
 ```
 
+## Análisis e informes (Fase 2)
+
+```powershell
+.\.venv\Scripts\python.exe network-llm\main.py analyze
+.\.venv\Scripts\python.exe network-llm\main.py report
+.\.venv\Scripts\python.exe network-llm\main.py alert confirm 12 --note "Validado manualmente"
+.\.venv\Scripts\python.exe network-llm\main.py alert dismiss 13
+.\.venv\Scripts\python.exe network-llm\main.py baseline approve remote_ip 192.0.2.10
+```
+
+`analyze` siempre ejecuta R01–R14. Después intenta explicar las alertas con
+Ollama en loopback. Si Ollama o el modelo no están disponibles, registra el
+error y conserva las alertas deterministas. Los datos se delimitan y recortan
+antes de entrar al prompt; nombres de archivo y demás evidencia nunca se
+interpretan como instrucciones.
+
 Los datos se guardan en `network-llm/data/network_llm.db`. Los eventos de
 Security requieren ejecutar la terminal como administrador. El canal operacional
 de RDP se intenta de forma independiente y se omite con un aviso si no está

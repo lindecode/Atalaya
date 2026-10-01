@@ -4,7 +4,8 @@ import argparse
 import sys
 from typing import Sequence
 
-from bootstrap import build_collect_service, build_status_service
+from bootstrap import build_analyze_service, build_collect_service, build_report_service, build_repository, build_status_service
+from infrastructure.clock import SystemClock
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -12,6 +13,17 @@ def _parser() -> argparse.ArgumentParser:
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("collect", help="Recolecta una instantánea local")
     commands.add_parser("status", help="Muestra el estado y tamaño de la base de datos")
+    commands.add_parser("analyze", help="Ejecuta reglas y correlación local opcional")
+    commands.add_parser("report", help="Genera un informe Markdown")
+    alert = commands.add_parser("alert", help="Cambia el estado de una alerta").add_subparsers(dest="alert_action", required=True)
+    for action in ("confirm", "dismiss"):
+        sub = alert.add_parser(action)
+        sub.add_argument("id", type=int)
+        sub.add_argument("--note")
+    baseline = commands.add_parser("baseline", help="Administra la baseline").add_subparsers(dest="baseline_action", required=True)
+    approve = baseline.add_parser("approve")
+    approve.add_argument("kind")
+    approve.add_argument("value")
     return parser
 
 
@@ -46,5 +58,27 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
     if args.command == "status":
         _print_status(build_status_service().execute())
+        return 0
+    if args.command == "analyze":
+        result = build_analyze_service().execute()
+        print(f"Run {result['run_id']}: {result['status']}; alertas nuevas={result['new_alerts']}; enviadas al LLM={result['llm_alerts']}")
+        if result["llm_error"]:
+            print(f"Aviso: LLM no disponible: {result['llm_error']}")
+        return 0
+    if args.command == "report":
+        print(build_report_service().execute())
+        return 0
+    if args.command == "alert":
+        repository = build_repository()
+        repository.initialize()
+        status = "confirmed" if args.alert_action == "confirm" else "dismissed"
+        repository.update_alert_status(args.id, status, args.note, SystemClock().now_iso())
+        print(f"Alerta {args.id}: {status}")
+        return 0
+    if args.command == "baseline":
+        repository = build_repository()
+        repository.initialize()
+        repository.approve_baseline(args.kind, args.value, SystemClock().now_iso())
+        print(f"Baseline aprobada: {args.kind}={args.value}")
         return 0
     raise AssertionError(args.command)

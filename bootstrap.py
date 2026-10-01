@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 from application.collect import CollectService
+from application.analyze import AnalyzeService
+from application.reports import ReportService
 from application.status import StatusService
 from infrastructure.clock import SystemClock
+from infrastructure.ollama.analyzer import OllamaAnalyzer
 from infrastructure.sqlite.repositories import SQLiteRepository
 from infrastructure.windows.common import WindowsSystemInfo
 from infrastructure.windows.connections import PsutilConnectionCollector
@@ -34,3 +37,14 @@ def build_collect_service(settings: Settings | None = None) -> CollectService:
 
 def build_status_service(settings: Settings | None = None) -> StatusService:
     return StatusService(build_repository(settings))
+
+
+def build_analyze_service(settings: Settings | None = None) -> AnalyzeService:
+    effective = settings or Settings()
+    return AnalyzeService(build_repository(effective), OllamaAnalyzer(effective), SystemClock(),
+                          WindowsSystemInfo(), effective)
+
+
+def build_report_service(settings: Settings | None = None) -> ReportService:
+    effective = settings or Settings()
+    return ReportService(build_repository(effective), SystemClock(), effective)

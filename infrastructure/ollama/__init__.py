@@ -1,0 +1,2 @@
+"""Local Ollama adapter."""
+
