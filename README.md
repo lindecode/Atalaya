@@ -4,6 +4,9 @@ Monitor local y de solo lectura para Windows 11. La Fase 1 recolecta conexiones,
 eventos de autenticación, archivos recientes y mecanismos de persistencia en una
 base SQLite local. No bloquea procesos, no modifica el firewall y no envía datos.
 
+Para preparación de Windows, ejecución elevada, Sysmon, firewall, Task Scheduler,
+backup y validaciones manuales consulte [README.man.md](README.man.md).
+
 ## Requisitos
 
 - Windows 11 y Python 3.13 en el `.venv` de la raíz del repositorio.
