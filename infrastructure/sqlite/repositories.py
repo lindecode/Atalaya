@@ -104,6 +104,16 @@ class SQLiteRepository:
                                                 "size", "sha256", "process_name", "dedup_key")),
                     )
                     inserted += max(cursor.rowcount, 0)
+            elif result.item_kind == "firewall_events":
+                for item in result.items:
+                    v = asdict(item)
+                    cursor = db.execute(
+                        """INSERT OR IGNORE INTO firewall_events
+                        (ts, action, proto, src_ip, src_port, dst_ip, dst_port, direction, dedup_key)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                        tuple(v[key] for key in ("ts", "action", "proto", "src_ip", "src_port", "dst_ip", "dst_port", "direction", "dedup_key")),
+                    )
+                    inserted += max(cursor.rowcount, 0)
             elif result.item_kind == "persistence_items":
                 db.execute("UPDATE persistence_items SET active=0, last_missing_at=? WHERE active=1", (now,))
                 for item in result.items:

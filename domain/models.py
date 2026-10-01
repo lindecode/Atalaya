@@ -65,6 +65,19 @@ class PersistenceItem:
 
 
 @dataclass(frozen=True, slots=True)
+class FirewallEvent:
+    ts: str
+    action: str | None
+    proto: str | None
+    src_ip: str | None
+    src_port: int | None
+    dst_ip: str | None
+    dst_port: int | None
+    direction: str | None
+    dedup_key: str
+
+
+@dataclass(frozen=True, slots=True)
 class CollectionRequest:
     now: str
     cursor: dict[str, Any] | None = None
@@ -73,7 +86,7 @@ class CollectionRequest:
 @dataclass(frozen=True, slots=True)
 class CollectionResult:
     collector: str
-    item_kind: Literal["connections", "auth_events", "file_events", "persistence_items"]
+    item_kind: Literal["connections", "auth_events", "file_events", "firewall_events", "persistence_items"]
     items: tuple[Any, ...]
     status: CollectionStatus
     warnings: tuple[str, ...] = ()

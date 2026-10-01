@@ -55,6 +55,26 @@ Abra `http://127.0.0.1:8501`. Streamlit escucha exclusivamente en loopback,
 desactiva telemetría y no usa HTML inseguro para representar evidencia. Las
 tablas pueden filtrarse, ordenarse y descargarse localmente como CSV.
 
+## Firewall y monitor en vivo (Fase 4)
+
+Active manualmente el registro de paquetes descartados desde PowerShell como
+administrador:
+
+```powershell
+Set-NetFirewallProfile -All -LogBlocked True -LogAllowed False -LogMaxSizeKilobytes 16384
+```
+
+Después use `collect` para leer incrementalmente `pfirewall.log`. Para observar
+creaciones, modificaciones, borrados y movimientos en vivo:
+
+```powershell
+.\.venv\Scripts\python.exe network-llm\main.py watch
+```
+
+Finalice con Ctrl+C; el lote pendiente se guarda antes de cerrar. Para iniciarlo
+con la sesión puede crear manualmente una tarea programada que ejecute ese mismo
+comando. La aplicación no instala ni modifica tareas por sí sola.
+
 Los datos se guardan en `network-llm/data/network_llm.db`. Los eventos de
 Security requieren ejecutar la terminal como administrador. El canal operacional
 de RDP se intenta de forma independiente y se omite con un aviso si no está

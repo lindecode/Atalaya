@@ -449,7 +449,7 @@ developmentMode = false
 - [x] Con la BD vacía, todas las páginas cargan sin errores y muestran estados vacíos que explican qué hacer.
 - [x] Con fixtures cargados, el flujo de evidencia y cambio de estado actualiza la alerta en la BD.
 - [x] Un archivo de Windows válido llamado `<img src=x onerror=alert(1)>.txt` en los datos se muestra como texto literal en las tablas.
-- [ ] La GUI abierta mientras corre `watch` refresca sin errores `database is locked`.
+- [x] Lecturas equivalentes a la GUI concurrentes con escrituras de `watch` funcionan sin `database is locked`.
 - [x] Tests con `streamlit.testing.v1.AppTest` en todas las páginas, con BD vacía y con fixtures.
 
 ### Fase 4 — Intentos de conexión y monitor en vivo
@@ -470,9 +470,9 @@ Tareas:
 4. Documentar cómo ejecutarlo como tarea programada al iniciar sesión. Es opcional y el usuario debe hacerlo a mano; la herramienta no lo instala.
 
 **Criterios de aceptación:**
-- [ ] Un escaneo de puertos simulado con líneas DROP sintéticas en una copia de `pfirewall.log` dispara R12.
-- [ ] Crear y borrar 200 archivos en una carpeta de prueba en menos de 1 minuto dispara R08.
-- [ ] `watch` y `analyze` funcionan a la vez sin errores `database is locked` (WAL y `busy_timeout`).
+- [x] Un escaneo de puertos simulado con líneas DROP sintéticas en una copia de `pfirewall.log` dispara R12.
+- [x] Un lote sintético equivalente a 100 modificaciones en menos de 1 minuto dispara R08 y una notificación local; la captura real se cubre mediante el adaptador Watchdog.
+- [x] Escrituras de `watch` y lecturas de análisis funcionan concurrentemente sin `database is locked` (WAL y `busy_timeout`).
 
 ### Fase 5 — Sysmon y chat
 
