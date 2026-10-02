@@ -45,7 +45,8 @@ class FirewallLogCollector:
                     continue
                 row = dict(zip(fields, values))
                 try:
-                    timestamp = datetime.fromisoformat(f"{row['date']}T{row['time']}").replace(tzinfo=timezone.utc).isoformat()
+                    # pfirewall.log writes local time; a naive datetime's astimezone() reads it as local
+                    timestamp = datetime.fromisoformat(f"{row['date']}T{row['time']}").astimezone(timezone.utc).isoformat()
                 except (KeyError, ValueError):
                     warnings.append("Fecha de firewall inválida")
                     continue

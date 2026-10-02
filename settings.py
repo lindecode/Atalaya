@@ -38,6 +38,7 @@ class Settings:
     brute_force_minutes: int = 5
     mass_file_count: int = 100
     mass_file_minutes: int = 1
+    mass_file_exclude_dirs: tuple[Path, ...] = field(default_factory=lambda: (Path(os.environ.get("TEMP", Path.home() / "AppData/Local/Temp")).resolve(),))
     anomalous_extension_count: int = 20
     port_scan_count: int = 20
     suspicious_ports: tuple[int, ...] = (4444, 1337, 31337, 6667, 5555, 9001)

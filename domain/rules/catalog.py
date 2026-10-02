@@ -6,7 +6,7 @@ from pathlib import PureWindowsPath
 from typing import Callable
 
 from domain.models import AlertCandidate, EvidenceView
-from domain.rules.base import candidate, dt, has_window
+from domain.rules.base import INVALID_IPS, candidate, dt, has_distinct_window, has_window
 
 
 Rule = Callable[[EvidenceView, object], list[AlertCandidate]]
@@ -66,7 +66,8 @@ def r03(view, cfg):
 
 def r04(view, cfg):
     return [candidate("R04", "medium", "Inicio de sesión de red inesperado", str(r.get("source_ip")), [r], "auth_event", {"user": r.get("target_user")}, r["ts"])
-            for r in view.auth_events if r["event_id"] == 4624 and r.get("logon_type") == 3 and not str(r.get("target_user") or "").endswith("$") and ("logon_source", str(r.get("source_ip"))) not in view.baseline]
+            for r in view.auth_events if r["event_id"] == 4624 and r.get("logon_type") == 3 and str(r.get("source_ip") or "") not in INVALID_IPS
+            and not str(r.get("target_user") or "").endswith("$") and ("logon_source", str(r.get("source_ip"))) not in view.baseline]
 
 
 def r05(view, cfg):
@@ -90,21 +91,51 @@ def r07(view, cfg):
             for r in view.connections if r.get("direction") == "outbound" and r.get("rport") in cfg.suspicious_ports]
 
 
+def _windows_prefix(path) -> str:
+    return str(path).replace("/", "\\").rstrip("\\").casefold() + "\\"
+
+
 def r08(view, cfg):
-    rows = [r for r in view.file_events if r.get("action") in {"modified", "deleted", "moved"}]
+    # %TEMP% churns constantly (browsers, installers): counting it would make R08 cry wolf
+    excluded = tuple(_windows_prefix(p) for p in getattr(cfg, "mass_file_exclude_dirs", ()))
+    rows = [r for r in view.file_events if r.get("action") in {"modified", "deleted", "moved"}
+            and not _windows_prefix(r["path"]).startswith(excluded)]
     window = has_window(rows, cfg.mass_file_count, cfg.mass_file_minutes)
     return [candidate("R08", "critical", "Modificación masiva de archivos", "watch_dirs", window, "file_event", {"count": len(window)}, window[-1]["ts"], dt(window[0]["ts"]).strftime("%Y%m%d%H%M"))] if window else []
 
 
+RANSOM_KEYWORDS = ("decrypt", "ransom", "restore_files", "recover_files", "how_to_back", "your_files", "files_encrypted")
+NOTE_EXTENSIONS = {".txt", ".html", ".htm", ".hta", ".rtf", ".url"}
+# Downloads and editors rename these on completion; that is not an extension change by malware
+TRANSIENT_EXTENSIONS = {".tmp", ".crdownload", ".part", ".partial", ".download", ".swp", ".~tmp"}
+NOTE_SPREAD_FOLDERS = 3
+
+
 def r09(view, cfg):
     alerts = []
-    ransom = [r for r in view.file_events if "decrypt" in PureWindowsPath(r["path"]).name.casefold() or "readme" in PureWindowsPath(r["path"]).name.casefold()]
-    if ransom:
-        alerts.append(candidate("R09", "high", "Posible nota de rescate", "ransom_note", ransom, "file_event", {"count": len(ransom)}, ransom[-1]["ts"]))
-    extensions = _group([r for r in view.file_events if r.get("action") == "moved"], "extension")
-    for ext, rows in extensions.items():
-        if len(rows) >= cfg.anomalous_extension_count:
-            alerts.append(candidate("R09", "high", "Extensión anómala masiva", ext, rows, "file_event", {"extension": ext, "count": len(rows)}, rows[-1]["ts"]))
+    notes = [r for r in view.file_events if r.get("action") in {"created", "observed_new"}
+             and PureWindowsPath(r["path"]).suffix.casefold() in NOTE_EXTENSIONS]
+    keyword = [r for r in notes if any(word in PureWindowsPath(r["path"]).stem.casefold() for word in RANSOM_KEYWORDS)]
+    if keyword:
+        alerts.append(candidate("R09", "high", "Posible nota de rescate", "ransom_note", keyword, "file_event", {"count": len(keyword)}, keyword[-1]["ts"]))
+    # Ransomware drops the same note (often a plain README.txt) in every folder it encrypts
+    by_name = defaultdict(list)
+    for r in notes:
+        by_name[PureWindowsPath(r["path"]).name.casefold()].append(r)
+    for name, rows in by_name.items():
+        if len({str(PureWindowsPath(r["path"]).parent).casefold() for r in rows}) >= NOTE_SPREAD_FOLDERS:
+            alerts.append(candidate("R09", "high", "Misma nota en varias carpetas", f"spread:{name}", rows, "file_event", {"name": name, "folders": len(rows)}, rows[-1]["ts"]))
+    renames = defaultdict(list)
+    for r in view.file_events:
+        if r.get("action") != "moved" or not r.get("dest_path"):
+            continue
+        source, target = PureWindowsPath(r["path"]).suffix.casefold(), PureWindowsPath(r["dest_path"]).suffix.casefold()
+        if target and target != source and source not in TRANSIENT_EXTENSIONS:
+            renames[target].append(r)
+    for ext, rows in renames.items():
+        window = has_window(rows, cfg.anomalous_extension_count, 5)
+        if window:
+            alerts.append(candidate("R09", "high", "Extensión anómala masiva", ext, window, "file_event", {"extension": ext, "count": len(window)}, window[-1]["ts"], dt(window[0]["ts"]).strftime("%Y%m%d%H%M")))
     return alerts
 
 
@@ -122,8 +153,8 @@ def r11(view, cfg):
 def r12(view, cfg):
     alerts = []
     for ip, rows in _group([r for r in view.firewall_events if r.get("action") == "DROP"], "src_ip").items():
-        window = has_window(rows, cfg.port_scan_count, 2)
-        if window and len({r.get("dst_port") for r in window}) >= cfg.port_scan_count:
+        window = has_distinct_window(rows, "dst_port", cfg.port_scan_count, 2)
+        if window:
             alerts.append(candidate("R12", "high", "Escaneo de puertos", ip, window, "firewall_event", {"ports": len({r.get('dst_port') for r in window})}, window[-1]["ts"]))
     return alerts
 

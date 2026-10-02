@@ -15,7 +15,9 @@ def _event(action: str, path: str, dest_path: str | None = None) -> FileEvent:
         try: size = target.stat().st_size
         except OSError: pass
     key = hashlib.sha256(f"{action}|{path}|{dest_path}|{now}".encode("utf-8")).hexdigest()
-    return FileEvent(now, "watchdog", action, path, dest_path, target.suffix.casefold() or None, size, dedup_key=key)
+    # a rename's interesting extension is the new one (photo.jpg -> photo.jpg.locked)
+    extension = Path(dest_path).suffix if action == "moved" and dest_path else target.suffix
+    return FileEvent(now, "watchdog", action, path, dest_path, extension.casefold() or None, size, dedup_key=key)
 
 
 class QueueingEventHandler:
