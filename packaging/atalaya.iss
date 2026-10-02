@@ -89,11 +89,8 @@ Name: "{userstartup}\{#AppName}"; Filename: "{app}\runtime\pythonw.exe"; Paramet
 [Run]
 Filename: "{app}\runtime\pythonw.exe"; Parameters: "main.py tray"; WorkingDir: "{app}"; Description: "Abrir Atalaya (vaya a Herramientas > Primeros pasos)"; Flags: postinstall nowait skipifsilent
 
-[UninstallRun]
-; Detiene Atalaya, ofrece revertir los permisos de administrador y pregunta por los datos del usuario
-Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\start\lib\desinstalar.ps1"" -DesdeDesinstalador"; WorkingDir: "{app}\start"; Flags: waituntilterminated; RunOnceId: "AtalayaCleanup"; Check: not UninstallSilent
-; Desinstalacion silenciosa (despliegues): solo detiene Atalaya; datos y permisos se conservan
-Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\start\lib\desinstalar.ps1"" -DesdeDesinstalador -Silencioso"; WorkingDir: "{app}\start"; Flags: waituntilterminated runhidden; RunOnceId: "AtalayaCleanupSilent"; Check: UninstallSilent
+; La limpieza al desinstalar esta en [Code] (CurUninstallStepChanged) y no en [UninstallRun]: alli los
+; Check se evaluan al INSTALAR, y hace falta saber al desinstalar si es silenciosa o interactiva.
 
 [Code]
 var
@@ -141,5 +138,23 @@ begin
     end
     else if OllamaPage.SelectedValueIndex = 1 then
       ShellExec('open', '{#OllamaURL}', '', '', SW_SHOWNORMAL, ewNoWait, ResultCode);
+  end;
+end;
+
+{ Antes de borrar archivos: detiene la bandeja, el panel y el monitor. En modo interactivo ademas ofrece
+  revertir los permisos de administrador y pregunta por los datos; en silencioso conserva ambos. }
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+var
+  ResultCode: Integer;
+  Params: String;
+begin
+  if CurUninstallStep = usUninstall then
+  begin
+    Params := '-NoProfile -ExecutionPolicy Bypass -File "' + ExpandConstant('{app}\start\lib\desinstalar.ps1') +
+              '" -DesdeDesinstalador';
+    if UninstallSilent() then
+      Exec('powershell.exe', Params + ' -Silencioso', ExpandConstant('{app}\start'), SW_HIDE, ewWaitUntilTerminated, ResultCode)
+    else
+      Exec('powershell.exe', Params, ExpandConstant('{app}\start'), SW_SHOW, ewWaitUntilTerminated, ResultCode);
   end;
 end;
