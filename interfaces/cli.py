@@ -31,10 +31,12 @@ def _parser() -> argparse.ArgumentParser:
         sub = alert.add_parser(action)
         sub.add_argument("id", type=int)
         sub.add_argument("--note")
+    alert.add_parser("approve", help="Aprueba como normal la entidad de la alerta (R03, R04, R05, R10)").add_argument("id", type=int)
     baseline = commands.add_parser("baseline", help="Administra la baseline").add_subparsers(dest="baseline_action", required=True)
     approve = baseline.add_parser("approve")
     approve.add_argument("kind")
     approve.add_argument("value")
+    baseline.add_parser("learn", help="Aprueba todo lo observado hasta ahora y descarta las alertas que cubre")
     return parser
 
 
@@ -73,6 +75,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command == "analyze":
         result = build_analyze_service().execute()
         print(f"Run {result['run_id']}: {result['status']}; alertas nuevas={result['new_alerts']}; enviadas al LLM={result['llm_alerts']}")
+        if result["learning"]:
+            print("Baseline en aprendizaje: lo observado en esta ejecución se aprueba como normal.")
         if result["llm_error"]:
             print(f"Aviso: LLM no disponible: {result['llm_error']}")
         return 0
@@ -115,6 +119,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command == "alert":
         repository = build_repository()
         repository.initialize()
+        if args.alert_action == "approve":
+            try:
+                kind, value = repository.approve_alert(args.id, SystemClock().now_iso())
+            except (KeyError, ValueError) as exc:
+                raise SystemExit(str(exc))
+            print(f"Baseline aprobada: {kind}={value}")
+            return 0
         status = "confirmed" if args.alert_action == "confirm" else "dismissed"
         repository.update_alert_status(args.id, status, args.note, SystemClock().now_iso())
         print(f"Alerta {args.id}: {status}")
@@ -122,6 +133,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command == "baseline":
         repository = build_repository()
         repository.initialize()
+        if args.baseline_action == "learn":
+            now = SystemClock().now_iso()
+            counts = repository.approve_all_observed(now)
+            dismissed = repository.dismiss_baselined("Baseline aprendida", now)
+            print(f"Baseline aprobada: {counts}; alertas descartadas: {dismissed}")
+            return 0
         repository.approve_baseline(args.kind, args.value, SystemClock().now_iso())
         print(f"Baseline aprobada: {args.kind}={args.value}")
         return 0

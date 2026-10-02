@@ -27,8 +27,14 @@ class AnalyzeService:
         run_id = self.repository.start_run("analyze", started, self.system_info.is_admin())
         since = (datetime.fromisoformat(started) - timedelta(hours=self.settings.rule_window_hours)).isoformat()
         view = self.repository.load_evidence(since)
+        # The first `baseline_runs` analyses learn what this machine looks like before the baseline rules fire
+        learning = self.repository.count_runs("analyze") <= self.settings.baseline_runs
+        if learning:
+            self.repository.observe_baseline(view, started, approve=True)
+            view = self.repository.load_evidence(since)
         candidates = [candidate for rule in self.rules for candidate in rule(view, self.settings)]
-        self.repository.observe_baseline(view, self.clock.now_iso())
+        if not learning:
+            self.repository.observe_baseline(view, self.clock.now_iso())
         inserted = self.repository.save_alerts(candidates)
         alerts = self.repository.get_new_alerts(limit=5000)
         error = None
@@ -65,8 +71,8 @@ class AnalyzeService:
                                               [int(a["id"]) for a in alerts], prompt_chars, result, error, duration_ms)
         status = "partial" if error else "ok"
         self.repository.finish_run(run_id, self.clock.now_iso(), status, {
-            "rules": {"status": "ok", "candidates": len(candidates), "inserted": len(inserted)},
+            "rules": {"status": "ok", "candidates": len(candidates), "inserted": len(inserted), "learning_baseline": learning},
             "llm": {"status": "error" if error else "ok", "error": error},
         })
-        return {"run_id": run_id, "status": status, "candidates": len(candidates),
+        return {"run_id": run_id, "status": status, "candidates": len(candidates), "learning": learning,
                 "new_alerts": len(inserted), "llm_alerts": len(alerts), "llm_error": error}

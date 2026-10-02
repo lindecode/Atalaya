@@ -48,6 +48,26 @@ error y conserva las alertas deterministas. Los datos se delimitan y recortan
 antes de entrar al prompt; nombres de archivo y demás evidencia nunca se
 interpretan como instrucciones.
 
+### Baseline: qué es "normal" en este equipo
+
+Las primeras `baseline_runs` (5) ejecuciones de `analyze` **aprenden**: aprueban
+como normal los puertos en escucha, los orígenes de inicio de sesión y la
+persistencia (servicios, tareas, claves Run, Startup) que observan, así que R03,
+R04, R05 y R10 no alertan por lo que ya estaba. Después, solo lo nuevo genera
+alertas. Las reglas que no dependen de la baseline (fuerza bruta, rutas
+sospechosas, ransomware, escaneos, borrado de logs…) alertan siempre.
+
+```powershell
+# Aprobar de golpe todo lo observado hasta ahora y descartar las alertas que cubre
+.\.venv\Scripts\python.exe network-llm\main.py baseline learn
+# Aprobar como normal la entidad de una alerta concreta (R03, R04, R05, R10)
+.\.venv\Scripts\python.exe network-llm\main.py alert approve 42
+```
+
+Aprender la baseline asume que el equipo está limpio en ese momento: algo que
+ya estuviera comprometido quedaría aprobado. En la GUI, la página Alertas tiene
+las mismas dos acciones.
+
 ## Interfaz local (Fase 3)
 
 ```powershell

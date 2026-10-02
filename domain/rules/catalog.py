@@ -6,7 +6,7 @@ from pathlib import PureWindowsPath
 from typing import Callable
 
 from domain.models import AlertCandidate, EvidenceView
-from domain.rules.base import INVALID_IPS, candidate, dt, has_distinct_window, has_window
+from domain.rules.base import INVALID_IPS, baseline_key, candidate, dt, has_distinct_window, has_window
 
 
 Rule = Callable[[EvidenceView, object], list[AlertCandidate]]
@@ -54,7 +54,7 @@ def r03(view, cfg):
         if not (row["event_id"] == 1149 or (row["event_id"] == 4624 and row.get("logon_type") == 10)):
             continue
         ip = row.get("source_ip") or "unknown"
-        if ("logon_source", ip) in view.baseline:
+        if baseline_key("R03", row) in view.baseline:
             continue
         try:
             severity = "critical" if ipaddress.ip_address(ip).is_global else "high"
@@ -67,16 +67,18 @@ def r03(view, cfg):
 def r04(view, cfg):
     return [candidate("R04", "medium", "Inicio de sesión de red inesperado", str(r.get("source_ip")), [r], "auth_event", {"user": r.get("target_user")}, r["ts"])
             for r in view.auth_events if r["event_id"] == 4624 and r.get("logon_type") == 3 and str(r.get("source_ip") or "") not in INVALID_IPS
-            and not str(r.get("target_user") or "").endswith("$") and ("logon_source", str(r.get("source_ip"))) not in view.baseline]
+            and not str(r.get("target_user") or "").endswith("$") and baseline_key("R04", r) not in view.baseline]
 
 
 def r05(view, cfg):
     alerts = []
+    seen = set()
     for r in view.connections:
         if r.get("direction") != "listen": continue
-        value = f"{r.get('process_name') or '?'}|{r.get('lport')}"
-        if ("listen_port", value) not in view.baseline:
-            alerts.append(candidate("R05", "medium", "Puerto nuevo en escucha", value, [r], "connection", {"address": r.get("laddr"), "port": r.get("lport")}, r["ts"]))
+        key = baseline_key("R05", r)
+        if key not in view.baseline and key not in seen:
+            seen.add(key)
+            alerts.append(candidate("R05", "medium", "Puerto nuevo en escucha", key[1], [r], "connection", {"address": r.get("laddr"), "port": r.get("lport")}, r["ts"], "first"))
     return alerts
 
 
@@ -141,7 +143,7 @@ def r09(view, cfg):
 
 def r10(view, cfg):
     return [candidate("R10", "high", "Nueva persistencia", f"{r['kind']}:{r.get('name')}", [r], "persistence_item", {"command": r.get("command")}, r["first_seen"])
-            for r in view.persistence_items if r.get("active") and ("persistence", f"{r['kind']}|{r['location']}|{r.get('name') or ''}") not in view.baseline]
+            for r in view.persistence_items if r.get("active") and baseline_key("R10", r) not in view.baseline]
 
 
 def r11(view, cfg):

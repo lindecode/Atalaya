@@ -25,7 +25,8 @@ class Repository:
     def initialize(self): pass
     def start_run(self, *args): return 1
     def load_evidence(self, since): return EvidenceView()
-    def observe_baseline(self, view, ts): pass
+    def observe_baseline(self, view, ts, approve=False): pass
+    def count_runs(self, kind): return 99
     def save_alerts(self, candidates): return []
     def get_new_alerts(self, limit=5000):
         return [{"id": 1, "rule_id": "R01", "severity": "high", "title": "x", "evidence": {}, "examples": []}]

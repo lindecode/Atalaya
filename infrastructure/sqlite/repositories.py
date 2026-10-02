@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from domain.models import AlertCandidate, CollectionResult, EvidenceView
+from domain.rules.base import INVALID_IPS, baseline_key
 from infrastructure.sqlite.connection import connect
 from infrastructure.sqlite.migrations import MIGRATIONS
 from settings import Settings
@@ -17,6 +18,7 @@ TABLES = (
     "runs", "connections", "auth_events", "file_events", "firewall_events",
     "persistence_items", "baseline", "alerts", "llm_analyses", "cursors", "sysmon_events",
 )
+BASELINE_RULES = ("R03", "R04", "R05", "R10")
 
 
 class SQLiteRepository:
@@ -261,7 +263,65 @@ class SQLiteRepository:
                 (kind, value, ts, ts),
             )
 
-    def observe_baseline(self, view: EvidenceView, ts: str) -> None:
+    def count_runs(self, kind: str) -> int:
+        with self._connect(readonly=True) as db:
+            return int(db.execute("SELECT COUNT(*) FROM runs WHERE kind=?", (kind,)).fetchone()[0])
+
+    def approve_all_observed(self, ts: str) -> dict[str, int]:
+        """Treat everything seen so far as normal: listen ports, logon sources and every active persistence item."""
+        with self._connect() as db:
+            observed = {(row[0], row[1]) for row in db.execute("SELECT kind, value FROM baseline WHERE approved=0")}
+            for row in db.execute("SELECT DISTINCT process_name, lport FROM connections WHERE direction='listen'"):
+                observed.add(baseline_key("R05", dict(row)))
+            for row in db.execute("SELECT DISTINCT source_ip FROM auth_events WHERE event_id=4624"):
+                observed.add(baseline_key("R03", dict(row)))
+            for row in db.execute("SELECT kind, location, name FROM persistence_items WHERE active=1"):
+                observed.add(baseline_key("R10", dict(row)))
+            observed.discard(None)
+            counts: dict[str, int] = {}
+            for kind, value in observed:
+                db.execute(
+                    """INSERT INTO baseline(kind, value, first_seen, last_seen, times_seen, approved)
+                    VALUES (?, ?, ?, ?, 1, 1)
+                    ON CONFLICT(kind, value) DO UPDATE SET last_seen=excluded.last_seen, approved=1""",
+                    (kind, value, ts, ts),
+                )
+                counts[kind] = counts.get(kind, 0) + 1
+        return counts
+
+    @staticmethod
+    def _alert_baseline_key(db: sqlite3.Connection, alert_id: int, rule_id: str) -> tuple[str, str] | None:
+        row = db.execute("SELECT snapshot_json FROM alert_evidence WHERE alert_id=? LIMIT 1", (alert_id,)).fetchone()
+        return baseline_key(rule_id, json.loads(row[0])) if row else None
+
+    def dismiss_baselined(self, note: str, ts: str) -> int:
+        """Dismiss open alerts whose entity is now in the approved baseline."""
+        placeholders = ",".join("?" * len(BASELINE_RULES))
+        with self._connect() as db:
+            approved = {(row[0], row[1]) for row in db.execute("SELECT kind, value FROM baseline WHERE approved=1")}
+            open_alerts = db.execute(
+                f"SELECT id, rule_id FROM alerts WHERE status IN ('new','analyzed') AND rule_id IN ({placeholders})",
+                BASELINE_RULES,
+            ).fetchall()
+            covered = [row[0] for row in open_alerts if self._alert_baseline_key(db, row[0], row[1]) in approved]
+            db.executemany("UPDATE alerts SET status='dismissed', status_note=?, status_at=? WHERE id=?",
+                           ((note, ts, alert_id) for alert_id in covered))
+        return len(covered)
+
+    def approve_alert(self, alert_id: int, ts: str) -> tuple[str, str]:
+        """Add the alert's entity to the baseline, then dismiss every open alert it covers."""
+        with self._connect(readonly=True) as db:
+            row = db.execute("SELECT rule_id FROM alerts WHERE id=?", (alert_id,)).fetchone()
+            if not row:
+                raise KeyError(f"Alerta inexistente: {alert_id}")
+            key = self._alert_baseline_key(db, alert_id, row[0])
+        if key is None:
+            raise ValueError(f"La regla {row[0]} no admite baseline; use confirmar o descartar")
+        self.approve_baseline(*key, ts)
+        self.dismiss_baselined("Aprobado como normal", ts)
+        return key
+
+    def observe_baseline(self, view: EvidenceView, ts: str, approve: bool = False) -> None:
         observations: set[tuple[str, str]] = set()
         for row in view.connections:
             process = str(row.get("process_name") or "")
@@ -272,15 +332,20 @@ class SQLiteRepository:
             if row.get("raddr"):
                 observations.add(("remote_ip", str(row["raddr"])))
         for row in view.auth_events:
-            if row.get("source_ip") and row.get("event_id") == 4624:
+            if row.get("event_id") == 4624 and str(row.get("source_ip") or "") not in INVALID_IPS:
                 observations.add(("logon_source", str(row["source_ip"])))
+        for row in view.persistence_items:
+            if row.get("active"):
+                observations.add(baseline_key("R10", row))
+        observations.discard(None)
         with self._connect() as db:
             for kind, value in observations:
                 db.execute(
                     """INSERT INTO baseline(kind, value, first_seen, last_seen, times_seen, approved)
-                    VALUES (?, ?, ?, ?, 1, 0)
-                    ON CONFLICT(kind, value) DO UPDATE SET last_seen=excluded.last_seen, times_seen=baseline.times_seen+1""",
-                    (kind, value, ts, ts),
+                    VALUES (?, ?, ?, ?, 1, ?)
+                    ON CONFLICT(kind, value) DO UPDATE SET last_seen=excluded.last_seen,
+                      times_seen=baseline.times_seen+1, approved=MAX(baseline.approved, excluded.approved)""",
+                    (kind, value, ts, ts, int(approve)),
                 )
 
     def latest_analysis(self) -> dict[str, Any] | None:

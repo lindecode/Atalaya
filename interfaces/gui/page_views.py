@@ -24,23 +24,51 @@ def summary():
     else: empty("Recolecte datos para ver la línea de tiempo.")
 
 
+MAX_ALERTS_SHOWN = 100
+BASELINE_RULES = {"R03", "R04", "R05", "R10"}
+
+
+def _bulk_learn(repository):
+    with st.expander("Aprender baseline (reducir falsos positivos)"):
+        st.write("Aprueba como normal todo lo observado hasta ahora (puertos en escucha, orígenes de inicio de sesión, "
+                 "servicios, tareas y claves Run) y descarta las alertas abiertas que eso cubre. Hágalo solo si confía "
+                 "en el estado actual del equipo: lo que ya estuviera comprometido también quedaría aprobado.")
+        sure = st.checkbox("Confío en el estado actual del equipo", key="learn-confirm")
+        if st.button("Aprobar todo lo observado", disabled=not sure, key="learn"):
+            now = SystemClock().now_iso()
+            counts = repository.approve_all_observed(now)
+            dismissed = repository.dismiss_baselined("Baseline aprendida", now)
+            st.success(f"Aprobados {sum(counts.values())} elementos {counts}; {dismissed} alertas descartadas.")
+
+
 def alerts():
     st.title("Alertas")
     _, repository, query, since = context()
+    _bulk_learn(repository)
     rows = query.rows("alerts", since)
     if not rows: return empty("No hay alertas. Ejecute Analizar para aplicar R01–R14.")
-    severities = st.multiselect("Severidad", ["low", "medium", "high", "critical"])
-    if severities: rows = [row for row in rows if row["severity"] in severities]
-    for row in rows:
-        with st.expander(f"{severity_label(row['severity'])} · {row['rule_id']} · {row['title']} · #{row['id']}"):
+    a, b, c = st.columns(3)
+    statuses = a.multiselect("Estado", ["new", "analyzed", "confirmed", "dismissed"], default=["new", "analyzed"])
+    severities = b.multiselect("Severidad", ["low", "medium", "high", "critical"])
+    rules = c.multiselect("Regla", sorted({row["rule_id"] for row in rows}))
+    rows = [row for row in rows if (not statuses or row["status"] in statuses)
+            and (not severities or row["severity"] in severities) and (not rules or row["rule_id"] in rules)]
+    rank = {"critical": 0, "high": 1, "medium": 2, "low": 3}
+    rows.sort(key=lambda row: (rank.get(row["severity"], 4), row["ts"]))
+    if len(rows) > MAX_ALERTS_SHOWN:
+        st.caption(f"Mostrando {MAX_ALERTS_SHOWN} de {len(rows)} alertas; use los filtros para acotar.")
+    for row in rows[:MAX_ALERTS_SHOWN]:
+        with st.expander(f"{severity_label(row['severity'])} · {row['rule_id']} · {row['title']} · #{row['id']} · {row['status']}"):
             st.code(row["evidence"], language="json")
             table(query.alert_evidence(row["id"]), key=f"evidence-{row['id']}")
             note = st.text_input("Nota", key=f"note-{row['id']}")
-            a, b = st.columns(2)
+            a, b, c = st.columns(3)
             if a.button("Confirmar", key=f"confirm-{row['id']}"):
                 repository.update_alert_status(row["id"], "confirmed", note or None, SystemClock().now_iso()); st.rerun()
             if b.button("Descartar", key=f"dismiss-{row['id']}"):
                 repository.update_alert_status(row["id"], "dismissed", note or None, SystemClock().now_iso()); st.rerun()
+            if row["rule_id"] in BASELINE_RULES and c.button("Aprobar como normal", key=f"approve-{row['id']}"):
+                repository.approve_alert(row["id"], SystemClock().now_iso()); st.rerun()
 
 
 def generic(title, table_name, message):

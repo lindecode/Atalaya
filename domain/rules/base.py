@@ -39,6 +39,18 @@ def has_distinct_window(rows: list[dict[str, Any]], key: str, count: int, minute
     return None
 
 
+def baseline_key(rule_id: str, row: dict[str, Any]) -> tuple[str, str] | None:
+    """Baseline entry that would make this rule ignore `row`; shared by rules, learning and approval."""
+    if rule_id in {"R03", "R04"}:
+        ip = row.get("source_ip")
+        return ("logon_source", str(ip)) if ip and ip not in INVALID_IPS else None
+    if rule_id == "R05":
+        return ("listen_port", f"{row.get('process_name') or '?'}|{row.get('lport')}")
+    if rule_id == "R10" and row.get("kind"):
+        return ("persistence", f"{row['kind']}|{row.get('location') or ''}|{row.get('name') or ''}")
+    return None
+
+
 INVALID_IPS = {"", "-", "::1", "127.0.0.1", "None"}
 
 
