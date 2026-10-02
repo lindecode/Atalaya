@@ -47,6 +47,60 @@ class SQLiteQueryRepository:
                 parts.extend({"bucket": row[0], "count": row[1], "type": label} for row in rows)
         return parts
 
+    def connections(self, since: str, latest_only: bool = False, limit: int = 20000):
+        """Connection rows in the window; with latest_only, just the most recent psutil snapshot."""
+        with connect(self.settings.database_path, readonly=True) as db:
+            if latest_only:
+                run = db.execute("SELECT MAX(run_id) FROM connections WHERE source='psutil' AND ts>=?", (since,)).fetchone()[0]
+                if run is None:
+                    return []
+                sql, params = "SELECT * FROM connections WHERE run_id=? LIMIT ?", (run, limit)
+            else:
+                sql, params = "SELECT * FROM connections WHERE ts>=? ORDER BY ts LIMIT ?", (since, limit)
+            return [dict(row) for row in db.execute(sql, params)]
+
+    def open_alerts_by_severity(self) -> dict[str, int]:
+        with connect(self.settings.database_path, readonly=True) as db:
+            rows = db.execute("SELECT severity, COUNT(*) FROM alerts WHERE status IN ('new','analyzed') GROUP BY severity")
+            return {row[0]: int(row[1]) for row in rows}
+
+    def open_alerts(self, limit: int = 8):
+        with connect(self.settings.database_path, readonly=True) as db:
+            return [dict(row) for row in db.execute(
+                """SELECT id, ts, rule_id, severity, title FROM alerts WHERE status IN ('new','analyzed')
+                ORDER BY CASE severity WHEN 'critical' THEN 4 WHEN 'high' THEN 3 WHEN 'medium' THEN 2 ELSE 1 END DESC, ts DESC
+                LIMIT ?""", (limit,))]
+
+    def last_run(self, kind: str):
+        with connect(self.settings.database_path, readonly=True) as db:
+            row = db.execute("SELECT * FROM runs WHERE kind=? ORDER BY id DESC LIMIT 1", (kind,)).fetchone()
+        return dict(row) if row else None
+
+    def grouped(self, table: str, column: str, since: str, limit: int = 15):
+        """Top values of one column in the window (column names come from code, never from the user)."""
+        allowed = {("auth_events", "event_id"), ("auth_events", "source_ip"), ("auth_events", "target_user"),
+                   ("file_events", "action"), ("file_events", "extension"), ("persistence_items", "kind"),
+                   ("firewall_events", "src_ip"), ("firewall_events", "dst_port"), ("firewall_events", "action")}
+        if (table, column) not in allowed:
+            raise ValueError("Agrupación no permitida")
+        ts = "first_seen" if table == "persistence_items" else "ts"
+        with connect(self.settings.database_path, readonly=True) as db:
+            rows = db.execute(f"SELECT {column}, COUNT(*) FROM {table} WHERE {ts}>=? AND {column} IS NOT NULL "
+                              f"GROUP BY {column} ORDER BY 2 DESC LIMIT ?", (since, limit))
+            return [{"valor": row[0], "total": int(row[1])} for row in rows]
+
+    def hourly(self, table: str, since: str, by: str | None = None):
+        """Events per hour, optionally split by one column (same allow-list as `grouped`)."""
+        if table not in {"auth_events", "file_events", "firewall_events", "connections", "alerts"}:
+            raise ValueError("Tabla no permitida")
+        if by and by not in {"event_id", "action", "direction", "severity"}:
+            raise ValueError("Columna no permitida")
+        split = f", {by}" if by else ""
+        with connect(self.settings.database_path, readonly=True) as db:
+            rows = db.execute(f"SELECT substr(ts,1,13) || ':00:00+00:00' hora{split}, COUNT(*) FROM {table} "
+                              f"WHERE ts>=? GROUP BY hora{split} ORDER BY hora", (since,))
+            return [{"hora": row[0], **({"serie": str(row[1])} if by else {}), "total": int(row[-1])} for row in rows]
+
     def latest_analysis(self):
         with connect(self.settings.database_path, readonly=True) as db:
             row = db.execute("SELECT * FROM llm_analyses ORDER BY id DESC LIMIT 1").fetchone()

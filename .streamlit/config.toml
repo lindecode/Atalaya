@@ -13,3 +13,29 @@ serverAddress = "127.0.0.1"
 [global]
 developmentMode = false
 
+[client]
+# Sin botón "Deploy" ni menú de desarrollo: es un panel local
+toolbarMode = "minimal"
+
+# Tema propio en claro y oscuro (el usuario elige en Ajustes; por defecto, el del sistema).
+# Solo fuentes integradas en Streamlit: nada se descarga de Internet.
+[theme]
+font = "sans-serif"
+baseRadius = "medium"
+showWidgetBorder = true
+chartCategoricalColors = ["#38BDF8", "#F59E0B", "#818CF8", "#2DD4BF", "#F472B6", "#A3E635", "#FB7185", "#94A3B8"]
+
+[theme.light]
+primaryColor = "#0284C7"
+backgroundColor = "#F8FAFC"
+secondaryBackgroundColor = "#EEF2F7"
+textColor = "#0F172A"
+borderColor = "#DCE3EC"
+
+[theme.dark]
+primaryColor = "#38BDF8"
+backgroundColor = "#0B1220"
+secondaryBackgroundColor = "#131C2E"
+textColor = "#E2E8F0"
+borderColor = "#22304A"
+

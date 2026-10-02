@@ -15,6 +15,7 @@ from settings import Settings
 
 PAGES = [
     "interfaces/gui/app.py",
+    "interfaces/gui/pages/0_Panel.py",
     "interfaces/gui/pages/1_Resumen.py",
     "interfaces/gui/pages/2_Alertas.py",
     "interfaces/gui/pages/3_Conexiones.py",
@@ -62,3 +63,37 @@ def test_alert_workflow_and_xss_literal(tmp_path, monkeypatch):
     confirm.click().run()
     with connect(database, readonly=True) as db:
         assert db.execute("SELECT status FROM alerts WHERE id=?", (alert_id,)).fetchone()[0] == "confirmed"
+
+
+@pytest.mark.parametrize("page", ["interfaces/gui/pages/0_Panel.py", "interfaces/gui/pages/3_Conexiones.py"])
+def test_network_pages_draw_the_flow_map(page, tmp_path, monkeypatch):
+    from domain.models import CollectionResult, NetworkConnection
+
+    database = tmp_path / "net.db"
+    monkeypatch.setenv("NETWORK_LLM_DB", str(database))
+    monkeypatch.setenv("NETWORK_LLM_REPORTS", str(tmp_path / "reports"))
+    repository = SQLiteRepository(replace(Settings(), database_path=database, reports_dir=tmp_path / "reports"))
+    repository.initialize()
+    now = datetime.now(timezone.utc).isoformat()
+    run_id = repository.start_run("collect", now, False)
+    evil_path = "C:/Users/me/Downloads/evil.exe"
+    rows = (
+        NetworkConnection(now, "psutil", "tcp", "outbound", "192.168.1.5", 50001, "93.184.216.34", 443, "ESTABLISHED", 10, "msedge.exe", None, None),
+        NetworkConnection(now, "psutil", "tcp", "outbound", "192.168.1.5", 50002, "198.51.100.9", 4444, "ESTABLISHED", 11,
+                          "<b>evil</b>.exe", evil_path, None),
+        NetworkConnection(now, "psutil", "tcp", "inbound", "192.168.1.5", 3389, "203.0.113.7", 51515, "ESTABLISHED", 12, "svchost.exe", None, None),
+        NetworkConnection(now, "psutil", "tcp", "listen", "0.0.0.0", 445, None, None, "LISTEN", 4, "System", None, None),
+    )
+    repository.save_collection(run_id, CollectionResult("psutil_connections", "connections", rows, "ok"), now)
+
+    app = AppTest.from_file(ROOT / page, default_timeout=30).run()
+
+    assert not app.exception
+    import json
+    figures = [json.loads(element.proto.spec) for element in app.get("plotly_chart")]
+    sankey = next((trace for figure in figures for trace in figure["data"] if trace["type"] == "sankey"), None)
+    assert sankey, "no se dibujó el mapa de flujo"
+    labels = sankey["node"]["label"]
+    # collected names are escaped before reaching Plotly, which renders a subset of HTML
+    assert "&lt;b&gt;evil&lt;/b&gt;.exe" in labels and not any("<b>" in label for label in labels)
+    assert any(color.startswith("rgba(239,68,68") for color in sankey["link"]["color"])  # port 4444 from Downloads

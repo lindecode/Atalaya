@@ -22,7 +22,7 @@ def model_selector() -> dict | None:
     service = build_model_service()
     current = service.current()
     models, error = _installed_models()
-    st.sidebar.subheader("LLM local")
+    st.sidebar.markdown("**LLM local**")
     if error:
         st.sidebar.error(f"Ollama no disponible. Modelo configurado: {current}")
         return None
@@ -46,16 +46,43 @@ def model_selector() -> dict | None:
         st.sidebar.success(f"Modelo guardado: {chosen}")
     if not by_name[chosen]["tools"]:
         st.sidebar.caption("Este modelo no admite tool calling: sirve para Analizar, no para el Chat.")
+    st.session_state["llm_model_info"] = by_name[chosen]
     return by_name[chosen]
 
 
+def _actions(settings):
+    """Collect / analyze buttons, available from every page."""
+    from bootstrap import build_analyze_service, build_collect_service
+    from infrastructure.windows.common import is_admin
+
+    left, right = st.sidebar.columns(2)
+    if left.button("Recolectar", width="stretch", icon=":material/radar:", key="action-collect"):
+        with st.sidebar.status("Recolectando...") as status:
+            result = build_collect_service(settings).execute()
+            status.update(label=f"Recolección {result['status']}", state="complete")
+        st.cache_data.clear()
+    if right.button("Analizar", width="stretch", icon=":material/psychology:", key="action-analyze"):
+        with st.sidebar.status("Analizando...") as status:
+            result = build_analyze_service(settings).execute()
+            status.update(label=f"Análisis {result['status']}", state="complete")
+        st.cache_data.clear()
+    if not is_admin():
+        st.sidebar.caption(":material/info: Sin administrador: algunas fuentes pueden omitirse (ver Estado).")
+
+
 def context():
+    from interfaces.gui.components import apply_style
+
+    apply_style()
     settings = Settings()
     repository = SQLiteRepository(settings)
     repository.initialize()
     query = SQLiteQueryRepository(settings)
+    st.sidebar.markdown('<div class="nl-brand">🛡️ network-llm</div>', unsafe_allow_html=True)
+    st.sidebar.caption("Monitor local · solo lectura · 127.0.0.1")
     options = {"1 hora": 1, "24 horas": 24, "7 días": 168, "30 días": 720}
-    label = st.sidebar.selectbox("Ventana temporal", list(options), index=1)
-    st.sidebar.caption("Servidor local: 127.0.0.1")
+    label = st.sidebar.selectbox("Ventana temporal", list(options), index=1, key="window")
+    _actions(settings)
+    st.sidebar.divider()
     model_selector()
     return settings, repository, query, since_hours(options[label])
