@@ -56,6 +56,17 @@ class SQLiteQueryRepository:
         result["result_json"] = json.loads(result["result_json"]) if result["result_json"] else None
         return result
 
+    def llm_incidents_for(self, alert_id: int, analyses: int = 20):
+        """Incidents from recent LLM analyses that cite this alert."""
+        with connect(self.settings.database_path, readonly=True) as db:
+            rows = db.execute("SELECT model, result_json FROM llm_analyses WHERE result_json IS NOT NULL ORDER BY id DESC LIMIT ?", (analyses,)).fetchall()
+        found = []
+        for model, result_json in rows:
+            for incident in json.loads(result_json).get("incidents", []):
+                if alert_id in incident.get("alert_ids", []):
+                    found.append({**incident, "model": model})
+        return found
+
     def alert_evidence(self, alert_id: int):
         with connect(self.settings.database_path, readonly=True) as db:
             rows = db.execute("SELECT entity_type, entity_id, snapshot_json FROM alert_evidence WHERE alert_id=? LIMIT 500", (alert_id,))

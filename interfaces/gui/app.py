@@ -36,7 +36,7 @@ for column, (label, value) in zip(columns, (("Alertas", counts["alerts"]), ("Acc
 analysis = query.latest_analysis()
 if analysis and analysis.get("result_json"):
     st.subheader("Último análisis")
-    st.write(analysis["result_json"]["summary"])
+    st.text(analysis["result_json"]["summary"])
     st.metric("Riesgo global", analysis["result_json"]["overall_risk"].upper())
 else:
     st.info("Todavía no hay un análisis LLM válido. Las alertas por reglas siguen disponibles.")

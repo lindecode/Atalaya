@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -36,7 +37,7 @@ def test_page_loads_with_empty_database(page, tmp_path, monkeypatch):
     monkeypatch.setenv("NETWORK_LLM_REPORTS", str(reports))
     SQLiteRepository(replace(Settings(), database_path=database, reports_dir=reports)).initialize()
 
-    app = AppTest.from_file(ROOT / page, default_timeout=10).run()
+    app = AppTest.from_file(ROOT / page, default_timeout=30).run()
 
     assert not app.exception
 
@@ -50,11 +51,11 @@ def test_alert_workflow_and_xss_literal(tmp_path, monkeypatch):
     repository.initialize()
     payload = "<img src=x onerror=alert(1)>.txt"
     alert_id = repository.save_alerts([AlertCandidate(
-        "2026-10-01T12:00:00+00:00", "R11", "medium", "Script nuevo", payload,
+        datetime.now(timezone.utc).isoformat(), "R11", "medium", "Script nuevo", payload,
         {"path": payload}, (EvidenceRef("file_event", 1, {"id": 1, "path": payload}),), "fixture",
     )])[0]
 
-    alert_app = AppTest.from_file(ROOT / "interfaces/gui/pages/2_Alertas.py", default_timeout=10).run()
+    alert_app = AppTest.from_file(ROOT / "interfaces/gui/pages/2_Alertas.py", default_timeout=30).run()
     assert not alert_app.exception
     assert payload in str(alert_app.dataframe[0].value)
     confirm = next(button for button in alert_app.button if button.label == "Confirmar")

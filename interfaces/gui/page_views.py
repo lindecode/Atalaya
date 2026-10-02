@@ -61,6 +61,15 @@ def alerts():
         with st.expander(f"{severity_label(row['severity'])} · {row['rule_id']} · {row['title']} · #{row['id']} · {row['status']}"):
             st.code(row["evidence"], language="json")
             table(query.alert_evidence(row["id"]), key=f"evidence-{row['id']}")
+            for incident in query.llm_incidents_for(row["id"]):
+                st.markdown(f"**Análisis del LLM** ({incident['model']}) · severidad LLM: `{incident['severity']}` · "
+                            f"posible falso positivo: `{incident['false_positive_likelihood']}`")
+                # LLM text is shaped by collected data: show it as plain text, never as Markdown/HTML
+                st.text(incident["narrative"])
+                if incident.get("benign_explanations"):
+                    st.text("Explicaciones benignas: " + "; ".join(incident["benign_explanations"]))
+                if incident.get("recommended_actions"):
+                    st.text("Recomendaciones: " + "; ".join(incident["recommended_actions"]))
             note = st.text_input("Nota", key=f"note-{row['id']}")
             a, b, c = st.columns(3)
             if a.button("Confirmar", key=f"confirm-{row['id']}"):
@@ -92,7 +101,8 @@ def reports():
     if not paths: return empty("No hay informes. Ejecute el comando report.")
     chosen = st.selectbox("Informe", paths, format_func=lambda p: p.name)
     content = chosen.read_text(encoding="utf-8")
-    st.markdown(content)
+    # The report embeds LLM text: rendering it as Markdown would let an injected ![](http://...) leak data off the machine
+    st.code(content, language="markdown")
     st.download_button("Descargar", content.encode("utf-8"), chosen.name, "text/markdown")
 
 
@@ -101,11 +111,11 @@ def chat():
     prompt = st.chat_input("Pregunta sobre alertas, accesos, conexiones, archivos o persistencia")
     if prompt:
         from bootstrap import build_chat_service
-        with st.chat_message("user"): st.write(prompt)
+        with st.chat_message("user"): st.text(prompt)
         try:
             result = build_chat_service().ask(prompt)
             with st.chat_message("assistant"):
-                st.write(result["answer"])
+                st.text(result["answer"])
                 with st.expander("Herramientas y evidencia"):
                     st.json(result["tool_calls"])
         except Exception as exc:

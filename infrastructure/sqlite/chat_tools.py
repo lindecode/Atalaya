@@ -19,7 +19,10 @@ class SQLiteQueryTools:
 
     def _query(self, sql, params):
         with connect(self.settings.database_path, readonly=True) as db:
-            return [dict(row) for row in db.execute(sql + " LIMIT 200", tuple(params))]
+            rows = [dict(row) for row in db.execute(sql + " LIMIT 200", tuple(params))]
+        # raw_xml and long command lines would flood the model's context window
+        return [{key: (value[:300] if isinstance(value, str) else value) for key, value in row.items() if key != "raw_xml"}
+                for row in rows]
 
     def call(self, name: str, args: dict[str, Any]):
         since = _since(args.get("since"))

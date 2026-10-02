@@ -40,8 +40,14 @@ class ChatService:
             messages.append(message)
             for call in calls:
                 function = call.function
-                args = function.arguments if isinstance(function.arguments, dict) else json.loads(function.arguments)
-                rows = self.tools.call(function.name, args)
-                trace.append({"name": function.name, "arguments": args, "ids": [row.get("id") for row in rows]})
-                messages.append({"role": "tool", "tool_name": function.name, "content": json.dumps(rows, ensure_ascii=False, default=str)})
+                # A small model can send bad arguments (e.g. an unparseable `since`): report it back instead of crashing
+                try:
+                    args = function.arguments if isinstance(function.arguments, dict) else json.loads(function.arguments)
+                    rows = self.tools.call(function.name, args)
+                    content = json.dumps(rows, ensure_ascii=False, default=str)
+                    trace.append({"name": function.name, "arguments": args, "ids": [row.get("id") for row in rows]})
+                except (ValueError, TypeError, KeyError) as exc:
+                    content = json.dumps({"error": f"{type(exc).__name__}: {exc}"}, ensure_ascii=False)
+                    trace.append({"name": function.name, "arguments": function.arguments, "ids": [], "error": str(exc)})
+                messages.append({"role": "tool", "tool_name": function.name, "content": content})
         raise RuntimeError("Demasiadas rondas de herramientas")
