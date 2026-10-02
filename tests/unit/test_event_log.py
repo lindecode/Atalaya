@@ -17,3 +17,27 @@ def test_parses_event_fields_by_name():
     assert event.logon_type == 10
     assert event.status_code == "0xC000006A"
 
+
+
+def test_access_denied_is_skipped_with_a_hint_instead_of_requiring_admin(monkeypatch):
+    import sys
+    from types import SimpleNamespace
+
+    from domain.models import CollectionRequest
+    from infrastructure.windows import event_log
+
+    class PyWinError(Exception):
+        winerror = 5
+
+    def denied(*args):
+        raise PyWinError(5, "EvtQuery", "Acceso denegado.")
+
+    monkeypatch.setattr(event_log, "is_windows", lambda: True)
+    monkeypatch.setitem(sys.modules, "win32evtlog", SimpleNamespace(
+        EvtQuery=denied, EvtQueryChannelPath=1, EvtQueryForwardDirection=0x100))
+    collector = event_log.WindowsEventLogCollector("security_events", "Security", (4625,), requires_admin=True)
+
+    result = collector.collect(CollectionRequest("2026-10-01T12:00:00+00:00"))
+
+    assert result.status == "skipped"
+    assert "configurar-permisos" in result.warnings[0]

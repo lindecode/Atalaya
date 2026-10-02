@@ -4,7 +4,7 @@ import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 
 from domain.models import AuthEvent, CollectionRequest, CollectionResult
-from infrastructure.windows.common import is_admin, is_windows
+from infrastructure.windows.common import is_windows
 
 
 SECURITY_CHANNEL = "Security"
@@ -49,6 +49,13 @@ def _parse_event(xml: str, channel: str) -> AuthEvent:
     )
 
 
+def _access_denied(exc: Exception) -> bool:
+    code = getattr(exc, "winerror", None)
+    if code is None and getattr(exc, "args", None):
+        code = exc.args[0]
+    return code == 5  # ERROR_ACCESS_DENIED
+
+
 class WindowsEventLogCollector:
     def __init__(self, name: str, channel: str, event_ids: tuple[int, ...], requires_admin: bool = False):
         self.name = name
@@ -59,8 +66,8 @@ class WindowsEventLogCollector:
     def collect(self, request: CollectionRequest) -> CollectionResult:
         if not is_windows():
             return CollectionResult(self.name, "auth_events", (), "skipped", ("Solo disponible en Windows",))
-        if self.requires_admin and not is_admin():
-            return CollectionResult(self.name, "auth_events", (), "skipped", (f"{self.channel} requiere administrador",))
+        # No exigir administrador: el grupo "Lectores del registro de eventos" basta para leer Security
+        # (start\configurar-permisos.bat). Si Windows niega el acceso, se omite con la pista de cómo darlo.
         try:
             import win32evtlog
         except ImportError:
@@ -95,6 +102,10 @@ class WindowsEventLogCollector:
         try:
             read(query)
         except Exception as exc:  # pywin32 exposes platform-specific exception classes
+            if _access_denied(exc):
+                return CollectionResult(self.name, "auth_events", (), "skipped", (
+                    f"{self.channel} sin permiso de lectura: ejecute start\\configurar-permisos.bat "
+                    "o use una sesión de administrador",))
             if last_record:
                 warnings.append(f"Cursor inválido o canal reiniciado; relectura desde el inicio: {exc}")
                 items.clear()
