@@ -10,7 +10,9 @@ backup y validaciones manuales consulte [README.man.md](README.man.md).
 ## Requisitos
 
 - Windows 11 y Python 3.13 en el `.venv` de la raíz del repositorio.
-- Permisos de administrador opcionales. Sin ellos se omite el registro Security;
+- Permisos de administrador opcionales. `start\configurar-permisos.bat` permite
+  leer el registro Security sin elevación (grupo *Lectores del registro de
+  eventos*). Sin ninguno de los dos se omite el registro Security;
   según la configuración del equipo, Windows también puede limitar tareas
   programadas, servicios o metadatos de procesos. La ejecución termina como
   `partial` y conserva todo lo que sí pudo recolectar.
@@ -19,7 +21,12 @@ backup y validaciones manuales consulte [README.man.md](README.man.md).
 
 ## Instalación
 
-Desde la raíz del repositorio:
+**Forma rápida:** doble clic en `start\instalar.bat` y, después, `start\iniciar.bat`
+(o el acceso directo del escritorio). Los lanzadores, el instalador y la
+configuración de permisos sin administrador están descritos en
+[start/LEEME.md](start/LEEME.md).
+
+Manualmente, desde la raíz del repositorio:
 
 ```powershell
 .\.venv\Scripts\python.exe -m pip install -r network-llm\requirements.txt

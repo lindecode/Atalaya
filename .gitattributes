@@ -1,0 +1,2 @@
+# cmd y Windows PowerShell 5.1 necesitan CRLF en los lanzadores de start\n*.bat text eol=crlf
+*.ps1 text eol=crlf
