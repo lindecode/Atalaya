@@ -94,7 +94,8 @@ function New-Shortcut([string]$path, [string]$target, [string]$description, [int
     $shortcut.WorkingDirectory = $StartDir
     $shortcut.Description = $description
     $shortcut.WindowStyle = $windowStyle            # 1 normal, 7 minimizada
-    $shortcut.IconLocation = "$env:SystemRoot\System32\shell32.dll,47"
+    $icon = Join-Path $Root 'assets\icon.ico'
+    $shortcut.IconLocation = if (Test-Path $icon) { "$icon,0" } else { "$env:SystemRoot\System32\shell32.dll,47" }
     $shortcut.Save()
 }
 

@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import streamlit as st
 
+from shared.about import ICON_PATH
 
-st.set_page_config(page_title="Atalaya", page_icon="🛡️", layout="wide", initial_sidebar_state="expanded")
+
+st.set_page_config(page_title="Atalaya", page_icon=str(ICON_PATH) if ICON_PATH.exists() else "🛡️",
+                   layout="wide", initial_sidebar_state="expanded")
 
 # Each page script is standalone (tests run them directly); this file only groups them into sections
 navigation = st.navigation({

@@ -10,10 +10,13 @@ from typing import Sequence
 
 from bootstrap import build_analyze_service, build_chat_history, build_chat_service, build_collect_service, build_model_service, build_rag_service, build_recorded_chat_service, build_report_service, build_reputation_service, build_repository, build_status_service, build_watch_service
 from infrastructure.clock import SystemClock
+from shared.about import APP_NAME, APP_VERSION, COPYRIGHT, REPOSITORY_URL
 
 
 def _parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="Atalaya", description="Monitor local de seguridad para Windows")
+    parser = argparse.ArgumentParser(prog=APP_NAME, description="Monitor local de seguridad para Windows",
+                                     epilog=f"{COPYRIGHT} {REPOSITORY_URL}")
+    parser.add_argument("--version", action="version", version=f"{APP_NAME} {APP_VERSION} · {COPYRIGHT}")
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("collect", help="Recolecta una instantánea local")
     commands.add_parser("status", help="Muestra el estado y tamaño de la base de datos")

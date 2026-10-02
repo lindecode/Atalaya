@@ -122,3 +122,16 @@ def test_chat_page_lists_and_opens_saved_conversations(tmp_path, monkeypatch):
     app = button.click().run()
     assert not app.exception
     assert any("Hubo 2 conexiones RDP" in text.value for text in app.text)
+
+
+def test_about_dialog_shows_author(tmp_path, monkeypatch):
+    database = tmp_path / "about.db"
+    monkeypatch.setenv("ATALAYA_DB", str(database))
+    monkeypatch.setenv("ATALAYA_REPORTS", str(tmp_path / "reports"))
+    SQLiteRepository(replace(Settings(), database_path=database)).initialize()
+
+    app = AppTest.from_file(ROOT / "interfaces/gui/pages/0_Panel.py", default_timeout=30).run()
+    app.sidebar.button(key="action-about").click().run()
+
+    assert not app.exception
+    assert any("LindeCode" in element.value for element in app.markdown)

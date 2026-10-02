@@ -33,6 +33,12 @@ _STYLE = """
 .nl-legend span::before {content: ""; display: inline-block; width: 10px; height: 10px; border-radius: 3px;
   margin-right: 6px; vertical-align: middle; background: var(--c);}
 section[data-testid="stSidebar"] .nl-brand {font-weight: 700; font-size: 1.15rem; margin-bottom: 2px;}
+.nl-about {text-align: center;}
+.nl-about h3 {margin: 4px 0 0 0; padding: 0;}
+.nl-about small {opacity: .6;}
+.nl-about hr {width: 40px; margin: 14px auto;}
+.nl-about p {margin: 0 0 2px 0; opacity: .75;}
+.nl-about b {font-size: 1.1rem; letter-spacing: .06em; color: #0EA5E9;}
 </style>
 """
 
@@ -83,3 +89,17 @@ def severity_label(value: str) -> str:
 
 def chart(figure, key: str | None = None):
     st.plotly_chart(figure, width="stretch", key=key, config={"displaylogo": False})
+
+
+@st.dialog("Acerca de Atalaya")
+def about_dialog():
+    from shared.about import APP_NAME, APP_VERSION, AUTHOR, AUTHOR_LOGO_PATH, COPYRIGHT, REPOSITORY_URL
+
+    _, middle, _ = st.columns([1, 2, 1])
+    if AUTHOR_LOGO_PATH.exists():
+        middle.image(str(AUTHOR_LOGO_PATH), width="stretch")
+    st.markdown(f'<div class="nl-about"><h3>{APP_NAME}</h3><small>v{APP_VERSION}</small><hr>'
+                f'<p>Desarrollado por</p><b>{AUTHOR}</b></div>', unsafe_allow_html=True)
+    # A link the user opens by hand: the application itself never connects to GitHub
+    st.link_button("Repositorio en GitHub", REPOSITORY_URL, icon=":material/open_in_new:", width="stretch")
+    st.caption(COPYRIGHT)

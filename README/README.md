@@ -180,3 +180,9 @@ disponible.
 Los contratos viven en `ports/`; las implementaciones concretas están en
 `infrastructure/`, y `bootstrap.py` realiza el ensamblaje. Esto permite reutilizar
 los casos de uso con repositorios o recolectores alternativos.
+
+## Autor
+
+Desarrollado por **LindeCode** · <https://github.com/lindecode/Atalaya>
+
+© 2026 LindeCode. Todos los derechos reservados; consulte [LICENSE](../LICENSE).

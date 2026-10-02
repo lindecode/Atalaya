@@ -71,18 +71,24 @@ def _actions(settings):
 
 
 def context():
-    from interfaces.gui.components import apply_style
+    from interfaces.gui.components import about_dialog, apply_style
+    from shared.about import ICON_PATH
 
     apply_style()
     settings = Settings()
     repository = SQLiteRepository(settings)
     repository.initialize()
     query = SQLiteQueryRepository(settings)
-    st.sidebar.markdown('<div class="nl-brand">🛡️ Atalaya</div>', unsafe_allow_html=True)
+    if ICON_PATH.exists():
+        st.logo(str(ICON_PATH), size="large")
+    st.sidebar.markdown('<div class="nl-brand">Atalaya</div>', unsafe_allow_html=True)
     st.sidebar.caption("Monitor local · solo lectura · 127.0.0.1")
     options = {"1 hora": 1, "24 horas": 24, "7 días": 168, "30 días": 720}
     label = st.sidebar.selectbox("Ventana temporal", list(options), index=1, key="window")
     _actions(settings)
     st.sidebar.divider()
     model_selector()
+    st.sidebar.divider()
+    if st.sidebar.button("Acerca de", icon=":material/info:", width="stretch", key="action-about"):
+        about_dialog()
     return settings, repository, query, since_hours(options[label])
