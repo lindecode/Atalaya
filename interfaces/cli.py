@@ -8,7 +8,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Sequence
 
-from bootstrap import build_analyze_service, build_chat_service, build_collect_service, build_model_service, build_report_service, build_repository, build_status_service, build_watch_service
+from bootstrap import build_analyze_service, build_chat_service, build_collect_service, build_model_service, build_rag_service, build_report_service, build_repository, build_status_service, build_watch_service
 from infrastructure.clock import SystemClock
 
 
@@ -28,6 +28,21 @@ def _parser() -> argparse.ArgumentParser:
     models = commands.add_parser("models", help="Lista los LLM locales de Ollama o elige uno")
     models_actions = models.add_subparsers(dest="models_action")
     models_actions.add_parser("use", help="Guarda el modelo para analyze/chat/GUI").add_argument("name")
+    rag = commands.add_parser("rag", help="Indexa y consulta conocimiento local seguro")
+    rag_actions = rag.add_subparsers(dest="rag_action", required=True)
+    rag_index = rag_actions.add_parser("index", help="Trocea e indexa Markdown confiable")
+    rag_index.add_argument("paths", nargs="*", type=Path)
+    rag_index.add_argument("--embedding-model")
+    rag_index.add_argument("--lexical-only", action="store_true")
+    rag_search = rag_actions.add_parser("search", help="Prueba la recuperación híbrida")
+    rag_search.add_argument("query")
+    rag_search.add_argument("--top-k", type=int, default=6)
+    rag_search.add_argument("--embedding-model")
+    rag_search.add_argument("--lexical-only", action="store_true")
+    rag_actions.add_parser("status", help="Muestra fuentes, chunks y cobertura de embeddings")
+    rag_eval = rag_actions.add_parser("eval", help="Ejecuta el harness local de recuperación y seguridad")
+    rag_eval.add_argument("--fixtures", type=Path, default=Path(__file__).resolve().parents[1] / "tests" / "fixtures" / "rag_eval.json")
+    rag_eval.add_argument("--lexical-only", action="store_true")
     commands.add_parser("backup", help="Crea una copia consistente de SQLite")
     purge = commands.add_parser("purge", help="Aplica la retención local")
     purge.add_argument("--days", type=int, default=30)
@@ -102,10 +117,33 @@ def main(argv: Sequence[str] | None = None) -> int:
             raise SystemExit(f"Ollama no disponible: {exc}")
         for model in models:
             marker = "*" if model["name"] == current else " "
-            uses = "analyze+chat" if model["tools"] else "analyze" if model["chat"] else "embeddings (no usable)"
+            uses = "analyze+chat" if model["tools"] else "analyze" if model["chat"] else "embeddings"
             print(f"{marker} {model['name']:<28} {model['parameters'] or '?':>6}  {model['size_gb']:>5} GB  {uses}")
         if current not in {model["name"] for model in models}:
             print(f"Aviso: el modelo actual {current} no está instalado (ollama pull {current})")
+        return 0
+    if args.command == "rag":
+        service = build_rag_service(embedding_model=getattr(args, "embedding_model", None),
+                                    lexical_only=getattr(args, "lexical_only", False))
+        if args.rag_action == "index":
+            result = service.index(args.paths or None)
+            print(f"Fuentes={result['sources']} chunks={result['chunks']} embeddings={result['embedded']}")
+            if result["embedding_error"]:
+                print(f"Aviso: embeddings no disponibles; FTS5 quedó operativo: {result['embedding_error']}")
+            return 0
+        if args.rag_action == "search":
+            for item in service.search(args.query, args.top_k):
+                print(f"[K:{item.id}] score={item.score:.3f} {item.source_uri} > {item.section}")
+                print(item.content[:500].replace("\n", " "))
+            return 0
+        if args.rag_action == "eval":
+            from application.evals import RagEvalHarness
+            result = RagEvalHarness(service).run(args.fixtures)
+            for case in result["cases"]:
+                print(f"{'PASS' if case['passed'] else 'FAIL'} {case['name']} ids={case.get('ids', [])}")
+            print(f"Score: {result['passed']}/{result['total']} ({result['score']:.0%})")
+            return 0 if result["passed"] == result["total"] else 1
+        print(service.status())
         return 0
     if args.command == "report":
         print(build_report_service().execute())

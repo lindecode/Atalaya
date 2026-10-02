@@ -9,11 +9,15 @@ from application.status import StatusService
 from application.watch import WatchService
 from application.chat import ChatService
 from application.models import ModelService
+from application.rag import RagService
+from application.tool_router import SecureToolRouter
 from infrastructure.clock import SystemClock
 from infrastructure.ollama.analyzer import OllamaAnalyzer
 from infrastructure.ollama.models import OllamaModelCatalog
+from infrastructure.ollama.embeddings import OllamaEmbeddingProvider
 from infrastructure.sqlite.repositories import SQLiteRepository
 from infrastructure.sqlite.chat_tools import SQLiteQueryTools
+from infrastructure.sqlite.knowledge_store import SQLiteKnowledgeStore
 from infrastructure.windows.common import WindowsSystemInfo
 from infrastructure.windows.connections import PsutilConnectionCollector
 from infrastructure.windows.event_log import RDP_CHANNEL, SECURITY_CHANNEL, WindowsEventLogCollector
@@ -82,4 +86,12 @@ def build_watch_service(settings: Settings | None = None) -> WatchService:
 
 def build_chat_service(settings: Settings | None = None, model: str | None = None) -> ChatService:
     effective = _with_model(settings, model)
-    return ChatService(effective, SQLiteQueryTools(effective))
+    rag = build_rag_service(effective)
+    return ChatService(effective, SecureToolRouter(SQLiteQueryTools(effective), rag))
+
+
+def build_rag_service(settings: Settings | None = None, embedding_model: str | None = None,
+                      lexical_only: bool = False) -> RagService:
+    effective = settings or Settings()
+    embedder = None if lexical_only else OllamaEmbeddingProvider(effective, embedding_model)
+    return RagService(SQLiteKnowledgeStore(effective), SystemClock(), effective, embedder)

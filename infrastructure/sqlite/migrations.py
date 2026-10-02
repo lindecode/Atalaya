@@ -156,4 +156,37 @@ MIGRATIONS: tuple[str, ...] = (
       updated_at TEXT NOT NULL
     );
     """,
+    """
+    CREATE TABLE knowledge_chunks (
+      id INTEGER PRIMARY KEY,
+      chunk_key TEXT NOT NULL UNIQUE,
+      source_uri TEXT NOT NULL,
+      title TEXT NOT NULL,
+      section TEXT NOT NULL,
+      content TEXT NOT NULL,
+      trust_level TEXT NOT NULL CHECK(trust_level IN ('trusted','derived','untrusted','llm_generated')),
+      content_hash TEXT NOT NULL,
+      embedding_model TEXT,
+      embedding_json TEXT,
+      updated_at TEXT NOT NULL
+    );
+    CREATE INDEX idx_knowledge_source ON knowledge_chunks(source_uri);
+    CREATE INDEX idx_knowledge_trust ON knowledge_chunks(trust_level);
+    CREATE VIRTUAL TABLE knowledge_fts USING fts5(
+      chunk_id UNINDEXED,
+      title,
+      section,
+      content,
+      tokenize='unicode61 remove_diacritics 2'
+    );
+    CREATE TABLE rag_audit (
+      id INTEGER PRIMARY KEY,
+      ts TEXT NOT NULL,
+      query_hash TEXT NOT NULL,
+      route TEXT NOT NULL,
+      retrieved_ids TEXT NOT NULL,
+      embedding_model TEXT,
+      duration_ms INTEGER NOT NULL
+    );
+    """,
 )

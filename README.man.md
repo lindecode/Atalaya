@@ -68,6 +68,17 @@ En otra terminal, compruebe el servicio local:
 Invoke-RestMethod http://127.0.0.1:11434/api/tags
 ```
 
+Para recuperación semántica, el modelo de embeddings predeterminado es local:
+
+```powershell
+ollama pull embeddinggemma:latest
+$env:OLLAMA_EMBEDDING_MODEL = "embeddinggemma:latest"
+```
+
+Puede usar otro modelo de embeddings instalado mediante la variable anterior o
+`rag index --embedding-model NOMBRE`. El modelo de chat y el de embeddings son
+independientes.
+
 La aplicación acepta exclusivamente `localhost`, `127.0.0.1` o `::1` como
 `OLLAMA_HOST`. Para fijarlo explícitamente en una sesión:
 
@@ -181,6 +192,51 @@ Actualizar o desinstalar Sysmon queda bajo control del administrador y fuera del
 alcance de `network-llm`.
 
 ## 7. Mecanismos de ejecución
+
+### Preparar RAG local
+
+Después de instalar el modelo de embeddings, construya el índice:
+
+```powershell
+& $Python $Main rag index
+& $Python $Main rag status
+& $Python $Main rag search "cómo investigar un evento RDP 1149"
+& $Python $Main rag eval
+```
+
+### Runbook: investigar un acceso RDP (evento 1149)
+
+El evento 1149 del canal
+`Microsoft-Windows-TerminalServices-RemoteConnectionManager/Operational`
+indica que se autenticaron credenciales para una conexión RDP; debe
+correlacionarse con Security 4624 (tipo de inicio 10), 4625 y 4648 antes de
+concluir que hubo una sesión exitosa.
+
+1. Ejecuta `collect` desde una terminal elevada para leer Security y el canal
+   operacional de RDP.
+2. Consulta **Accesos** en la interfaz o usa `chat` solicitando el usuario, IP,
+   fecha y los IDs de evidencia del periodo investigado.
+3. Correlaciona por IP, usuario y ventana temporal. Un 1149 aislado no prueba
+   por sí solo que se creara una sesión de escritorio.
+4. Revisa las alertas R03, si la IP está en la baseline y si es pública. No
+   bloquees cuentas, direcciones ni procesos sin aprobación humana.
+5. Conserva los IDs de eventos citados y exporta un backup antes de modificar
+   la baseline o cerrar la alerta.
+
+Los datos obtenidos de eventos se tratan como evidencia no confiable: nombres
+de archivo, usuarios o mensajes nunca se ejecutan como instrucciones.
+
+Para operar sin embeddings u observar una degradación controlada:
+
+```powershell
+& $Python $Main rag index --lexical-only
+& $Python $Main rag search "activar firewall" --lexical-only
+```
+
+La indexación predeterminada admite únicamente `README.md`, `README.man.md` y
+`agente.md`. Las rutas adicionales deben ser Markdown, estar dentro de
+`network-llm` y no ser enlaces simbólicos. Revise cualquier documento antes de
+añadirlo: el índice lo considerará conocimiento confiable.
 
 ### Ejecución puntual
 
@@ -370,4 +426,3 @@ autenticación y está diseñado únicamente para loopback.
 - [ ] Comprobar desde otro equipo que la GUI no responde por la IP LAN.
 - [ ] Inspeccionar Network en el navegador y confirmar que no hay destinos externos.
 - [ ] Crear y validar al menos un backup antes de depender de la retención.
-

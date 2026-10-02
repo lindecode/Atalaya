@@ -112,6 +112,16 @@ def chat():
     model = model_selector()
     if model and not model["tools"]:
         st.warning(f"{model['name']} no admite tool calling; elija en la barra lateral un modelo con tools para el chat.")
+    from bootstrap import build_rag_service
+    rag_status = build_rag_service(lexical_only=True).status()
+    st.caption(f"Conocimiento local: {rag_status['chunks']} chunks; {rag_status['embedded']} con embeddings")
+    with st.expander("Índice RAG local"):
+        use_embeddings = st.checkbox("Generar embeddings con Ollama", value=True)
+        if st.button("Indexar documentación confiable"):
+            with st.status("Indexando documentación local...") as index_status:
+                result = build_rag_service(lexical_only=not use_embeddings).index()
+                index_status.update(label=f"Indexados {result['chunks']} chunks", state="complete")
+                if result["embedding_error"]: st.warning(result["embedding_error"])
     prompt = st.chat_input("Pregunta sobre alertas, accesos, conexiones, archivos o persistencia")
     if prompt:
         from bootstrap import build_chat_service

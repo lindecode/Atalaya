@@ -44,9 +44,14 @@ class Settings:
     suspicious_ports: tuple[int, ...] = (4444, 1337, 31337, 6667, 5555, 9001)
     ollama_host: str = field(default_factory=lambda: os.environ.get("OLLAMA_HOST", "http://localhost:11434"))
     ollama_model: str = "qwen3.5:4b"
+    ollama_embedding_model: str = field(default_factory=lambda: os.environ.get("OLLAMA_EMBEDDING_MODEL", "embeddinggemma:latest"))
     llm_timeout_seconds: float = 60.0
     llm_max_alerts: int = 40      # per analyze run; the rest stay 'new' for the next run
     llm_batch_size: int = 8
+    rag_chunk_chars: int = 2_800
+    rag_chunk_overlap_chars: int = 300
+    rag_top_k: int = 6
+    rag_max_context_chars: int = 16_000
     firewall_log_path: Path = field(default_factory=lambda: Path(os.environ.get("NETWORK_LLM_FIREWALL_LOG", os.path.expandvars(r"%SystemRoot%\System32\LogFiles\Firewall\pfirewall.log"))))
     watch_batch_seconds: float = 5.0
 

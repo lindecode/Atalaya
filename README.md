@@ -135,6 +135,23 @@ El chat puede llamar únicamente a consultas parametrizadas y limitadas para
 alertas, accesos, conexiones, archivos y persistencia. No acepta ni genera SQL
 libre.
 
+## RAG local y harness de seguridad
+
+Indexe la documentación confiable. Si Ollama no dispone del modelo de embeddings,
+FTS5 queda operativo y el comando informa la degradación:
+
+```powershell
+.\.venv\Scripts\python.exe network-llm\main.py rag index
+.\.venv\Scripts\python.exe network-llm\main.py rag search "cómo investigar RDP"
+.\.venv\Scripts\python.exe network-llm\main.py rag status
+.\.venv\Scripts\python.exe network-llm\main.py rag eval
+```
+
+La evidencia exacta continúa consultándose mediante SQL parametrizado. RAG solo
+recupera documentación local marcada como confiable o derivada, exige citas
+`[K:id]`, limita el contexto y registra un hash de la consulta en lugar de su
+texto. Los embeddings se cachean por hash del contenido.
+
 ## Mantenimiento
 
 ```powershell

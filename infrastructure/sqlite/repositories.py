@@ -17,6 +17,7 @@ from settings import Settings
 TABLES = (
     "runs", "connections", "auth_events", "file_events", "firewall_events",
     "persistence_items", "baseline", "alerts", "llm_analyses", "cursors", "sysmon_events", "preferences",
+    "knowledge_chunks", "rag_audit",
 )
 BASELINE_RULES = ("R03", "R04", "R05", "R10")
 
@@ -401,6 +402,7 @@ class SQLiteRepository:
             "firewall_events": "DELETE FROM firewall_events WHERE ts<?",
             "sysmon_events": "DELETE FROM sysmon_events WHERE ts<?",
             "llm_analyses": "DELETE FROM llm_analyses WHERE ts<?",
+            "rag_audit": "DELETE FROM rag_audit WHERE ts<?",
             "runs": "DELETE FROM runs WHERE started_at<? AND id NOT IN (SELECT run_id FROM llm_analyses WHERE run_id IS NOT NULL)",
             "alerts": "DELETE FROM alerts WHERE ts<? AND status!='confirmed'",
         }

@@ -1,0 +1,20 @@
+[
+  {
+    "name": "rdp_runbook",
+    "query": "cómo investigar RDP evento 1149",
+    "expected_terms": ["1149"],
+    "top_k": 6
+  },
+  {
+    "name": "firewall_setup",
+    "query": "activar registro firewall paquetes bloqueados",
+    "expected_terms": ["Set-NetFirewallProfile"],
+    "top_k": 6
+  },
+  {
+    "name": "backup_retention",
+    "query": "crear backup y aplicar retención",
+    "expected_terms": ["purge"],
+    "top_k": 6
+  }
+]
