@@ -9,6 +9,7 @@ from application.status import StatusService
 from application.watch import WatchService
 from application.chat import ChatService
 from application.chat_history import RecordedChatService
+from application.doctor import DoctorService
 from application.models import ModelService
 from application.rag import RagService
 from application.reputation import FileReputationService
@@ -96,6 +97,11 @@ def build_chat_service(settings: Settings | None = None, model: str | None = Non
     effective = _with_model(settings, model)
     rag = build_rag_service(effective)
     return ChatService(effective, SecureToolRouter(SQLiteQueryTools(effective), rag))
+
+
+def build_doctor_service(settings: Settings | None = None) -> DoctorService:
+    effective = settings or Settings()
+    return DoctorService(effective, build_model_service(effective))
 
 
 def build_chat_history(settings: Settings | None = None) -> SQLiteChatHistory:

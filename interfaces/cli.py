@@ -8,7 +8,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Sequence
 
-from bootstrap import build_analyze_service, build_chat_history, build_chat_service, build_collect_service, build_model_service, build_rag_service, build_recorded_chat_service, build_report_service, build_reputation_service, build_repository, build_status_service, build_watch_service
+from bootstrap import build_analyze_service, build_chat_history, build_chat_service, build_collect_service, build_doctor_service, build_model_service, build_rag_service, build_recorded_chat_service, build_report_service, build_reputation_service, build_repository, build_status_service, build_watch_service
 from infrastructure.clock import SystemClock
 from shared.about import APP_NAME, APP_VERSION, COPYRIGHT, REPOSITORY_URL
 
@@ -43,6 +43,8 @@ def _parser() -> argparse.ArgumentParser:
     models = commands.add_parser("models", help="Lista los LLM locales de Ollama o elige uno")
     models_actions = models.add_subparsers(dest="models_action")
     models_actions.add_parser("use", help="Guarda el modelo para analyze/chat/GUI").add_argument("name")
+    models_actions.add_parser("pull", help="Descarga un modelo con el Ollama local").add_argument("name")
+    commands.add_parser("doctor", help="Comprueba requisitos (Python, Ollama, modelos, permisos) y cómo resolverlos")
     rag = commands.add_parser("rag", help="Indexa y consulta conocimiento local seguro")
     rag_actions = rag.add_subparsers(dest="rag_action", required=True)
     rag_index = rag_actions.add_parser("index", help="Trocea e indexa Markdown confiable")
@@ -124,8 +126,36 @@ def main(argv: Sequence[str] | None = None) -> int:
         if result["llm_error"]:
             print(f"Aviso: LLM no disponible: {result['llm_error']}")
         return 0
+    if args.command == "doctor":
+        icons = {"ok": "[ok]", "warn": "[!] ", "fail": "[x] ", "info": "[i] "}
+        checks = build_doctor_service().run()
+        group = None
+        for check in checks:
+            if check.group != group:
+                group = check.group
+                print(f"\n== {group}")
+            print(f"  {icons[check.status]} {check.title}: {check.detail}")
+            if check.fix:
+                print(f"         -> {check.fix}")
+        failed = [check for check in checks if check.status == "fail"]
+        print("\nTodo listo." if not failed and not any(c.status == "warn" for c in checks)
+              else f"\n{len(failed)} problema(s) bloqueante(s)." if failed else "\nFunciona; revise los avisos [!].")
+        return 1 if failed else 0
     if args.command == "models":
         service = build_model_service()
+        if args.models_action == "pull":
+            doctor = build_doctor_service()
+            last = ""
+            try:
+                for status, completed, total in doctor.pull_model(args.name):
+                    line = f"{status} {completed * 100 // total}%" if total else status
+                    if line != last:
+                        print(f"\r{line:<60}", end="", flush=True)
+                        last = line
+            except Exception as exc:
+                raise SystemExit(f"\nNo se pudo descargar {args.name}: {exc}")
+            print(f"\nDescargado {args.name}")
+            return 0
         if args.models_action == "use":
             try:
                 model = service.select(args.name)

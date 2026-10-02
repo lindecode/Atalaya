@@ -551,3 +551,62 @@ def state():
     if st.button("Purgar", disabled=not confirm, icon=":material/delete_sweep:"):
         from datetime import timedelta, timezone
         st.json(repository.purge((datetime.now(timezone.utc) - timedelta(days=30)).isoformat()))
+
+
+# --- Primeros pasos --------------------------------------------------------------------------------
+
+def getting_started():
+    settings, _, _, _ = context()
+    hero("🚀 Primeros pasos", "Qué necesita Atalaya en este equipo, qué falta y cómo resolverlo.")
+    from bootstrap import build_doctor_service
+    doctor = build_doctor_service(settings)
+    with st.spinner("Comprobando el equipo..."):
+        checks = doctor.run()
+    blocking = [check for check in checks if check.status == "fail"]
+    warnings = [check for check in checks if check.status == "warn"]
+    if blocking:
+        st.error(f"{len(blocking)} problema(s) impiden usar Atalaya. Resuélvalos primero.")
+    elif warnings:
+        st.warning("Atalaya funciona, pero hay mejoras recomendadas.")
+    else:
+        st.success("Todo listo. Lo marcado como opcional amplía lo que Atalaya puede ver.")
+    icons = {"ok": ":material/check_circle:", "warn": ":material/warning:", "fail": ":material/error:", "info": ":material/info:"}
+    colors = {"ok": "green", "warn": "orange", "fail": "red", "info": "blue"}
+    for group in dict.fromkeys(check.group for check in checks):
+        st.subheader(group, divider="gray")
+        for check in (c for c in checks if c.group == group):
+            with st.container(border=True):
+                left, right = st.columns([3, 2])
+                left.markdown(f":{colors[check.status]}[{icons[check.status]}] **{check.title}**")
+                left.text(check.detail)
+                if check.fix:
+                    right.caption(check.fix)
+                if check.id in {"model-chat", "model-embed"} and check.status != "ok":
+                    model = settings.ollama_embedding_model if check.id == "model-embed" else doctor.models.current()
+                    if right.button(f"Descargar {model}", key=f"pull-{check.id}", icon=":material/download:"):
+                        _pull_with_progress(doctor, model)
+                if check.id == "ollama" and check.status != "ok" and "No instalado" in check.detail:
+                    right.link_button("Descargar Ollama", "https://ollama.com/download/windows", icon=":material/open_in_new:")
+    with st.expander("Requisitos y recomendaciones", icon=":material/menu_book:"):
+        st.markdown(
+            "- **Windows 10/11 de 64 bits.**\n"
+            "- **Ollama** (opcional, recomendado): sin él hay reglas y alertas, pero no explicaciones ni chat.\n"
+            "- **Modelo de análisis y chat**: `qwen3.5:4b` (3,4 GB, ~6 GB de RAM libre). Con poca memoria: `qwen3.5:0.8b`.\n"
+            "- **Modelo de embeddings** (opcional): `embeddinggemma` (0,6 GB) mejora la búsqueda en la documentación.\n"
+            "- **Permisos** (opcional, una vez): *Configurar permisos* en el menú Inicio permite leer accesos y el firewall "
+            "sin ejecutar Atalaya como administrador.\n"
+            "- Guía completa: `README/README.instalacion.md`.")
+
+
+def _pull_with_progress(doctor, model: str):
+    bar = st.progress(0.0, text=f"Descargando {model}...")
+    try:
+        for status, completed, total in doctor.pull_model(model):
+            bar.progress(min(completed / total, 1.0) if total else 0.0, text=f"{model}: {status}")
+    except Exception as exc:
+        bar.empty()
+        st.error(f"No se pudo descargar {model}: {exc}")
+        return
+    bar.progress(1.0, text=f"{model} descargado")
+    st.cache_data.clear()
+    st.rerun()

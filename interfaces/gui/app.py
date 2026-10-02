@@ -23,6 +23,7 @@ navigation = st.navigation({
         st.Page("pages/7_Firewall.py", title="Firewall", icon=":material/security:"),
     ],
     "Herramientas": [
+        st.Page("pages/11_Primeros_pasos.py", title="Primeros pasos", icon=":material/rocket_launch:"),
         st.Page("pages/9_Chat.py", title="Chat", icon=":material/forum:"),
         st.Page("pages/8_Informes.py", title="Informes", icon=":material/description:"),
         st.Page("pages/10_Estado.py", title="Estado", icon=":material/settings:"),
