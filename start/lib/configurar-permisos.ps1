@@ -13,6 +13,10 @@ $ReadersSid = 'S-1-5-32-573'
 $DataDir = Join-Path $env:ProgramData 'Atalaya'
 $FirewallDir = Split-Path -Parent $FirewallLog
 $StateFile = Join-Path $DataDir 'estado-previo.json'
+# Carpeta usada antes del cambio de nombre a Atalaya: equipos configurados entonces siguen apuntando ahi
+$LegacyDataDir = Join-Path $env:ProgramData 'network-llm'
+$LegacyStateFile = Join-Path $LegacyDataDir 'estado-previo.json'
+$OurFirewallLogs = @($FirewallLog, (Join-Path $LegacyDataDir 'firewall\pfirewall.log'))
 # Valores de fabrica de Windows: se usan al revertir una configuracion hecha sin estado guardado
 $WindowsDefaults = @{ LogBlocked = 'NotConfigured'; LogFileName = '%systemroot%\system32\LogFiles\Firewall\pfirewall.log'; LogMaxSizeKilobytes = 4096 }
 
@@ -43,22 +47,44 @@ function Get-DefaultFirewallState {
     @('Domain', 'Private', 'Public') | ForEach-Object { [pscustomobject](@{ Name = $_ } + $WindowsDefaults) }
 }
 
+function Get-SavedStateFile {
+    # Estado previo guardado, en la carpeta actual o en la anterior al cambio de nombre
+    foreach ($candidate in @($StateFile, $LegacyStateFile)) { if (Test-Path $candidate) { return $candidate } }
+    return $null
+}
+
+function Test-FirewallOurs {
+    [bool](Get-NetFirewallProfile -All | Where-Object { $OurFirewallLogs -contains $_.LogFileName })
+}
+
 function Test-LegacyConfiguration {
     # Configurado por una version que no guardaba el estado: el firewall ya escribe en nuestra carpeta
-    -not (Test-Path $StateFile) -and [bool](Get-NetFirewallProfile -All | Where-Object { $_.LogFileName -eq $FirewallLog })
+    -not (Get-SavedStateFile) -and (Test-FirewallOurs)
 }
 
 function Test-Configured {
     # True si queda algo aplicado por Atalaya (sirve a desinstalar.ps1 para ofrecer revertir).
     # La pertenencia al grupo sola no cuenta: el usuario podia estar en el antes de instalar.
-    (Test-Path $StateFile) -or [bool](Get-NetFirewallProfile -All | Where-Object { $_.LogFileName -eq $FirewallLog })
+    [bool](Get-SavedStateFile) -or (Test-FirewallOurs)
+}
+
+function Remove-OurFolders {
+    # El servicio del firewall puede tardar en soltar el log anterior
+    foreach ($dir in @($DataDir, $LegacyDataDir)) {
+        foreach ($attempt in 1..5) {
+            try { if (Test-Path $dir) { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction Stop }; break }
+            catch { Start-Sleep -Seconds 2 }
+        }
+        if (Test-Path $dir) { Write-Aviso "No se pudo borrar $dir (en uso); borrelo manualmente." }
+    }
 }
 
 if ($MostrarEstado) {
     $sid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
     $state = Get-CurrentState $sid
     $state['configuradoPorAtalaya'] = Test-Configured
-    $state['estadoPrevioGuardado'] = if (Test-Path $StateFile) { Get-Content $StateFile -Raw | ConvertFrom-Json } else { $null }
+    $saved = Get-SavedStateFile
+    $state['estadoPrevioGuardado'] = if ($saved) { Get-Content $saved -Raw | ConvertFrom-Json } else { $null }
     $state | ConvertTo-Json -Depth 5
     exit 0
 }
@@ -104,8 +130,9 @@ function Set-Membership([string]$sid, [bool]$member) {
 }
 
 if ($Revertir) {
-    if (Test-Path $StateFile) {
-        $previous = Get-Content $StateFile -Raw | ConvertFrom-Json
+    $saved = Get-SavedStateFile
+    if ($saved) {
+        $previous = Get-Content $saved -Raw | ConvertFrom-Json
         $sid = $previous.userSid
         $wasMember = [bool]$previous.wasMember
         $profiles = @($previous.firewall)
@@ -126,21 +153,19 @@ if ($Revertir) {
         } catch { Write-Fallo "Firewall $($fwProfile.Name): $($_.Exception.Message)"; $failed = $true }
     }
     if (-not $failed) {
-        # El servicio del firewall puede tardar en soltar el log anterior
-        foreach ($attempt in 1..5) {
-            try { if (Test-Path $DataDir) { Remove-Item -LiteralPath $DataDir -Recurse -Force -ErrorAction Stop }; break }
-            catch { Start-Sleep -Seconds 2 }
-        }
-        if (Test-Path $DataDir) { Write-Aviso "No se pudo borrar $DataDir (en uso); borrelo manualmente." }
-        else { Write-Ok "Eliminado $DataDir" }
+        Remove-OurFolders
+        Write-Ok "Carpetas de Atalaya en ProgramData eliminadas"
     } else {
-        Write-Aviso "Se conserva $StateFile para poder reintentar."
+        Write-Aviso "Se conserva $saved para poder reintentar."
     }
 } else {
     try {
         New-Item -ItemType Directory -Force -Path $FirewallDir | Out-Null
         if (Test-Path $StateFile) {
             Write-Ok "Estado previo ya guardado; se conserva el original"
+        } elseif (Test-Path $LegacyStateFile) {
+            Copy-Item -LiteralPath $LegacyStateFile -Destination $StateFile
+            Write-Ok "Estado previo recuperado de la carpeta anterior ($LegacyDataDir)"
         } else {
             $state = Get-CurrentState $UsuarioSid
             if (Test-LegacyConfiguration) {
@@ -165,6 +190,12 @@ if ($Revertir) {
         if ($LASTEXITCODE) { throw "icacls termino con codigo $LASTEXITCODE" }
         Set-NetFirewallProfile -All -LogBlocked True -LogMaxSizeKilobytes 16384 -LogFileName $FirewallLog -ErrorAction Stop
         Write-Ok "Firewall registrando paquetes bloqueados en $FirewallLog"
+        if (Test-Path $LegacyDataDir) {
+            # El firewall ya no escribe en la carpeta antigua y el estado previo se copio: sobra
+            Start-Sleep -Seconds 2
+            Remove-Item -LiteralPath $LegacyDataDir -Recurse -Force -ErrorAction SilentlyContinue
+            if (-not (Test-Path $LegacyDataDir)) { Write-Ok "Carpeta anterior $LegacyDataDir eliminada" }
+        }
     } catch {
         Write-Fallo "Firewall: $($_.Exception.Message)"; $failed = $true
     }

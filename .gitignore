@@ -9,3 +9,8 @@ __pycache__/
 pytest-cache-files-*/
 tests/.pytest-tmp/
 .venv/
+userdata/
+portable
+runtime/
+build/
+dist/

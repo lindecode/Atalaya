@@ -10,7 +10,7 @@ $FirewallLog = Join-Path $env:ProgramData 'Atalaya\firewall\pfirewall.log'
 # La herramienta solo acepta Ollama en loopback; si el usuario tiene OLLAMA_HOST=0.0.0.0 (para exponerlo
 # en la red) la herramienta se negaría a arrancar y un "ollama serve" lanzado desde aquí quedaría expuesto.
 $env:OLLAMA_HOST = "http://127.0.0.1:$OllamaPort"
-if (Test-Path $FirewallLog) { $env:ATALAYA_FIREWALL_LOG = $FirewallLog }
+# La ruta del log del firewall (actual o anterior al cambio de nombre) la resuelve settings.py
 $env:PYTHONUTF8 = '1'
 
 function Write-Paso([string]$texto) { Write-Host "`n==> $texto" -ForegroundColor Cyan }
@@ -19,17 +19,18 @@ function Write-Aviso([string]$texto) { Write-Host "  [!]  $texto" -ForegroundCol
 function Write-Fallo([string]$texto) { Write-Host "  [x]  $texto" -ForegroundColor Red }
 
 function Find-VenvPython {
-    # Entorno propio de Atalaya o, si no existe, el del repositorio del curso (..\.venv)
-    foreach ($candidate in @((Join-Path $Root '.venv\Scripts\python.exe'),
-                             (Join-Path (Split-Path -Parent $Root) '.venv\Scripts\python.exe'))) {
+    # runtime\: Python incluido por el instalador o el ZIP portable. .venv\: instalacion desde el codigo fuente.
+    foreach ($candidate in @((Join-Path $Root 'runtime\python.exe'), (Join-Path $Root '.venv\Scripts\python.exe'))) {
         if (Test-Path $candidate) { return $candidate }
     }
     return $null
 }
 
+function Test-BundledRuntime { Test-Path (Join-Path $Root 'runtime\python.exe') }
+
 function Get-Python {
     $python = Find-VenvPython
-    if (-not $python) { throw "No hay entorno de Python. Ejecute primero start\instalar.bat" }
+    if (-not $python) { throw "No hay entorno de Python. Ejecute primero start\instalar.bat (ver README\README.instalacion.md)" }
     return $python
 }
 

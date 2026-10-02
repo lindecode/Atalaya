@@ -64,9 +64,13 @@ if ($python) {
 
 # 2. Dependencias -------------------------------------------------------------------------------
 Write-Paso "Dependencias (requirements.txt)"
-& $python -m pip install --disable-pip-version-check -q -r (Join-Path $Root 'requirements.txt')
-if ($LASTEXITCODE) { throw "Fallo la instalacion de dependencias" }
-Write-Ok "Dependencias instaladas"
+if (Test-BundledRuntime) {
+    Write-Ok "Incluidas en el paquete (runtime\); no se descarga nada"
+} else {
+    & $python -m pip install --disable-pip-version-check -q -r (Join-Path $Root 'requirements.txt')
+    if ($LASTEXITCODE) { throw "Fallo la instalacion de dependencias" }
+    Write-Ok "Dependencias instaladas"
+}
 
 # 3. Ollama y modelos ---------------------------------------------------------------------------
 Write-Paso "Ollama (LLM local)"
