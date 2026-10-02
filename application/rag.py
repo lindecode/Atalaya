@@ -27,11 +27,27 @@ class RagService:
             raise ValueError(f"Documento demasiado grande: {value}")
         return path
 
+    def default_sources(self) -> list[Path]:
+        """Project documentation wherever it lives: README/*.md, root README*.md and agente.md."""
+        root = self.settings.project_dir
+        found = sorted((root / "README").glob("*.md")) + sorted(root.glob("README*.md"))
+        if (root / "agente.md").is_file():
+            found.append(root / "agente.md")
+        return [path for path in found if path.is_file()]
+
     def index(self, paths: list[Path] | None = None):
         self.store.initialize()
-        paths = paths or [self.settings.project_dir / "README.md", self.settings.project_dir / "README.man.md",
-                          self.settings.project_dir / "agente.md"]
-        totals = {"sources": 0, "chunks": 0, "embedded": 0, "embedding_error": None}
+        prune = not paths
+        if paths:
+            missing = [str(path) for path in paths if not path.exists()]
+            if missing:
+                raise ValueError(f"No existe: {', '.join(missing)}")
+        else:
+            paths = self.default_sources()
+            if not paths:
+                raise ValueError(f"No hay documentación Markdown que indexar en {self.settings.project_dir}")
+        totals = {"sources": 0, "chunks": 0, "embedded": 0, "embedding_error": None, "removed_sources": []}
+        indexed: list[str] = []
         for raw_path in paths:
             path = self._safe_path(raw_path)
             relative = path.relative_to(self.settings.project_dir).as_posix()
@@ -52,6 +68,10 @@ class RagService:
                                                self.clock.now_iso())
             totals["sources"] += 1; totals["chunks"] += result["total"]
             totals["embedded"] += sum(vector is not None for vector in vectors)
+            indexed.append(relative)
+        if prune:
+            # A full re-index drops documents that were moved or deleted, so the chat cannot cite stale paths
+            totals["removed_sources"] = self.store.remove_sources_except(indexed)
         return totals
 
     def search(self, query: str, top_k: int | None = None, trust_levels=("trusted",)):

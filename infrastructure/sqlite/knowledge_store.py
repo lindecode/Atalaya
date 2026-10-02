@@ -70,6 +70,16 @@ class SQLiteKnowledgeStore:
                 else: inserted += 1
         return {"inserted": inserted, "updated": updated, "total": len(chunks)}
 
+    def remove_sources_except(self, keep: list[str]) -> list[str]:
+        """Delete every indexed source not in `keep`; returns the removed source URIs."""
+        with self._connect() as db:
+            stale = [row[0] for row in db.execute("SELECT DISTINCT source_uri FROM knowledge_chunks")
+                     if row[0] not in set(keep)]
+            for source_uri in stale:
+                db.execute("DELETE FROM knowledge_fts WHERE chunk_id IN (SELECT id FROM knowledge_chunks WHERE source_uri=?)", (source_uri,))
+                db.execute("DELETE FROM knowledge_chunks WHERE source_uri=?", (source_uri,))
+        return stale
+
     @staticmethod
     def _trust_sql(trust_levels):
         if not trust_levels: raise ValueError("Se requiere al menos un nivel de confianza")

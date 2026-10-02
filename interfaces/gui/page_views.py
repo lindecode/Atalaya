@@ -119,9 +119,15 @@ def chat():
         use_embeddings = st.checkbox("Generar embeddings con Ollama", value=True)
         if st.button("Indexar documentación confiable"):
             with st.status("Indexando documentación local...") as index_status:
-                result = build_rag_service(lexical_only=not use_embeddings).index()
-                index_status.update(label=f"Indexados {result['chunks']} chunks", state="complete")
-                if result["embedding_error"]: st.warning(result["embedding_error"])
+                try:
+                    result = build_rag_service(lexical_only=not use_embeddings).index()
+                except (ValueError, OSError) as exc:
+                    index_status.update(label="No se pudo indexar", state="error")
+                    st.error(str(exc))
+                else:
+                    index_status.update(label=f"Indexados {result['chunks']} chunks", state="complete")
+                    if result["embedding_error"]: st.warning(result["embedding_error"])
+                    if result["removed_sources"]: st.caption("Retiradas del índice: " + ", ".join(result["removed_sources"]))
     prompt = st.chat_input("Pregunta sobre alertas, accesos, conexiones, archivos o persistencia")
     if prompt:
         from bootstrap import build_chat_service

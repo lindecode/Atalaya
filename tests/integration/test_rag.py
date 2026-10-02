@@ -51,3 +51,31 @@ def test_index_rejects_document_outside_project(tmp_path):
         assert "dentro del proyecto" in str(exc)
     else:
         raise AssertionError("Debió rechazar el documento externo")
+
+
+def test_default_index_follows_moved_docs_and_drops_stale_sources(tmp_path):
+    settings = replace(Settings(), project_dir=tmp_path, database_path=tmp_path / "rag.db", reports_dir=tmp_path / "reports")
+    service = RagService(SQLiteKnowledgeStore(settings), FixedClock(), settings, None)
+    (tmp_path / "README.md").write_text("# Guia\n\n## RDP\n\nEvento 1149.", encoding="utf-8")
+    assert service.index()["sources"] == 1
+
+    # The docs move into README/ (the case that crashed the installer) and a missing file is not an error
+    (tmp_path / "README").mkdir()
+    (tmp_path / "README.md").rename(tmp_path / "README" / "README.md")
+    (tmp_path / "agente.md").write_text("# Plan\n\nFases.", encoding="utf-8")
+    result = service.index()
+
+    assert result["sources"] == 2
+    assert result["removed_sources"] == ["README.md"]
+    assert {item.source_uri for item in service.search("evento 1149 RDP", 5)} == {"README/README.md"}
+
+
+def test_index_reports_missing_explicit_paths(tmp_path):
+    settings = replace(Settings(), project_dir=tmp_path, database_path=tmp_path / "rag.db")
+    service = RagService(SQLiteKnowledgeStore(settings), FixedClock(), settings, None)
+    try:
+        service.index([tmp_path / "no-existe.md"])
+    except ValueError as exc:
+        assert "No existe" in str(exc)
+    else:
+        raise AssertionError("Debió avisar del archivo inexistente")

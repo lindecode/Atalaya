@@ -126,8 +126,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         service = build_rag_service(embedding_model=getattr(args, "embedding_model", None),
                                     lexical_only=getattr(args, "lexical_only", False))
         if args.rag_action == "index":
-            result = service.index(args.paths or None)
+            try:
+                result = service.index(args.paths or None)
+            except (ValueError, OSError) as exc:
+                raise SystemExit(f"No se pudo indexar: {exc}")
             print(f"Fuentes={result['sources']} chunks={result['chunks']} embeddings={result['embedded']}")
+            if result["removed_sources"]:
+                print(f"Retiradas del índice (ya no existen): {', '.join(result['removed_sources'])}")
             if result["embedding_error"]:
                 print(f"Aviso: embeddings no disponibles; FTS5 quedó operativo: {result['embedding_error']}")
             return 0
