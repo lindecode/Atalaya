@@ -8,5 +8,6 @@ watchdog>=6,<7                              # monitor de archivos en vivo
 ollama>=0.6,<1                              # cliente del LLM local
 pydantic>=2.7,<3                            # validación de la salida del LLM
 streamlit>=1.41,<2                          # interfaz gráfica local
+pystray>=0.19,<1                            # icono en el área de notificación (segundo plano)
 pandas>=2.2,<4
 plotly>=5.24,<7

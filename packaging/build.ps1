@@ -92,7 +92,7 @@ if (-not $SinPrueba) {
     $env:PYTHONUTF8 = '1'
     Push-Location $Stage
     try {
-        & $python -c "import psutil, win32evtlog, watchdog, ollama, pydantic, streamlit, pandas, plotly; print('  importaciones ok')"
+        & $python -c "import psutil, win32evtlog, watchdog, ollama, pydantic, streamlit, pandas, plotly, pystray; print('  importaciones ok')"
         if ($LASTEXITCODE) { throw "Faltan modulos en el paquete" }
         & $python main.py --version
         if ($LASTEXITCODE) { throw "main.py --version fallo" }

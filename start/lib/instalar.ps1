@@ -121,9 +121,9 @@ if (-not $SinAccesos) {
 # 6. Inicio automatico --------------------------------------------------------------------------
 if (-not $SinInicioAutomatico) {
     Write-Paso "Inicio automatico"
-    if (Confirm-Paso "Iniciar el monitor de archivos (watch) al entrar en Windows?" $false $Si) {
-        New-Shortcut (Get-StartupShortcut) (Join-Path $StartDir 'vigilar.bat') 'Monitor de archivos de Atalaya' 7
-        Write-Ok "El monitor arrancara minimizado al iniciar sesion (desactivar: start\inicio-automatico.bat)"
+    if (Confirm-Paso "Iniciar Atalaya en segundo plano (icono junto al reloj, con el monitor) al entrar en Windows?" $false $Si) {
+        New-TrayStartupShortcut
+        Write-Ok "Atalaya arrancara en la bandeja al iniciar sesion (desactivar: start\inicio-automatico.bat)"
     }
 }
 

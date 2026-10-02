@@ -28,6 +28,14 @@ function Find-VenvPython {
 
 function Test-BundledRuntime { Test-Path (Join-Path $Root 'runtime\python.exe') }
 
+function Get-PythonW {
+    # pythonw.exe: el mismo interprete sin ventana de consola (para la bandeja)
+    $python = Get-Python
+    $windowless = Join-Path (Split-Path -Parent $python) 'pythonw.exe'
+    if (Test-Path $windowless) { return $windowless }
+    return $python
+}
+
 function Get-DataHome {
     # Igual que settings.data_home(): ATALAYA_HOME, modo portable (archivo "portable"), o %LOCALAPPDATA%\Atalaya
     if ($env:ATALAYA_HOME) { return $env:ATALAYA_HOME }
@@ -90,16 +98,19 @@ function Invoke-Tool([string[]]$arguments) {
 }
 
 function Get-GuiProcesses {
-    # Procesos de esta herramienta: la GUI (main.py gui y el streamlit hijo) y el monitor (main.py watch)
+    # Procesos de esta herramienta: la bandeja (main.py tray), la GUI (main.py gui y el streamlit hijo)
+    # y el monitor (main.py watch)
     Get-CimInstance Win32_Process -Filter "Name='python.exe' OR Name='pythonw.exe'" |
-        Where-Object { $_.CommandLine -match 'interfaces[\\/]gui[\\/]app\.py' -or $_.CommandLine -match 'main\.py"?\s+(gui|watch)\b' }
+        Where-Object { $_.CommandLine -match 'interfaces[\\/]gui[\\/]app\.py' -or $_.CommandLine -match 'main\.py"?\s+(gui|watch|tray)\b' }
 }
 
-function New-Shortcut([string]$path, [string]$target, [string]$description, [int]$windowStyle = 1) {
+function New-Shortcut([string]$path, [string]$target, [string]$description, [int]$windowStyle = 1,
+                      [string]$arguments = '', [string]$workingDirectory = $StartDir) {
     $shell = New-Object -ComObject WScript.Shell
     $shortcut = $shell.CreateShortcut($path)
     $shortcut.TargetPath = $target
-    $shortcut.WorkingDirectory = $StartDir
+    $shortcut.Arguments = $arguments
+    $shortcut.WorkingDirectory = $workingDirectory
     $shortcut.Description = $description
     $shortcut.WindowStyle = $windowStyle            # 1 normal, 7 minimizada
     $icon = Join-Path $Root 'assets\icon.ico'
@@ -107,7 +118,15 @@ function New-Shortcut([string]$path, [string]$target, [string]$description, [int
     $shortcut.Save()
 }
 
-function Get-StartupShortcut { Join-Path ([Environment]::GetFolderPath('Startup')) 'Atalaya vigilar.lnk' }
+function Get-StartupShortcut { Join-Path ([Environment]::GetFolderPath('Startup')) 'Atalaya.lnk' }
+function Get-LegacyStartupShortcut { Join-Path ([Environment]::GetFolderPath('Startup')) 'Atalaya vigilar.lnk' }
+
+function New-TrayStartupShortcut {
+    # Al iniciar sesion: Atalaya en la bandeja, con el monitor activo y sin abrir el navegador
+    $legacy = Get-LegacyStartupShortcut
+    if (Test-Path $legacy) { Remove-Item -LiteralPath $legacy }
+    New-Shortcut (Get-StartupShortcut) (Get-PythonW) 'Atalaya en segundo plano' 1 'main.py tray --no-browser --monitor' $Root
+}
 function Get-MenuFolder { Join-Path ([Environment]::GetFolderPath('Programs')) 'Atalaya' }
 function Get-DesktopShortcut { Join-Path ([Environment]::GetFolderPath('Desktop')) 'Atalaya.lnk' }
 

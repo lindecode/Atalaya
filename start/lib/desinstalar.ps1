@@ -10,7 +10,7 @@ Write-Paso "Deteniendo Atalaya"
 
 if (-not $DesdeDesinstalador) {
     Write-Paso "Accesos directos e inicio automatico"
-    foreach ($path in @((Get-DesktopShortcut), (Get-StartupShortcut), (Get-MenuFolder))) {
+    foreach ($path in @((Get-DesktopShortcut), (Get-StartupShortcut), (Get-LegacyStartupShortcut), (Get-MenuFolder))) {
         if (Test-Path $path) { Remove-Item -LiteralPath $path -Recurse -Force; Write-Ok "Eliminado $path" }
     }
 }

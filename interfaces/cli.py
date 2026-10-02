@@ -24,6 +24,9 @@ def _parser() -> argparse.ArgumentParser:
     analyze.add_argument("--model", help="Modelo de Ollama solo para esta ejecución")
     commands.add_parser("report", help="Genera un informe Markdown")
     commands.add_parser("gui", help="Abre la interfaz local Streamlit")
+    tray = commands.add_parser("tray", help="Atalaya en segundo plano: icono junto al reloj con el panel y el monitor")
+    tray.add_argument("--no-browser", action="store_true", help="No abrir el navegador al arrancar")
+    tray.add_argument("--monitor", action="store_true", help="Activar también el monitor de archivos")
     commands.add_parser("watch", help="Monitoriza archivos en vivo hasta Ctrl+C")
     chat = commands.add_parser("chat", help="Pregunta al analista local")
     chat.add_argument("question", nargs="?")
@@ -226,6 +229,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command == "report":
         print(build_report_service().execute())
         return 0
+    if args.command == "tray":
+        from interfaces.tray import run_tray
+        return run_tray(open_browser=not args.no_browser, monitor=args.monitor)
     if args.command == "gui":
         project = Path(__file__).resolve().parents[1]
         config = tomllib.loads((project / ".streamlit" / "config.toml").read_text(encoding="utf-8"))

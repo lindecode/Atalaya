@@ -47,7 +47,7 @@ Name: "spanish"; MessagesFile: "compiler:Languages\Spanish.isl"
 
 [Tasks]
 Name: "desktopicon"; Description: "Crear un acceso directo en el escritorio"; GroupDescription: "Accesos directos:"
-Name: "autostartwatch"; Description: "Iniciar el monitor de archivos al entrar en Windows"; GroupDescription: "Inicio automático:"; Flags: unchecked
+Name: "autostart"; Description: "Iniciar Atalaya en segundo plano al entrar en Windows (icono junto al reloj, con el monitor de archivos)"; GroupDescription: "Inicio automático:"; Flags: unchecked
 
 [Files]
 Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
@@ -76,17 +76,18 @@ Type: filesandordirs; Name: "{app}\shared"
 Type: dirifempty; Name: "{app}"
 
 [Icons]
-Name: "{autoprograms}\{#AppName}\{#AppName}"; Filename: "{app}\start\iniciar.bat"; WorkingDir: "{app}\start"; IconFilename: "{app}\assets\icon.ico"; Comment: "Abrir el panel de Atalaya"; Flags: runminimized
+; Atalaya vive en la bandeja (junto al reloj): pythonw no abre consola y un segundo clic solo abre el panel
+Name: "{autoprograms}\{#AppName}\{#AppName}"; Filename: "{app}\runtime\pythonw.exe"; Parameters: "main.py tray"; WorkingDir: "{app}"; IconFilename: "{app}\assets\icon.ico"; Comment: "Abrir Atalaya (sigue en segundo plano junto al reloj)"
 Name: "{autoprograms}\{#AppName}\Recolectar y analizar"; Filename: "{app}\start\recolectar.bat"; WorkingDir: "{app}\start"; IconFilename: "{app}\assets\icon.ico"
 Name: "{autoprograms}\{#AppName}\Diagnóstico"; Filename: "{app}\start\diagnostico.bat"; WorkingDir: "{app}\start"; IconFilename: "{app}\assets\icon.ico"
 Name: "{autoprograms}\{#AppName}\Configurar permisos"; Filename: "{app}\start\configurar-permisos.bat"; WorkingDir: "{app}\start"; IconFilename: "{app}\assets\icon.ico"; Comment: "Una sola vez, pide administrador"
 Name: "{autoprograms}\{#AppName}\Detener Atalaya"; Filename: "{app}\start\detener.bat"; WorkingDir: "{app}\start"; IconFilename: "{app}\assets\icon.ico"
 Name: "{autoprograms}\{#AppName}\Desinstalar Atalaya"; Filename: "{uninstallexe}"
-Name: "{autodesktop}\{#AppName}"; Filename: "{app}\start\iniciar.bat"; WorkingDir: "{app}\start"; IconFilename: "{app}\assets\icon.ico"; Tasks: desktopicon; Flags: runminimized
-Name: "{userstartup}\{#AppName} - monitor"; Filename: "{app}\start\vigilar.bat"; WorkingDir: "{app}\start"; IconFilename: "{app}\assets\icon.ico"; Tasks: autostartwatch; Flags: runminimized
+Name: "{autodesktop}\{#AppName}"; Filename: "{app}\runtime\pythonw.exe"; Parameters: "main.py tray"; WorkingDir: "{app}"; IconFilename: "{app}\assets\icon.ico"; Tasks: desktopicon
+Name: "{userstartup}\{#AppName}"; Filename: "{app}\runtime\pythonw.exe"; Parameters: "main.py tray --no-browser --monitor"; WorkingDir: "{app}"; IconFilename: "{app}\assets\icon.ico"; Tasks: autostart
 
 [Run]
-Filename: "{app}\start\iniciar.bat"; WorkingDir: "{app}\start"; Description: "Abrir Atalaya (vaya a Herramientas > Primeros pasos)"; Flags: postinstall nowait skipifsilent runminimized
+Filename: "{app}\runtime\pythonw.exe"; Parameters: "main.py tray"; WorkingDir: "{app}"; Description: "Abrir Atalaya (vaya a Herramientas > Primeros pasos)"; Flags: postinstall nowait skipifsilent
 
 [UninstallRun]
 ; Detiene Atalaya, ofrece revertir los permisos de administrador y pregunta por los datos del usuario

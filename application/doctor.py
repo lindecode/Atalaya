@@ -15,7 +15,7 @@ from typing import Callable, Literal
 
 Status = Literal["ok", "warn", "fail", "info"]
 
-RUNTIME_MODULES = ("psutil", "win32evtlog", "watchdog", "ollama", "streamlit", "pydantic", "pandas", "plotly")
+RUNTIME_MODULES = ("psutil", "win32evtlog", "watchdog", "ollama", "streamlit", "pydantic", "pandas", "plotly", "pystray")
 MIN_PYTHON = (3, 11)
 MIN_FREE_GB = 2.0
 OLLAMA_DOWNLOAD = "https://ollama.com/download/windows"

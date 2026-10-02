@@ -17,7 +17,9 @@ Write-Paso "Servicios de Atalaya"
 if (Test-Port $GuiPort) { Write-Ok "Panel en http://127.0.0.1:$GuiPort" } else { Write-Host "  Panel detenido" }
 $watch = Get-GuiProcesses | Where-Object { $_.CommandLine -match 'main\.py"?\s+watch\b' }
 if ($watch) { Write-Ok "Monitor de archivos en marcha" } else { Write-Host "  Monitor de archivos detenido" }
-if (Test-Path (Get-StartupShortcut)) { Write-Ok "Monitor con inicio automatico" } else { Write-Host "  Monitor sin inicio automatico" }
+$tray = Get-GuiProcesses | Where-Object { $_.CommandLine -match 'main\.py"?\s+tray\b' }
+if ($tray) { Write-Ok "Atalaya en segundo plano (icono junto al reloj)" } else { Write-Host "  Atalaya no esta en la bandeja (start\iniciar.bat lo arranca)" }
+if (Test-Path (Get-StartupShortcut)) { Write-Ok "Inicio automatico al entrar en Windows" } else { Write-Host "  Sin inicio automatico" }
 
 Write-Paso "Requisitos, LLM y permisos"
 Invoke-Tool @('doctor') | Out-Null
