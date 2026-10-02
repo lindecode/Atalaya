@@ -149,4 +149,11 @@ MIGRATIONS: tuple[str, ...] = (
     );
     CREATE INDEX idx_sysmon_event_ts ON sysmon_events(event_id, ts);
     """,
+    """
+    CREATE TABLE preferences (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    """,
 )

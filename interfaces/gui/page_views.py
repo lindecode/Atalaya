@@ -108,6 +108,10 @@ def reports():
 
 def chat():
     st.title("Chat")
+    from interfaces.gui.common import model_selector
+    model = model_selector()
+    if model and not model["tools"]:
+        st.warning(f"{model['name']} no admite tool calling; elija en la barra lateral un modelo con tools para el chat.")
     prompt = st.chat_input("Pregunta sobre alertas, accesos, conexiones, archivos o persistencia")
     if prompt:
         from bootstrap import build_chat_service

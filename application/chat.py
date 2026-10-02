@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from infrastructure.ollama.client import chat
+
 
 TOOL_SCHEMAS = [
     {"type": "function", "function": {"name": name, "description": description, "parameters": {"type": "object", "properties": properties, "additionalProperties": False}}}
@@ -32,7 +34,7 @@ class ChatService:
         ]
         trace = []
         for _ in range(5):
-            response = self.client.chat(model=self.settings.ollama_model, messages=messages, tools=TOOL_SCHEMAS, think=False)
+            response = chat(self.client, model=self.settings.ollama_model, messages=messages, tools=TOOL_SCHEMAS, think=False)
             message = response.message
             calls = getattr(message, "tool_calls", None) or []
             if not calls:

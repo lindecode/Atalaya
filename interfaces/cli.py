@@ -8,7 +8,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Sequence
 
-from bootstrap import build_analyze_service, build_chat_service, build_collect_service, build_report_service, build_repository, build_status_service, build_watch_service
+from bootstrap import build_analyze_service, build_chat_service, build_collect_service, build_model_service, build_report_service, build_repository, build_status_service, build_watch_service
 from infrastructure.clock import SystemClock
 
 
@@ -17,12 +17,17 @@ def _parser() -> argparse.ArgumentParser:
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("collect", help="Recolecta una instantánea local")
     commands.add_parser("status", help="Muestra el estado y tamaño de la base de datos")
-    commands.add_parser("analyze", help="Ejecuta reglas y correlación local opcional")
+    analyze = commands.add_parser("analyze", help="Ejecuta reglas y correlación local opcional")
+    analyze.add_argument("--model", help="Modelo de Ollama solo para esta ejecución")
     commands.add_parser("report", help="Genera un informe Markdown")
     commands.add_parser("gui", help="Abre la interfaz local Streamlit")
     commands.add_parser("watch", help="Monitoriza archivos en vivo hasta Ctrl+C")
     chat = commands.add_parser("chat", help="Pregunta al analista local")
     chat.add_argument("question", nargs="?")
+    chat.add_argument("--model", help="Modelo de Ollama solo para esta pregunta")
+    models = commands.add_parser("models", help="Lista los LLM locales de Ollama o elige uno")
+    models_actions = models.add_subparsers(dest="models_action")
+    models_actions.add_parser("use", help="Guarda el modelo para analyze/chat/GUI").add_argument("name")
     commands.add_parser("backup", help="Crea una copia consistente de SQLite")
     purge = commands.add_parser("purge", help="Aplica la retención local")
     purge.add_argument("--days", type=int, default=30)
@@ -73,13 +78,34 @@ def main(argv: Sequence[str] | None = None) -> int:
         _print_status(build_status_service().execute())
         return 0
     if args.command == "analyze":
-        result = build_analyze_service().execute()
+        result = build_analyze_service(model=args.model).execute()
         print(f"Run {result['run_id']}: {result['status']}; alertas nuevas={result['new_alerts']}; "
               f"analizadas por {result['llm_model']}={result['llm_alerts']}")
         if result["learning"]:
             print("Baseline en aprendizaje: lo observado en esta ejecución se aprueba como normal.")
         if result["llm_error"]:
             print(f"Aviso: LLM no disponible: {result['llm_error']}")
+        return 0
+    if args.command == "models":
+        service = build_model_service()
+        if args.models_action == "use":
+            try:
+                model = service.select(args.name)
+            except ValueError as exc:
+                raise SystemExit(str(exc))
+            print(f"Modelo seleccionado: {model['name']}" + ("" if model["tools"] else " (aviso: sin tool calling, el chat no funcionará)"))
+            return 0
+        current = service.current()
+        try:
+            models = service.available()
+        except Exception as exc:
+            raise SystemExit(f"Ollama no disponible: {exc}")
+        for model in models:
+            marker = "*" if model["name"] == current else " "
+            uses = "analyze+chat" if model["tools"] else "analyze" if model["chat"] else "embeddings (no usable)"
+            print(f"{marker} {model['name']:<28} {model['parameters'] or '?':>6}  {model['size_gb']:>5} GB  {uses}")
+        if current not in {model["name"] for model in models}:
+            print(f"Aviso: el modelo actual {current} no está instalado (ollama pull {current})")
         return 0
     if args.command == "report":
         print(build_report_service().execute())
@@ -100,7 +126,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
     if args.command == "chat":
         question = args.question or input("Pregunta: ")
-        result = build_chat_service().ask(question)
+        result = build_chat_service(model=args.model).ask(question)
         print(result["answer"])
         for call in result["tool_calls"]:
             print(f"- {call['name']}: ids={call['ids']}")

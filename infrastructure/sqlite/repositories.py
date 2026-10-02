@@ -16,7 +16,7 @@ from settings import Settings
 
 TABLES = (
     "runs", "connections", "auth_events", "file_events", "firewall_events",
-    "persistence_items", "baseline", "alerts", "llm_analyses", "cursors", "sysmon_events",
+    "persistence_items", "baseline", "alerts", "llm_analyses", "cursors", "sysmon_events", "preferences",
 )
 BASELINE_RULES = ("R03", "R04", "R05", "R10")
 
@@ -266,6 +266,16 @@ class SQLiteRepository:
     def count_runs(self, kind: str) -> int:
         with self._connect(readonly=True) as db:
             return int(db.execute("SELECT COUNT(*) FROM runs WHERE kind=?", (kind,)).fetchone()[0])
+
+    def get_preference(self, key: str) -> str | None:
+        with self._connect(readonly=True) as db:
+            row = db.execute("SELECT value FROM preferences WHERE key=?", (key,)).fetchone()
+        return row[0] if row else None
+
+    def set_preference(self, key: str, value: str, ts: str) -> None:
+        with self._connect() as db:
+            db.execute("""INSERT INTO preferences(key, value, updated_at) VALUES (?, ?, ?)
+                       ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at""", (key, value, ts))
 
     def approve_all_observed(self, ts: str) -> dict[str, int]:
         """Treat everything seen so far as normal: listen ports, logon sources and every active persistence item."""

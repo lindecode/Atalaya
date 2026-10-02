@@ -5,6 +5,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from infrastructure.ollama.client import chat
 from settings import Settings
 
 
@@ -66,7 +67,8 @@ class OllamaAnalyzer:
         data = json.dumps(safe_alerts, ensure_ascii=False, default=str)
         prompt = f"<datos>\n{data}\n</datos>"
         client = Client(host=self.settings.validated_ollama_host(), timeout=self.settings.llm_timeout_seconds)
-        response = client.chat(
+        response = chat(
+            client,
             model=self.model,
             messages=[{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": prompt}],
             format=AnalysisOutput.model_json_schema(),

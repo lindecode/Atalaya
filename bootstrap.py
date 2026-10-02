@@ -1,13 +1,17 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
 from application.collect import CollectService
 from application.analyze import AnalyzeService
 from application.reports import ReportService
 from application.status import StatusService
 from application.watch import WatchService
 from application.chat import ChatService
+from application.models import ModelService
 from infrastructure.clock import SystemClock
 from infrastructure.ollama.analyzer import OllamaAnalyzer
+from infrastructure.ollama.models import OllamaModelCatalog
 from infrastructure.sqlite.repositories import SQLiteRepository
 from infrastructure.sqlite.chat_tools import SQLiteQueryTools
 from infrastructure.windows.common import WindowsSystemInfo
@@ -49,8 +53,19 @@ def build_status_service(settings: Settings | None = None) -> StatusService:
     return StatusService(build_repository(settings))
 
 
-def build_analyze_service(settings: Settings | None = None) -> AnalyzeService:
+def build_model_service(settings: Settings | None = None) -> ModelService:
     effective = settings or Settings()
+    return ModelService(build_repository(effective), OllamaModelCatalog(effective), SystemClock(), effective)
+
+
+def _with_model(settings: Settings | None, model: str | None) -> Settings:
+    """Explicit --model wins, then the model chosen in the GUI/`models use`, then the default in settings.py."""
+    effective = settings or Settings()
+    return replace(effective, ollama_model=model or build_model_service(effective).current())
+
+
+def build_analyze_service(settings: Settings | None = None, model: str | None = None) -> AnalyzeService:
+    effective = _with_model(settings, model)
     return AnalyzeService(build_repository(effective), OllamaAnalyzer(effective), SystemClock(),
                           WindowsSystemInfo(), effective)
 
@@ -65,6 +80,6 @@ def build_watch_service(settings: Settings | None = None) -> WatchService:
     return WatchService(build_repository(effective), SystemClock(), WindowsSystemInfo(), WindowsNotifier(), effective)
 
 
-def build_chat_service(settings: Settings | None = None) -> ChatService:
-    effective = settings or Settings()
+def build_chat_service(settings: Settings | None = None, model: str | None = None) -> ChatService:
+    effective = _with_model(settings, model)
     return ChatService(effective, SQLiteQueryTools(effective))

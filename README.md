@@ -73,6 +73,22 @@ Aprender la baseline asume que el equipo está limpio en ese momento: algo que
 ya estuviera comprometido quedaría aprobado. En la GUI, la página Alertas tiene
 las mismas dos acciones.
 
+### Elegir el LLM local
+
+```powershell
+# Lista los modelos de Ollama (* = el actual) y para qué sirve cada uno
+.\.venv\Scripts\python.exe network-llm\main.py models
+# Guarda el modelo para analyze, chat y la GUI (se persiste en la BD local)
+.\.venv\Scripts\python.exe network-llm\main.py models use granite4.1:3b
+# Usar otro modelo solo una vez
+.\.venv\Scripts\python.exe network-llm\main.py analyze --model qwen3.5:0.8b
+```
+
+Los modelos de embeddings (`all-minilm`, `embeddinggemma`) se listan pero no se
+pueden elegir. El chat necesita un modelo con tool calling; `models` y la GUI
+avisan si el elegido no lo tiene. En la GUI, el selector está en la barra
+lateral.
+
 ## Interfaz local (Fase 3)
 
 ```powershell
