@@ -5,5 +5,6 @@ from typing import Any, Protocol
 
 class StructuredAnalyzer(Protocol):
     model: str
-    def analyze(self, alerts: list[dict[str, Any]]) -> tuple[dict[str, Any], int]: ...
-
+    def analyze(self, alerts: list[dict[str, Any]]) -> tuple[dict[str, Any], int, list[int]]:
+        """Returns (validated result, prompt chars, ids of the alerts actually sent to the model)."""
+        ...

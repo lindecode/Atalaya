@@ -243,7 +243,7 @@ class SQLiteRepository:
                 (run_id, ts, model, json.dumps(alert_ids), prompt_chars,
                  json.dumps(result, ensure_ascii=False) if result else None, error, duration_ms),
             )
-            if result and not error:
+            if result:
                 db.executemany("UPDATE alerts SET status='analyzed', status_at=? WHERE id=? AND status='new'", ((ts, alert_id) for alert_id in alert_ids))
 
     def update_alert_status(self, alert_id: int, status: str, note: str | None, ts: str) -> None:

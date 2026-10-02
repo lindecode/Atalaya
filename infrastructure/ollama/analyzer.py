@@ -77,8 +77,8 @@ class OllamaAnalyzer:
         cleaned = parsed.model_dump()
         rank = {"low": 1, "medium": 2, "high": 3, "critical": 4}
         incidents = []
+        included_ids = {int(item["alert_id"]) for item in safe_alerts}
         for incident in cleaned["incidents"]:
-            included_ids = {int(item["alert_id"]) for item in safe_alerts}
             incident["alert_ids"] = [value for value in incident["alert_ids"] if value in valid_ids and value in included_ids]
             if not incident["alert_ids"]:
                 continue
@@ -86,4 +86,4 @@ class OllamaAnalyzer:
                 incident["severity"] = "high"
             incidents.append(incident)
         cleaned["incidents"] = incidents
-        return cleaned, len(SYSTEM_PROMPT) + len(prompt)
+        return cleaned, len(SYSTEM_PROMPT) + len(prompt), sorted(included_ids)

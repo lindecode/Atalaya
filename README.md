@@ -48,6 +48,11 @@ error y conserva las alertas deterministas. Los datos se delimitan y recortan
 antes de entrar al prompt; nombres de archivo y demás evidencia nunca se
 interpretan como instrucciones.
 
+Cada `analyze` envía al LLM como máximo `llm_max_alerts` (40) alertas nuevas,
+en lotes de `llm_batch_size` (8), empezando por las más graves. Solo pasan a
+`analyzed` las alertas de los lotes que el modelo respondió; las de lotes
+fallidos o fuera del tope quedan `new` para la siguiente ejecución.
+
 ### Baseline: qué es "normal" en este equipo
 
 Las primeras `baseline_runs` (5) ejecuciones de `analyze` **aprenden**: aprueban

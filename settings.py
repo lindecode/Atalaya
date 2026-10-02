@@ -45,6 +45,8 @@ class Settings:
     ollama_host: str = field(default_factory=lambda: os.environ.get("OLLAMA_HOST", "http://localhost:11434"))
     ollama_model: str = "qwen3.5:4b"
     llm_timeout_seconds: float = 60.0
+    llm_max_alerts: int = 40      # per analyze run; the rest stay 'new' for the next run
+    llm_batch_size: int = 8
     firewall_log_path: Path = field(default_factory=lambda: Path(os.environ.get("NETWORK_LLM_FIREWALL_LOG", os.path.expandvars(r"%SystemRoot%\System32\LogFiles\Firewall\pfirewall.log"))))
     watch_batch_seconds: float = 5.0
 

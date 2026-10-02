@@ -74,7 +74,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
     if args.command == "analyze":
         result = build_analyze_service().execute()
-        print(f"Run {result['run_id']}: {result['status']}; alertas nuevas={result['new_alerts']}; enviadas al LLM={result['llm_alerts']}")
+        print(f"Run {result['run_id']}: {result['status']}; alertas nuevas={result['new_alerts']}; "
+              f"analizadas por {result['llm_model']}={result['llm_alerts']}")
         if result["learning"]:
             print("Baseline en aprendizaje: lo observado en esta ejecución se aprueba como normal.")
         if result["llm_error"]:
