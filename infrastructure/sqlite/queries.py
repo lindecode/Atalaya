@@ -7,7 +7,7 @@ from infrastructure.sqlite.connection import connect
 from settings import Settings
 
 
-ALLOWED_TABLES = {"connections", "auth_events", "file_events", "firewall_events", "persistence_items", "alerts", "llm_analyses", "runs"}
+ALLOWED_TABLES = {"connections", "auth_events", "file_events", "file_reputation", "firewall_events", "persistence_items", "alerts", "llm_analyses", "runs", "ssh_observations"}
 
 
 class SQLiteQueryRepository:
@@ -17,7 +17,8 @@ class SQLiteQueryRepository:
     def rows(self, table: str, since: str | None = None, limit: int = 5000):
         if table not in ALLOWED_TABLES:
             raise ValueError("Tabla no permitida")
-        column = "first_seen" if table == "persistence_items" else "started_at" if table == "runs" else "ts"
+        column = ("first_seen" if table == "persistence_items" else "started_at" if table == "runs"
+                  else "checked_at" if table == "file_reputation" else "ts")
         sql = f"SELECT * FROM {table}"
         params = []
         if since:

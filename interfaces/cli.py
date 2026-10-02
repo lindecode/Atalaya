@@ -13,7 +13,7 @@ from infrastructure.clock import SystemClock
 
 
 def _parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="network-llm", description="Monitor local de seguridad para Windows")
+    parser = argparse.ArgumentParser(prog="Atalaya", description="Monitor local de seguridad para Windows")
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("collect", help="Recolecta una instantánea local")
     commands.add_parser("status", help="Muestra el estado y tamaño de la base de datos")
@@ -250,7 +250,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command == "backup":
         repository = build_repository(); repository.initialize()
         stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-        destination = repository.settings.backup_dir / f"network_llm_{stamp}.db"
+        destination = repository.settings.backup_dir / f"atalaya_{stamp}.db"
         print(repository.backup(destination))
         return 0
     if args.command == "purge":

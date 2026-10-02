@@ -20,7 +20,7 @@ elseif (Test-Port $OllamaPort) {
     if ($python) { Invoke-Tool @('models') | Out-Null }
 } else { Write-Aviso "Instalado pero detenido (iniciar.bat y recolectar.bat lo arrancan)" }
 
-Write-Paso "Servicios de network-llm"
+Write-Paso "Servicios de Atalaya"
 if (Test-Port $GuiPort) { Write-Ok "Panel en http://127.0.0.1:$GuiPort" } else { Write-Host "  Panel detenido" }
 $watch = Get-GuiProcesses | Where-Object { $_.CommandLine -match 'main\.py"?\s+watch\b' }
 if ($watch) { Write-Ok "Monitor de archivos en marcha" } else { Write-Host "  Monitor de archivos detenido" }
@@ -37,7 +37,7 @@ else { Write-Aviso "Accesos y RDP (Security): sin permiso. Ejecute start\configu
 if (Test-Path $FirewallLog) { Write-Ok "Log del firewall: $FirewallLog" }
 else { Write-Aviso "Log del firewall no configurado: start\configurar-permisos.bat" }
 if (Get-WinEvent -ListLog 'Microsoft-Windows-Sysmon/Operational' -ErrorAction SilentlyContinue) { Write-Ok "Sysmon instalado" }
-else { Write-Host "  Sysmon no instalado (opcional, ver README.md, fase 5)" }
+else { Write-Host "  Sysmon no instalado (opcional, ver README\README.md, fase 5)" }
 
 if ($python) {
     Write-Paso "Base de datos"

@@ -213,6 +213,18 @@ def connections():
                    "estado": row.get("state"), "sospechosa": "⚠" if network.is_suspicious(row, settings.suspicious_ports) else "",
                    "ruta": row.get("process_path"), "hora": _local(row.get("ts"))} for row in flows]
         table(detail, key="connections")
+    with st.expander("Sesiones y agentes SSH", icon=":material/terminal:"):
+        ssh_rows = query.rows("ssh_observations", since, 1000)
+        if ssh_rows:
+            sessions = [row for row in ssh_rows if row["kind"] == "session"]
+            services = [row for row in ssh_rows if row["kind"] == "service"]
+            a, b, c = st.columns(3)
+            a.metric("Sesiones observadas", len(sessions))
+            b.metric("Túneles", sum(bool(row.get("tunnel_types")) for row in sessions))
+            c.metric("Reenvío de agente", sum(row.get("agent_forwarding") == 1 for row in sessions))
+            table(services + sessions, key="ssh_observations")
+        else:
+            st.caption("Sin observaciones SSH. Pulse Recolectar para consultar sesiones, sshd y ssh-agent.")
 
 
 # --- Alertas ---------------------------------------------------------------------------------------
@@ -329,18 +341,24 @@ def files():
     hero("📁 Archivos", "Creaciones, cambios, renombrados y borrados en las carpetas vigiladas.")
     rows = query.rows("file_events", since)
     if not rows:
-        return empty("Sin eventos de archivos. Pulse Recolectar o ejecute start\\vigilar.bat.")
-    a, b, c, d = st.columns(4)
-    a.metric("Creados / nuevos", sum(row["action"] in ("created", "observed_new") for row in rows))
-    b.metric("Modificados", sum(row["action"] in ("modified", "observed_changed") for row in rows))
-    c.metric("Renombrados", sum(row["action"] == "moved" for row in rows))
-    d.metric("Borrados", sum(row["action"] == "deleted" for row in rows))
-    _hourly_chart(query, "file_events", since, "action", key="files")
-    left, right = st.columns(2)
-    with left: _top_chart(query, "file_events", "extension", since, "Extensiones", key="files-ext")
-    with right: _top_chart(query, "file_events", "action", since, "Acciones", key="files-action")
-    with st.expander("Detalle", icon=":material/table:"):
-        table(rows, key="file_events")
+        empty("Sin eventos de archivos. Pulse Recolectar o ejecute start\\vigilar.bat.")
+    else:
+        a, b, c, d = st.columns(4)
+        a.metric("Creados / nuevos", sum(row["action"] in ("created", "observed_new") for row in rows))
+        b.metric("Modificados", sum(row["action"] in ("modified", "observed_changed") for row in rows))
+        c.metric("Renombrados", sum(row["action"] == "moved" for row in rows))
+        d.metric("Borrados", sum(row["action"] == "deleted" for row in rows))
+        _hourly_chart(query, "file_events", since, "action", key="files")
+        left, right = st.columns(2)
+        with left: _top_chart(query, "file_events", "extension", since, "Extensiones", key="files-ext")
+        with right: _top_chart(query, "file_events", "action", since, "Acciones", key="files-action")
+        with st.expander("Detalle", icon=":material/table:"):
+            table(rows, key="file_events")
+    st.subheader("Reputación de ejecutables")
+    reputations = query.rows("file_reputation", None, 100)
+    table(reputations, key="file_reputation")
+    st.caption("Sólo se consulta el SHA-256; nunca se carga el ejecutable. Ejecute "
+               "`main.py reputation inspect RUTA --online` para enriquecer un archivo.")
 
 
 def persistence():
@@ -528,7 +546,7 @@ def state():
     if st.button("Crear backup", icon=":material/backup:"):
         from datetime import timezone
         stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-        st.success(str(repository.backup(repository.settings.backup_dir / f"network_llm_{stamp}.db")))
+        st.success(str(repository.backup(repository.settings.backup_dir / f"atalaya_{stamp}.db")))
     confirm = st.checkbox("Confirmo que deseo aplicar la retención de 30 días")
     if st.button("Purgar", disabled=not confirm, icon=":material/delete_sweep:"):
         from datetime import timedelta, timezone

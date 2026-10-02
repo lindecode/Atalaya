@@ -87,6 +87,28 @@ class SysmonEvent:
 
 
 @dataclass(frozen=True, slots=True)
+class SSHObservation:
+    ts: str
+    kind: str
+    direction: str | None
+    local_address: str | None
+    local_port: int | None
+    remote_address: str | None
+    remote_port: int | None
+    state: str | None
+    pid: int | None
+    process_name: str | None
+    process_path: str | None
+    process_user: str | None
+    command_summary: str | None
+    tunnel_types: str | None
+    agent_forwarding: bool | None
+    service_status: str | None
+    service_start_type: str | None
+    dedup_key: str
+
+
+@dataclass(frozen=True, slots=True)
 class CollectionRequest:
     now: str
     cursor: dict[str, Any] | None = None
@@ -95,7 +117,7 @@ class CollectionRequest:
 @dataclass(frozen=True, slots=True)
 class CollectionResult:
     collector: str
-    item_kind: Literal["connections", "auth_events", "file_events", "firewall_events", "persistence_items", "sysmon_events"]
+    item_kind: Literal["connections", "auth_events", "file_events", "firewall_events", "persistence_items", "sysmon_events", "ssh_observations"]
     items: tuple[Any, ...]
     status: CollectionStatus
     warnings: tuple[str, ...] = ()

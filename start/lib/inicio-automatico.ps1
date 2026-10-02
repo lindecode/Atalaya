@@ -15,7 +15,7 @@ if ($Accion -eq 'alternar') {   # doble clic sin argumentos: preguntar lo contra
 }
 switch ($Accion) {
     'activar' {
-        New-Shortcut $shortcut (Join-Path $StartDir 'vigilar.bat') 'Monitor de archivos de network-llm' 7
+        New-Shortcut $shortcut (Join-Path $StartDir 'vigilar.bat') 'Monitor de archivos de Atalaya' 7
         Write-Ok "El monitor arrancara minimizado al iniciar sesion"
     }
     'desactivar' {

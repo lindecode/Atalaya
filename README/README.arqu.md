@@ -1,4 +1,4 @@
-# Arquitectura de network-llm
+# Arquitectura de Atalaya
 
 Monitor de seguridad **local** para un equipo Windows. Recolecta evidencia del sistema, la guarda en SQLite y detecta patrones con reglas deterministas. Después usa un LLM local (Ollama) para explicar y priorizar lo detectado. Nada sale del equipo.
 
@@ -24,8 +24,8 @@ flowchart LR
             pers["Run keys · Startup<br/>tareas · servicios"]
         end
 
-        tool["network-llm<br/>(Python)"]
-        db[("SQLite<br/>data/network_llm.db")]
+        tool["Atalaya<br/>(Python)"]
+        db[("SQLite<br/>data/atalaya.db")]
         ollama["Ollama<br/>127.0.0.1:11434"]
         reports["reports/*.md"]
         gui["GUI Streamlit<br/>127.0.0.1:8501"]
@@ -41,7 +41,7 @@ flowchart LR
 ```
 
 **Restricciones que impone el código:**
-- `OLLAMA_HOST` solo acepta `localhost`, `127.0.0.1` o `::1`; cualquier otro valor aborta ([settings.py](settings.py)).
+- `OLLAMA_HOST` solo acepta `localhost`, `127.0.0.1` o `::1`; cualquier otro valor aborta ([settings.py](../settings.py)).
 - La GUI solo arranca si `.streamlit/config.toml` escucha en loopback, y la telemetría de Streamlit está desactivada.
 - La herramienta no actúa sobre el sistema: no mata procesos, no borra archivos ni toca el firewall.
 
@@ -49,7 +49,7 @@ flowchart LR
 
 ## 2. Capas (arquitectura hexagonal)
 
-El dominio y los casos de uso no conocen Windows, SQLite ni Ollama. Hablan con ellos a través de **puertos** (`Protocol`) que implementan los **adaptadores** de `infrastructure/`. [bootstrap.py](bootstrap.py) conecta cada servicio con sus adaptadores.
+El dominio y los casos de uso no conocen Windows, SQLite ni Ollama. Hablan con ellos a través de **puertos** (`Protocol`) que implementan los **adaptadores** de `infrastructure/`. [bootstrap.py](../bootstrap.py) conecta cada servicio con sus adaptadores.
 
 ```mermaid
 flowchart TB
@@ -204,7 +204,7 @@ flowchart TB
 ```mermaid
 flowchart LR
     subgraph IDX["rag index (Markdown del proyecto)"]
-        md["README.md · README.man.md · agente.md<br/>(solo .md dentro del proyecto, ≤ 2 MB,<br/>sin enlaces simbólicos)"]
+        md["README/*.md · README*.md · agente.md<br/>(solo .md dentro del proyecto, ≤ 2 MB,<br/>sin enlaces simbólicos)"]
         md --> chunk["MarkdownChunker<br/>por encabezados · 2800 car.<br/>solape 300"]
         chunk --> emb["OllamaEmbeddingProvider<br/>embeddinggemma (caché por hash)"]
         chunk --> fts[("knowledge_fts<br/>FTS5 · bm25")]
@@ -227,7 +227,7 @@ flowchart LR
 
 - Si no hay embeddings, la búsqueda cae a **solo léxica** (`lexical_fallback`) y sigue funcionando.
 - Cada chunk tiene un **nivel de confianza** (`trusted`, `derived`, `untrusted`, `llm_generated`). El chat solo recupera `trusted` y `derived`.
-- `rag eval` comprueba la calidad de recuperación con [tests/fixtures/rag_eval.json](tests/fixtures/rag_eval.json) y verifica que la evidencia SQL siga marcada como no confiable.
+- `rag eval` comprueba la calidad de recuperación con [tests/fixtures/rag_eval.json](../tests/fixtures/rag_eval.json) y verifica que la evidencia SQL siga marcada como no confiable.
 
 ### Selección de modelo
 
@@ -247,7 +247,7 @@ Prioridad: `--model`, después la preferencia guardada y, por último, el valor 
 
 ## 5. Modelo de datos (SQLite)
 
-Base de datos: `data/network_llm.db`, en modo WAL para que `watch`, `analyze` y la GUI puedan leer y escribir a la vez. Las migraciones están versionadas con `PRAGMA user_version` en [migrations.py](infrastructure/sqlite/migrations.py).
+Base de datos: `data/atalaya.db`, en modo WAL para que `watch`, `analyze` y la GUI puedan leer y escribir a la vez. Las migraciones están versionadas con `PRAGMA user_version` en [migrations.py](../infrastructure/sqlite/migrations.py).
 
 ```mermaid
 erDiagram
@@ -390,9 +390,9 @@ erDiagram
 
 | Ruta | Responsabilidad |
 |---|---|
-| [main.py](main.py) | Punto de entrada; delega en `interfaces/cli.py` |
-| [bootstrap.py](bootstrap.py) | Composición: construye cada servicio con sus adaptadores y el modelo elegido |
-| [settings.py](settings.py) | Configuración: rutas, umbrales de reglas, modelo, RAG y validación de loopback |
+| [main.py](../main.py) | Punto de entrada; delega en `interfaces/cli.py` |
+| [bootstrap.py](../bootstrap.py) | Composición: construye cada servicio con sus adaptadores y el modelo elegido |
+| [settings.py](../settings.py) | Configuración: rutas, umbrales de reglas, modelo, RAG y validación de loopback |
 | `domain/` | Modelos inmutables y reglas R01–R14 como funciones puras |
 | `application/` | Casos de uso: collect, analyze, watch, report, chat, models, rag y evals |
 | `ports/` | Contratos (`Protocol`) entre los casos de uso y la infraestructura |

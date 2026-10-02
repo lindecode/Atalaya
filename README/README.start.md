@@ -1,20 +1,23 @@
-# Arranque de network-llm
+# Arranque de Atalaya
 
 Lanzadores de doble clic para instalar, abrir y mantener la herramienta sin escribir comandos. Cada `.bat` llama a su script en `lib\`, que es donde está la lógica.
 
 ## Primera vez
 
 1. Doble clic en **`instalar.bat`**. Hace lo siguiente y se puede repetir sin problema:
-   - Usa el entorno de Python existente (`network-llm\.venv` o el `.venv` del repositorio). Si no hay ninguno, crea uno; necesita Python 3.11 o superior y, si falta, ofrece instalarlo con `winget`.
+   - Usa el entorno de Python existente (`Atalaya\.venv` o el `.venv` del repositorio). Si no hay ninguno, crea uno; necesita Python 3.11 o superior y, si falta, ofrece instalarlo con `winget`.
    - Instala `requirements.txt`.
    - Comprueba Ollama (ofrece instalarlo con `winget`) y descarga `qwen3.5:4b` y `embeddinggemma` si faltan.
    - Inicializa la base de datos y el índice de documentación del chat.
    - Pregunta si crear accesos directos (escritorio y menú Inicio), si arrancar el monitor al iniciar sesión y si configurar los permisos.
 2. Opcional: **`configurar-permisos.bat`**. Pide administrador **una sola vez** para:
    - añadir tu usuario al grupo *Lectores del registro de eventos*, con lo que se leen accesos, RDP y fuerza bruta (registro Security) y Sysmon sin ser administrador;
-   - guardar los paquetes que bloquea el firewall en `%ProgramData%\network-llm\firewall\`, una ruta que tu usuario puede leer.
+   - guardar los paquetes que bloquea el firewall en `%ProgramData%\Atalaya\firewall\`, una ruta que tu usuario puede leer.
 
-   Después hay que **cerrar sesión y volver a entrar**. Para deshacerlo: `configurar-permisos.bat revertir`.
+   Antes de cambiar nada guarda el estado previo en `%ProgramData%\Atalaya\estado-previo.json`.
+   Después hay que **cerrar sesión y volver a entrar**.
+
+   Para deshacerlo: `configurar-permisos.bat revertir`. Restaura exactamente lo que había antes (si ya estabas en el grupo, sigues en él; si el log del firewall ya estaba activo, vuelve a su configuración anterior) y borra `%ProgramData%\Atalaya`. Si se configuró con una versión que no guardaba el estado, vuelve a los valores por defecto de Windows.
 
 ## Uso diario
 
@@ -32,7 +35,7 @@ Lanzadores de doble clic para instalar, abrir y mantener la herramienta sin escr
 |---|---|
 | `inicio-automatico.bat` | Sin argumentos, pregunta si activar o desactivar. También acepta `activar`, `desactivar` o `estado`. Usa un acceso directo en la carpeta Inicio del usuario y no necesita administrador |
 | `limpiar-cache.bat` | Borra `__pycache__` y las cachés de pytest. No toca `data\`, `reports\` ni `.venv\` |
-| `desinstalar.bat` | Quita accesos directos e inicio automático y, si lo confirmas, el entorno propio. Los datos solo se borran si escribes `BORRAR` |
+| `desinstalar.bat` | Quita accesos directos e inicio automático. Si detecta permisos configurados, ofrece restaurar el estado anterior (un aviso UAC). Si lo confirmas, borra el entorno propio. Los datos solo se borran si escribes `BORRAR` |
 
 ## Notas
 

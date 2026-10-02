@@ -32,6 +32,7 @@ from infrastructure.windows.firewall import FirewallLogCollector
 from infrastructure.windows.persistence import WindowsPersistenceCollector
 from infrastructure.windows.notifier import WindowsNotifier
 from infrastructure.windows.sysmon import SysmonCollector
+from infrastructure.windows.ssh import SSHObservationCollector
 from settings import Settings
 
 
@@ -55,6 +56,7 @@ def build_collect_service(settings: Settings | None = None) -> CollectService:
         SysmonCollector("sysmon_network", (3,), "connections"),
         SysmonCollector("sysmon_files", (11, 23), "file_events"),
         SysmonCollector("sysmon_process_registry", (1, 12, 13), "sysmon_events"),
+        SSHObservationCollector(),
     )
     return CollectService(repository, collectors, SystemClock(), WindowsSystemInfo())
 

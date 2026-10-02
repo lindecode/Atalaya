@@ -17,7 +17,7 @@ from settings import Settings
 TABLES = (
     "runs", "connections", "auth_events", "file_events", "firewall_events",
     "persistence_items", "baseline", "alerts", "llm_analyses", "cursors", "sysmon_events", "preferences",
-    "knowledge_chunks", "rag_audit", "file_reputation",
+    "knowledge_chunks", "rag_audit", "file_reputation", "ssh_observations",
 )
 BASELINE_RULES = ("R03", "R04", "R05", "R10")
 
@@ -124,6 +124,22 @@ class SQLiteRepository:
                         """INSERT OR IGNORE INTO sysmon_events(ts, event_id, record_id, process_name, data_json)
                         VALUES (?, ?, ?, ?, ?)""",
                         (v["ts"], v["event_id"], v["record_id"], v["process_name"], json.dumps(v["data"], ensure_ascii=False)),
+                    )
+                    inserted += max(cursor.rowcount, 0)
+            elif result.item_kind == "ssh_observations":
+                for item in result.items:
+                    v = asdict(item)
+                    cursor = db.execute(
+                        """INSERT OR IGNORE INTO ssh_observations
+                        (run_id,ts,kind,direction,local_address,local_port,remote_address,remote_port,state,pid,
+                         process_name,process_path,process_user,command_summary,tunnel_types,agent_forwarding,
+                         service_status,service_start_type,dedup_key)
+                        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                        (run_id, v["ts"], v["kind"], v["direction"], v["local_address"], v["local_port"],
+                         v["remote_address"], v["remote_port"], v["state"], v["pid"], v["process_name"],
+                         v["process_path"], v["process_user"], v["command_summary"], v["tunnel_types"],
+                         None if v["agent_forwarding"] is None else int(v["agent_forwarding"]),
+                         v["service_status"], v["service_start_type"], v["dedup_key"]),
                     )
                     inserted += max(cursor.rowcount, 0)
             elif result.item_kind == "persistence_items":
@@ -404,6 +420,7 @@ class SQLiteRepository:
             "llm_analyses": "DELETE FROM llm_analyses WHERE ts<?",
             "rag_audit": "DELETE FROM rag_audit WHERE ts<?",
             "file_reputation": "DELETE FROM file_reputation WHERE checked_at<?",
+            "ssh_observations": "DELETE FROM ssh_observations WHERE ts<?",
             "runs": "DELETE FROM runs WHERE started_at<? AND id NOT IN (SELECT run_id FROM llm_analyses WHERE run_id IS NOT NULL)",
             "alerts": "DELETE FROM alerts WHERE ts<? AND status!='confirmed'",
         }

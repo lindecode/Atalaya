@@ -20,7 +20,7 @@ SERVICES = {
     143: "IMAP", 161: "SNMP", 389: "LDAP", 443: "HTTPS", 445: "SMB", 465: "SMTPS", 587: "SMTP",
     853: "DNS-TLS", 993: "IMAPS", 995: "POP3S", 1433: "SQL Server", 1900: "SSDP", 3306: "MySQL",
     3389: "RDP", 5222: "XMPP", 5353: "mDNS", 5355: "LLMNR", 5432: "PostgreSQL", 5985: "WinRM",
-    5986: "WinRM", 8080: "HTTP alt", 8443: "HTTPS alt", 8501: "panel network-llm", 11434: "Ollama",
+    5986: "WinRM", 8080: "HTTP alt", 8443: "HTTPS alt", 8501: "panel Atalaya", 11434: "Ollama",
 }
 CLOSING_STATES = {"TIME_WAIT", "CLOSE_WAIT", "FIN_WAIT1", "FIN_WAIT2", "LAST_ACK", "CLOSING", "SYN_SENT", "SYN_RECV"}
 SUSPICIOUS_DIRS = ("\\temp\\", "\\downloads\\", "\\appdata\\local\\temp\\", "\\users\\public\\", "\\$recycle.bin\\")

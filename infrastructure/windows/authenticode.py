@@ -9,7 +9,7 @@ from pathlib import Path
 
 class PowerShellAuthenticodeAnalyzer:
     _SCRIPT = """[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
-$s = Get-AuthenticodeSignature -LiteralPath $env:NETWORK_LLM_SIGNATURE_TARGET
+$s = Get-AuthenticodeSignature -LiteralPath $env:ATALAYA_SIGNATURE_TARGET
 [pscustomobject]@{
  Status = [string]$s.Status
  StatusMessage = [string]$s.StatusMessage
@@ -26,7 +26,7 @@ $s = Get-AuthenticodeSignature -LiteralPath $env:NETWORK_LLM_SIGNATURE_TARGET
             return {"status": "UnsupportedPlatform", "valid": False}
         encoded = base64.b64encode(self._SCRIPT.encode("utf-16-le")).decode("ascii")
         environment = os.environ.copy()
-        environment["NETWORK_LLM_SIGNATURE_TARGET"] = str(path)
+        environment["ATALAYA_SIGNATURE_TARGET"] = str(path)
         completed = subprocess.run(
             ["powershell.exe", "-NoProfile", "-NonInteractive", "-EncodedCommand", encoded], env=environment,
             capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=20, check=False,

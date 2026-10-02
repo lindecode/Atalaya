@@ -226,4 +226,30 @@ MIGRATIONS: tuple[str, ...] = (
     CREATE INDEX idx_chat_messages_session ON chat_messages(session_id, id);
     CREATE INDEX idx_chat_sessions_updated ON chat_sessions(updated_at);
     """,
+    """
+    CREATE TABLE ssh_observations (
+      id INTEGER PRIMARY KEY,
+      run_id INTEGER REFERENCES runs(id),
+      ts TEXT NOT NULL,
+      kind TEXT NOT NULL CHECK(kind IN ('session','service')),
+      direction TEXT,
+      local_address TEXT,
+      local_port INTEGER,
+      remote_address TEXT,
+      remote_port INTEGER,
+      state TEXT,
+      pid INTEGER,
+      process_name TEXT,
+      process_path TEXT,
+      process_user TEXT,
+      command_summary TEXT,
+      tunnel_types TEXT,
+      agent_forwarding INTEGER,
+      service_status TEXT,
+      service_start_type TEXT,
+      dedup_key TEXT NOT NULL UNIQUE
+    );
+    CREATE INDEX idx_ssh_ts ON ssh_observations(ts);
+    CREATE INDEX idx_ssh_remote ON ssh_observations(remote_address, ts);
+    """,
 )

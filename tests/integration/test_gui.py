@@ -34,8 +34,8 @@ ROOT = Path(__file__).resolve().parents[2]
 def test_page_loads_with_empty_database(page, tmp_path, monkeypatch):
     database = tmp_path / "empty.db"
     reports = tmp_path / "reports"
-    monkeypatch.setenv("NETWORK_LLM_DB", str(database))
-    monkeypatch.setenv("NETWORK_LLM_REPORTS", str(reports))
+    monkeypatch.setenv("ATALAYA_DB", str(database))
+    monkeypatch.setenv("ATALAYA_REPORTS", str(reports))
     SQLiteRepository(replace(Settings(), database_path=database, reports_dir=reports)).initialize()
 
     app = AppTest.from_file(ROOT / page, default_timeout=30).run()
@@ -46,8 +46,8 @@ def test_page_loads_with_empty_database(page, tmp_path, monkeypatch):
 def test_alert_workflow_and_xss_literal(tmp_path, monkeypatch):
     database = tmp_path / "fixtures.db"
     reports = tmp_path / "reports"
-    monkeypatch.setenv("NETWORK_LLM_DB", str(database))
-    monkeypatch.setenv("NETWORK_LLM_REPORTS", str(reports))
+    monkeypatch.setenv("ATALAYA_DB", str(database))
+    monkeypatch.setenv("ATALAYA_REPORTS", str(reports))
     repository = SQLiteRepository(replace(Settings(), database_path=database, reports_dir=reports))
     repository.initialize()
     payload = "<img src=x onerror=alert(1)>.txt"
@@ -70,8 +70,8 @@ def test_network_pages_draw_the_flow_map(page, tmp_path, monkeypatch):
     from domain.models import CollectionResult, NetworkConnection
 
     database = tmp_path / "net.db"
-    monkeypatch.setenv("NETWORK_LLM_DB", str(database))
-    monkeypatch.setenv("NETWORK_LLM_REPORTS", str(tmp_path / "reports"))
+    monkeypatch.setenv("ATALAYA_DB", str(database))
+    monkeypatch.setenv("ATALAYA_REPORTS", str(tmp_path / "reports"))
     repository = SQLiteRepository(replace(Settings(), database_path=database, reports_dir=tmp_path / "reports"))
     repository.initialize()
     now = datetime.now(timezone.utc).isoformat()
@@ -103,8 +103,8 @@ def test_chat_page_lists_and_opens_saved_conversations(tmp_path, monkeypatch):
     from infrastructure.sqlite.chat_history import SQLiteChatHistory
 
     database = tmp_path / "chat.db"
-    monkeypatch.setenv("NETWORK_LLM_DB", str(database))
-    monkeypatch.setenv("NETWORK_LLM_REPORTS", str(tmp_path / "reports"))
+    monkeypatch.setenv("ATALAYA_DB", str(database))
+    monkeypatch.setenv("ATALAYA_REPORTS", str(tmp_path / "reports"))
     settings = replace(Settings(), database_path=database, reports_dir=tmp_path / "reports")
     SQLiteRepository(settings).initialize()
     history = SQLiteChatHistory(settings)

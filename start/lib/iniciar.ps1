@@ -7,7 +7,7 @@ $python = Get-Python
 if (Test-Port $GuiPort) {
     Write-Ok "El panel ya esta en marcha"
 } else {
-    Write-Paso "Preparando network-llm"
+    Write-Paso "Preparando Atalaya"
     Start-OllamaIfNeeded | Out-Null
     # Ventana minimizada: cerrarla (o start\detener.bat) apaga el panel
     Start-Process -FilePath $python -ArgumentList 'main.py', 'gui' -WorkingDirectory $Root -WindowStyle Minimized

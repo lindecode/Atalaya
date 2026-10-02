@@ -2,7 +2,7 @@
 . "$PSScriptRoot\comun.ps1"
 
 $processes = @(Get-GuiProcesses)
-if (-not $processes) { Write-Ok "No hay nada de network-llm en marcha"; exit 0 }
+if (-not $processes) { Write-Ok "No hay nada de Atalaya en marcha"; exit 0 }
 foreach ($process in $processes) {
     $kind = if ($process.CommandLine -match 'watch') { 'monitor' } else { 'panel' }
     try {

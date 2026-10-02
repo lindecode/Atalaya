@@ -78,7 +78,7 @@ def context():
     repository = SQLiteRepository(settings)
     repository.initialize()
     query = SQLiteQueryRepository(settings)
-    st.sidebar.markdown('<div class="nl-brand">🛡️ network-llm</div>', unsafe_allow_html=True)
+    st.sidebar.markdown('<div class="nl-brand">🛡️ Atalaya</div>', unsafe_allow_html=True)
     st.sidebar.caption("Monitor local · solo lectura · 127.0.0.1")
     options = {"1 hora": 1, "24 horas": 24, "7 días": 168, "30 días": 720}
     label = st.sidebar.selectbox("Ventana temporal", list(options), index=1, key="window")

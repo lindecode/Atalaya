@@ -1,5 +1,5 @@
 @echo off
-rem network-llm - Configuracion unica como administrador (configurar-permisos.bat revertir para deshacer)
+rem Atalaya - Configuracion unica como administrador (configurar-permisos.bat revertir para deshacer)
 setlocal
 set "EXTRA="
 if /i "%~1"=="revertir" set "EXTRA=-Revertir"

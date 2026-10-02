@@ -1,16 +1,16 @@
 ﻿# Configuracion UNICA como administrador para que el uso diario no necesite elevacion:
 #   1. Anade al usuario al grupo "Lectores del registro de eventos" (S-1-5-32-573): puede leer los
 #      registros Security (accesos, RDP, fuerza bruta) y Sysmon sin ser administrador.
-#   2. Activa el log de paquetes bloqueados del firewall en %ProgramData%\network-llm\firewall,
+#   2. Activa el log de paquetes bloqueados del firewall en %ProgramData%\Atalaya\firewall,
 #      una carpeta que el usuario puede leer (la ruta por defecto en System32 exige administrador).
-# Antes de cambiar nada guarda el estado previo en %ProgramData%\network-llm\estado-previo.json;
-# -Revertir restaura exactamente ese estado y borra %ProgramData%\network-llm.
+# Antes de cambiar nada guarda el estado previo en %ProgramData%\Atalaya\estado-previo.json;
+# -Revertir restaura exactamente ese estado y borra %ProgramData%\Atalaya.
 # -MostrarEstado imprime el estado actual sin cambiar nada (no necesita administrador).
 param([switch]$Elevado, [string]$UsuarioSid, [switch]$Revertir, [switch]$MostrarEstado)
 . "$PSScriptRoot\comun.ps1"
 
 $ReadersSid = 'S-1-5-32-573'
-$DataDir = Join-Path $env:ProgramData 'network-llm'
+$DataDir = Join-Path $env:ProgramData 'Atalaya'
 $FirewallDir = Split-Path -Parent $FirewallLog
 $StateFile = Join-Path $DataDir 'estado-previo.json'
 # Valores de fabrica de Windows: se usan al revertir una configuracion hecha sin estado guardado
@@ -49,7 +49,7 @@ function Test-LegacyConfiguration {
 }
 
 function Test-Configured {
-    # True si queda algo aplicado por network-llm (sirve a desinstalar.ps1 para ofrecer revertir).
+    # True si queda algo aplicado por Atalaya (sirve a desinstalar.ps1 para ofrecer revertir).
     # La pertenencia al grupo sola no cuenta: el usuario podia estar en el antes de instalar.
     (Test-Path $StateFile) -or [bool](Get-NetFirewallProfile -All | Where-Object { $_.LogFileName -eq $FirewallLog })
 }
@@ -57,7 +57,7 @@ function Test-Configured {
 if ($MostrarEstado) {
     $sid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
     $state = Get-CurrentState $sid
-    $state['configuradoPorNetworkLlm'] = Test-Configured
+    $state['configuradoPorAtalaya'] = Test-Configured
     $state['estadoPrevioGuardado'] = if (Test-Path $StateFile) { Get-Content $StateFile -Raw | ConvertFrom-Json } else { $null }
     $state | ConvertTo-Json -Depth 5
     exit 0
@@ -68,14 +68,14 @@ if (-not $Elevado) {
     # que confirma es otra cuenta.
     $sid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
     if ($Revertir) {
-        Write-Host "Se restaurara el estado anterior a network-llm (grupo de lectores de eventos y log del firewall)"
+        Write-Host "Se restaurara el estado anterior a Atalaya (grupo de lectores de eventos y log del firewall)"
         Write-Host "y se borrara $DataDir."
     } else {
         Write-Host "Se pedira permiso de administrador (UAC) UNA vez para:"
         Write-Host "  - Anadir su usuario al grupo 'Lectores del registro de eventos'"
         Write-Host "  - Registrar en $FirewallDir los paquetes que bloquea el firewall"
         Write-Host "El estado actual se guarda antes para poder revertirlo (configurar-permisos.bat revertir)."
-        Write-Host "Despues network-llm no necesita ejecutarse como administrador."
+        Write-Host "Despues Atalaya no necesita ejecutarse como administrador."
     }
     $arguments = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', "`"$PSCommandPath`"", '-Elevado', '-UsuarioSid', $sid)
     if ($Revertir) { $arguments += '-Revertir' }
@@ -144,7 +144,7 @@ if ($Revertir) {
         } else {
             $state = Get-CurrentState $UsuarioSid
             if (Test-LegacyConfiguration) {
-                # Lo actual ya es configuracion de network-llm: el estado previo real eran los valores de Windows
+                # Lo actual ya es configuracion de Atalaya: el estado previo real eran los valores de Windows
                 $state.wasMember = $false
                 $state.firewall = @(Get-DefaultFirewallState)
                 $state['legacy'] = $true

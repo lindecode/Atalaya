@@ -1,7 +1,7 @@
-# Manual de operación de `network-llm`
+# Manual de operación de `Atalaya`
 
 Este documento reúne la preparación manual de Windows y los mecanismos de
-ejecución de la herramienta. `network-llm` observa y recomienda: no bloquea
+ejecución de la herramienta. `Atalaya` observa y recomienda: no bloquea
 conexiones, no elimina archivos, no modifica el firewall y no instala Sysmon ni
 tareas programadas.
 
@@ -12,13 +12,13 @@ Los ejemplos parten de la raíz del repositorio:
 ```powershell
 cd "C:\Users\rekqu\DZM Real\LLM\mlcon-new-york-2026-main"
 $Python = (Resolve-Path ".\.venv\Scripts\python.exe").Path
-$Main = (Resolve-Path ".\network-llm\main.py").Path
+$Main = (Resolve-Path ".\Atalaya\main.py").Path
 ```
 
 - Use una terminal normal para GUI, chat, informes y recolección básica.
 - Use una terminal **Ejecutar como administrador** únicamente para leer
   Security, tareas, servicios y otros datos protegidos.
-- La base `network-llm\data\network_llm.db` contiene nombres de usuario, rutas,
+- La base `Atalaya\data\atalaya.db` contiene nombres de usuario, rutas,
   procesos, IP y actividad del equipo. No la publique ni la adjunte a incidencias
   sin revisarla.
 - Los comandos que cambian auditoría, firewall, Sysmon o Task Scheduler son
@@ -29,14 +29,14 @@ $Main = (Resolve-Path ".\network-llm\main.py").Path
 Instale las dependencias en el entorno virtual compartido:
 
 ```powershell
-& $Python -m pip install -r .\network-llm\requirements.txt
+& $Python -m pip install -r .\Atalaya\requirements.txt
 ```
 
 Compruebe la CLI y ejecute las pruebas:
 
 ```powershell
 & $Python $Main --help
-& $Python -m pytest .\network-llm\tests -q
+& $Python -m pytest .\Atalaya\tests -q
 ```
 
 Primera ejecución recomendada:
@@ -117,8 +117,8 @@ en español. Después ejecute la recolección desde esa misma terminal elevada:
 
 ```powershell
 cd "C:\Users\rekqu\DZM Real\LLM\mlcon-new-york-2026-main"
-& .\.venv\Scripts\python.exe .\network-llm\main.py collect
-& .\.venv\Scripts\python.exe .\network-llm\main.py status
+& .\.venv\Scripts\python.exe .\Atalaya\main.py collect
+& .\.venv\Scripts\python.exe .\Atalaya\main.py status
 ```
 
 Verifique en la salida que `security_events` indique `ok`. Si aparece `skipped`,
@@ -156,7 +156,7 @@ El lector conserva un cursor de archivo y detecta rotación o truncamiento. Para
 usar una copia de laboratorio sin cambiar la configuración global:
 
 ```powershell
-$env:NETWORK_LLM_FIREWALL_LOG = "C:\ruta\de\prueba\pfirewall.log"
+$env:ATALAYA_FIREWALL_LOG = "C:\ruta\de\prueba\pfirewall.log"
 & $Python $Main collect
 ```
 
@@ -189,7 +189,7 @@ Recolecte y revise que `sysmon_network`, `sysmon_files` y
 ```
 
 Actualizar o desinstalar Sysmon queda bajo control del administrador y fuera del
-alcance de `network-llm`.
+alcance de `Atalaya`.
 
 ## 7. Mecanismos de ejecución
 
@@ -233,9 +233,10 @@ Para operar sin embeddings u observar una degradación controlada:
 & $Python $Main rag search "activar firewall" --lexical-only
 ```
 
-La indexación predeterminada admite únicamente `README.md`, `README.man.md` y
-`agente.md`. Las rutas adicionales deben ser Markdown, estar dentro de
-`network-llm` y no ser enlaces simbólicos. Revise cualquier documento antes de
+La indexación predeterminada toma los `.md` de `README/`, los `README*.md` de la
+raíz y `agente.md`; si un documento se mueve o se borra, la siguiente
+indexación completa lo retira del índice. Las rutas adicionales deben ser Markdown, estar dentro de
+`Atalaya` y no ser enlaces simbólicos. Revise cualquier documento antes de
 añadirlo: el índice lo considerará conocimiento confiable.
 
 ### Ejecución puntual
@@ -302,11 +303,11 @@ La opción recomendada para `watch` es crear la tarea manualmente desde
 **Task Scheduler**:
 
 1. Elija **Create Task**, no *Create Basic Task*.
-2. Nombre: `network-llm watch`.
+2. Nombre: `Atalaya watch`.
 3. Disparador: **At log on** del usuario que se desea observar.
 4. Acción, **Program/script**: ruta absoluta a `.venv\Scripts\python.exe`.
-5. **Add arguments**: ruta absoluta a `network-llm\main.py`, seguida de `watch`.
-6. **Start in**: ruta absoluta de la carpeta `network-llm`.
+5. **Add arguments**: ruta absoluta a `Atalaya\main.py`, seguida de `watch`.
+6. **Start in**: ruta absoluta de la carpeta `Atalaya`.
 7. Use **Run only when user is logged on** para que las notificaciones locales
    sean visibles.
 8. Active **Run with highest privileges** solo si se acepta que el monitor tenga
@@ -340,7 +341,7 @@ Cree un backup consistente mientras la aplicación está en uso:
 & $Python $Main backup
 ```
 
-Las copias se guardan en `network-llm\data\backups`. Pruebe periódicamente que
+Las copias se guardan en `Atalaya\data\backups`. Pruebe periódicamente que
 pueden abrirse con una herramienta SQLite local y manténgalas protegidas como la
 base principal.
 
@@ -359,7 +360,7 @@ Para restaurar una copia:
 1. Detenga `watch`, GUI, `collect` y `analyze`.
 2. Haga una copia adicional del archivo actual y de sus archivos `-wal`/`-shm`
    si existen.
-3. Sustituya `data\network_llm.db` por una copia validada.
+3. Sustituya `data\atalaya.db` por una copia validada.
 4. Ejecute `status`; las migraciones pendientes se aplicarán al abrir la BD.
 
 La restauración es una operación manual y potencialmente destructiva: no la
@@ -370,16 +371,16 @@ realice mientras haya procesos usando la base.
 Estas variables permiten pruebas aisladas sin modificar código:
 
 ```powershell
-$env:NETWORK_LLM_DB = "C:\ruta\aislada\network_llm.db"
-$env:NETWORK_LLM_REPORTS = "C:\ruta\aislada\reports"
-$env:NETWORK_LLM_FIREWALL_LOG = "C:\ruta\de\prueba\pfirewall.log"
+$env:ATALAYA_DB = "C:\ruta\aislada\atalaya.db"
+$env:ATALAYA_REPORTS = "C:\ruta\aislada\reports"
+$env:ATALAYA_FIREWALL_LOG = "C:\ruta\de\prueba\pfirewall.log"
 $env:OLLAMA_HOST = "http://127.0.0.1:11434"
 ```
 
 Elimine una variable de la sesión para recuperar su valor predeterminado:
 
 ```powershell
-Remove-Item Env:NETWORK_LLM_DB
+Remove-Item Env:ATALAYA_DB
 ```
 
 ## 12. Diagnóstico rápido

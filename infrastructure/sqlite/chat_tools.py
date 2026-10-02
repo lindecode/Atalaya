@@ -46,6 +46,11 @@ class SQLiteQueryTools:
             if args.get("sha256"): sql += " AND sha256=?"; params.append(args["sha256"].casefold())
             if args.get("path_contains"): sql += " AND path LIKE ?"; params.append(f"%{args['path_contains']}%")
             if args.get("verdict"): sql += " AND verdict=?"; params.append(args["verdict"])
+        elif name == "get_ssh_observations":
+            sql, params = "SELECT * FROM ssh_observations WHERE ts>=?", [since]
+            if args.get("direction"): sql += " AND direction=?"; params.append(args["direction"])
+            if args.get("remote_ip"): sql += " AND remote_address=?"; params.append(args["remote_ip"])
+            if args.get("kind"): sql += " AND kind=?"; params.append(args["kind"])
         elif name == "get_persistence_new":
             sql, params = "SELECT * FROM persistence_items WHERE first_seen>=?", [since]
         else:

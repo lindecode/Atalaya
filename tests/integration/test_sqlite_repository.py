@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 
-from domain.models import CollectionResult, FileEvent, PersistenceItem
+from domain.models import CollectionResult, FileEvent, PersistenceItem, SSHObservation
 from infrastructure.sqlite.repositories import SQLiteRepository
 from settings import Settings
 
@@ -12,7 +12,7 @@ NOW = "2026-10-01T12:00:00+00:00"
 
 def make_repository(tmp_path):
     settings = replace(
-        Settings(), database_path=tmp_path / "network_llm.db",
+        Settings(), database_path=tmp_path / "atalaya.db",
         reports_dir=tmp_path / "reports", backup_dir=tmp_path / "backups", watch_dirs=(),
     )
     repository = SQLiteRepository(settings)
@@ -41,6 +41,18 @@ def test_persistence_upsert_preserves_first_seen_and_counts_only_new(tmp_path):
     assert repository.save_collection(run_id, result, NOW) == 1
     assert repository.save_collection(run_id, result, "2026-10-02T12:00:00+00:00") == 0
     assert repository.status()["tables"]["persistence_items"] == 1
+
+
+def test_ssh_observation_is_idempotent(tmp_path):
+    repository = make_repository(tmp_path)
+    run_id = repository.start_run("collect", NOW, False)
+    item = SSHObservation(NOW, "session", "outbound", "10.0.0.2", 50000, "203.0.113.8", 2222,
+                          "ESTABLISHED", 42, "ssh.exe", r"C:\Windows\ssh.exe", "alice",
+                          "ssh.exe -R", "reverse", False, None, None, "ssh-stable")
+    result = CollectionResult("ssh", "ssh_observations", (item,), "ok")
+    assert repository.save_collection(run_id, result, NOW) == 1
+    assert repository.save_collection(run_id, result, NOW) == 0
+    assert repository.status()["tables"]["ssh_observations"] == 1
 
 
 def test_cursor_is_saved_with_collection(tmp_path):

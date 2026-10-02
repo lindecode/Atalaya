@@ -1,5 +1,5 @@
 @echo off
-rem network-llm - Monitor de archivos en vivo (Ctrl+C para detener)
+rem Atalaya - Monitor de archivos en vivo (Ctrl+C para detener)
 setlocal
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0lib\vigilar.ps1" %*
 set "CODE=%ERRORLEVEL%"

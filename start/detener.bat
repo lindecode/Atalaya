@@ -1,5 +1,5 @@
 @echo off
-rem network-llm - Detiene el panel y el monitor de archivos
+rem Atalaya - Detiene el panel y el monitor de archivos
 setlocal
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0lib\detener.ps1" %*
 set "CODE=%ERRORLEVEL%"

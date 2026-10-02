@@ -1,4 +1,4 @@
-# network-llm
+# Atalaya
 
 Monitor local y de solo lectura para Windows 11. La Fase 1 recolecta conexiones,
 eventos de autenticación, archivos recientes y mecanismos de persistencia en una
@@ -16,7 +16,7 @@ backup y validaciones manuales consulte [README.man.md](README.man.md).
   según la configuración del equipo, Windows también puede limitar tareas
   programadas, servicios o metadatos de procesos. La ejecución termina como
   `partial` y conserva todo lo que sí pudo recolectar.
-- La base contiene actividad sensible del usuario. Proteja `network-llm/data/`
+- La base contiene actividad sensible del usuario. Proteja `Atalaya/data/`
   con los controles de acceso del sistema; BitLocker o EFS son opciones externas.
 
 ## Instalación
@@ -24,29 +24,29 @@ backup y validaciones manuales consulte [README.man.md](README.man.md).
 **Forma rápida:** doble clic en `start\instalar.bat` y, después, `start\iniciar.bat`
 (o el acceso directo del escritorio). Los lanzadores, el instalador y la
 configuración de permisos sin administrador están descritos en
-[start/LEEME.md](start/LEEME.md).
+[README.start.md](README.start.md).
 
 Manualmente, desde la raíz del repositorio:
 
 ```powershell
-.\.venv\Scripts\python.exe -m pip install -r network-llm\requirements.txt
+.\.venv\Scripts\python.exe -m pip install -r Atalaya\requirements.txt
 ```
 
 ## Uso de Fase 1
 
 ```powershell
-.\.venv\Scripts\python.exe network-llm\main.py collect
-.\.venv\Scripts\python.exe network-llm\main.py status
+.\.venv\Scripts\python.exe Atalaya\main.py collect
+.\.venv\Scripts\python.exe Atalaya\main.py status
 ```
 
 ## Análisis e informes (Fase 2)
 
 ```powershell
-.\.venv\Scripts\python.exe network-llm\main.py analyze
-.\.venv\Scripts\python.exe network-llm\main.py report
-.\.venv\Scripts\python.exe network-llm\main.py alert confirm 12 --note "Validado manualmente"
-.\.venv\Scripts\python.exe network-llm\main.py alert dismiss 13
-.\.venv\Scripts\python.exe network-llm\main.py baseline approve remote_ip 192.0.2.10
+.\.venv\Scripts\python.exe Atalaya\main.py analyze
+.\.venv\Scripts\python.exe Atalaya\main.py report
+.\.venv\Scripts\python.exe Atalaya\main.py alert confirm 12 --note "Validado manualmente"
+.\.venv\Scripts\python.exe Atalaya\main.py alert dismiss 13
+.\.venv\Scripts\python.exe Atalaya\main.py baseline approve remote_ip 192.0.2.10
 ```
 
 `analyze` siempre ejecuta R01–R14. Después intenta explicar las alertas con
@@ -71,9 +71,9 @@ sospechosas, ransomware, escaneos, borrado de logs…) alertan siempre.
 
 ```powershell
 # Aprobar de golpe todo lo observado hasta ahora y descartar las alertas que cubre
-.\.venv\Scripts\python.exe network-llm\main.py baseline learn
+.\.venv\Scripts\python.exe Atalaya\main.py baseline learn
 # Aprobar como normal la entidad de una alerta concreta (R03, R04, R05, R10)
-.\.venv\Scripts\python.exe network-llm\main.py alert approve 42
+.\.venv\Scripts\python.exe Atalaya\main.py alert approve 42
 ```
 
 Aprender la baseline asume que el equipo está limpio en ese momento: algo que
@@ -84,11 +84,11 @@ las mismas dos acciones.
 
 ```powershell
 # Lista los modelos de Ollama (* = el actual) y para qué sirve cada uno
-.\.venv\Scripts\python.exe network-llm\main.py models
+.\.venv\Scripts\python.exe Atalaya\main.py models
 # Guarda el modelo para analyze, chat y la GUI (se persiste en la BD local)
-.\.venv\Scripts\python.exe network-llm\main.py models use granite4.1:3b
+.\.venv\Scripts\python.exe Atalaya\main.py models use granite4.1:3b
 # Usar otro modelo solo una vez
-.\.venv\Scripts\python.exe network-llm\main.py analyze --model qwen3.5:0.8b
+.\.venv\Scripts\python.exe Atalaya\main.py analyze --model qwen3.5:0.8b
 ```
 
 Los modelos de embeddings (`all-minilm`, `embeddinggemma`) se listan pero no se
@@ -99,7 +99,7 @@ lateral.
 ## Interfaz local (Fase 3)
 
 ```powershell
-.\.venv\Scripts\python.exe network-llm\main.py gui
+.\.venv\Scripts\python.exe Atalaya\main.py gui
 ```
 
 Abra `http://127.0.0.1:8501`. Streamlit escucha exclusivamente en loopback,
@@ -119,7 +119,7 @@ Después use `collect` para leer incrementalmente `pfirewall.log`. Para observar
 creaciones, modificaciones, borrados y movimientos en vivo:
 
 ```powershell
-.\.venv\Scripts\python.exe network-llm\main.py watch
+.\.venv\Scripts\python.exe Atalaya\main.py watch
 ```
 
 Finalice con Ctrl+C; el lote pendiente se guarda antes de cerrar. Para iniciarlo
@@ -135,7 +135,7 @@ SwiftOnSecurity. La herramienta nunca lo descarga ni instala; únicamente intent
 leer `Microsoft-Windows-Sysmon/Operational` y se degrada si no existe.
 
 ```powershell
-.\.venv\Scripts\python.exe network-llm\main.py chat "¿quién intentó conectarse por RDP esta semana?"
+.\.venv\Scripts\python.exe Atalaya\main.py chat "¿quién intentó conectarse por RDP esta semana?"
 ```
 
 El chat puede llamar únicamente a consultas parametrizadas y limitadas para
@@ -148,10 +148,10 @@ Indexe la documentación confiable. Si Ollama no dispone del modelo de embedding
 FTS5 queda operativo y el comando informa la degradación:
 
 ```powershell
-.\.venv\Scripts\python.exe network-llm\main.py rag index
-.\.venv\Scripts\python.exe network-llm\main.py rag search "cómo investigar RDP"
-.\.venv\Scripts\python.exe network-llm\main.py rag status
-.\.venv\Scripts\python.exe network-llm\main.py rag eval
+.\.venv\Scripts\python.exe Atalaya\main.py rag index
+.\.venv\Scripts\python.exe Atalaya\main.py rag search "cómo investigar RDP"
+.\.venv\Scripts\python.exe Atalaya\main.py rag status
+.\.venv\Scripts\python.exe Atalaya\main.py rag eval
 ```
 
 La evidencia exacta continúa consultándose mediante SQL parametrizado. RAG solo
@@ -162,14 +162,14 @@ texto. Los embeddings se cachean por hash del contenido.
 ## Mantenimiento
 
 ```powershell
-.\.venv\Scripts\python.exe network-llm\main.py backup
-.\.venv\Scripts\python.exe network-llm\main.py purge --days 30
+.\.venv\Scripts\python.exe Atalaya\main.py backup
+.\.venv\Scripts\python.exe Atalaya\main.py purge --days 30
 ```
 
 El backup usa la API consistente de SQLite. La purga conserva las alertas
 confirmadas y sus instantáneas de evidencia.
 
-Los datos se guardan en `network-llm/data/network_llm.db`. Los eventos de
+Los datos se guardan en `Atalaya/data/atalaya.db`. Los eventos de
 Security requieren ejecutar la terminal como administrador. El canal operacional
 de RDP se intenta de forma independiente y se omite con un aviso si no está
 disponible.

@@ -13,5 +13,5 @@ def test_path_is_passed_by_environment_not_interpolated():
     command = run.call_args.args[0]
     environment = run.call_args.kwargs["env"]
     assert str(path) not in command
-    assert environment["NETWORK_LLM_SIGNATURE_TARGET"] == str(path)
+    assert environment["ATALAYA_SIGNATURE_TARGET"] == str(path)
     assert result["valid"] is True

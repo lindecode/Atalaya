@@ -1,4 +1,4 @@
-﻿# Instalador de network-llm: entorno de Python, dependencias, Ollama y modelos, base de datos,
+﻿# Instalador de Atalaya: entorno de Python, dependencias, Ollama y modelos, base de datos,
 # indice RAG, accesos directos e inicio automatico. Se puede repetir: cada paso detecta lo ya hecho.
 param(
     [switch]$Si,                 # aceptar todas las preguntas con su valor por defecto
@@ -37,7 +37,7 @@ function Get-OllamaModels {
     (& $exe list 2>$null | Select-Object -Skip 1) | ForEach-Object { ($_ -split '\s+')[0] } | Where-Object { $_ }
 }
 
-Write-Host "Instalador de network-llm" -ForegroundColor White
+Write-Host "Instalador de Atalaya" -ForegroundColor White
 Write-Host "Carpeta: $Root"
 
 # 1. Python -------------------------------------------------------------------------------------
@@ -102,15 +102,15 @@ if ((Invoke-Tool @('rag', 'index')) -ne 0) { Write-Aviso "No se pudo indexar la 
 if (-not $SinAccesos) {
     Write-Paso "Accesos directos"
     if (Confirm-Paso "Crear acceso directo en el escritorio y carpeta en el menu Inicio?" $true $Si) {
-        New-Shortcut (Get-DesktopShortcut) (Join-Path $StartDir 'iniciar.bat') 'Abrir el panel de network-llm'
+        New-Shortcut (Get-DesktopShortcut) (Join-Path $StartDir 'iniciar.bat') 'Abrir el panel de Atalaya'
         $menu = Get-MenuFolder
         New-Item -ItemType Directory -Force -Path $menu | Out-Null
-        New-Shortcut (Join-Path $menu 'Abrir panel.lnk') (Join-Path $StartDir 'iniciar.bat') 'Abrir el panel de network-llm'
+        New-Shortcut (Join-Path $menu 'Abrir panel.lnk') (Join-Path $StartDir 'iniciar.bat') 'Abrir el panel de Atalaya'
         New-Shortcut (Join-Path $menu 'Recolectar y analizar.lnk') (Join-Path $StartDir 'recolectar.bat') 'Recolectar evidencia, analizar e informar'
         New-Shortcut (Join-Path $menu 'Detener.lnk') (Join-Path $StartDir 'detener.bat') 'Detener panel y monitor'
         New-Shortcut (Join-Path $menu 'Diagnostico.lnk') (Join-Path $StartDir 'diagnostico.bat') 'Comprobar la instalacion'
         New-Shortcut (Join-Path $menu 'Configurar permisos.lnk') (Join-Path $StartDir 'configurar-permisos.bat') 'Configuracion unica como administrador'
-        Write-Ok "Escritorio: network-llm  |  Menu Inicio: carpeta network-llm"
+        Write-Ok "Escritorio: Atalaya  |  Menu Inicio: carpeta Atalaya"
     }
 }
 
@@ -118,7 +118,7 @@ if (-not $SinAccesos) {
 if (-not $SinInicioAutomatico) {
     Write-Paso "Inicio automatico"
     if (Confirm-Paso "Iniciar el monitor de archivos (watch) al entrar en Windows?" $false $Si) {
-        New-Shortcut (Get-StartupShortcut) (Join-Path $StartDir 'vigilar.bat') 'Monitor de archivos de network-llm' 7
+        New-Shortcut (Get-StartupShortcut) (Join-Path $StartDir 'vigilar.bat') 'Monitor de archivos de Atalaya' 7
         Write-Ok "El monitor arrancara minimizado al iniciar sesion (desactivar: start\inicio-automatico.bat)"
     }
 }

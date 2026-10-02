@@ -1,4 +1,4 @@
-# Plan de trabajo — `network-llm`
+# Plan de trabajo — `Atalaya`
 
 Herramienta **local** de ciberseguridad para un equipo Windows: recolecta conexiones de red, accesos remotos y cambios en archivos del usuario; detecta patrones sospechosos con reglas; y usa un LLM local (Ollama) para correlacionar, explicar y priorizar lo detectado.
 
@@ -9,7 +9,7 @@ Este documento es el plan que debe seguir el agente que implemente la herramient
 ## 0. Principios no negociables
 
 1. **Todo es local.** No hay llamadas de red salvo a Ollama en `http://localhost:11434`. Nada de APIs en la nube (ni los `*_groq.py` del repo), ni telemetría, ni descargas en tiempo de ejecución. `OLLAMA_HOST` se analiza como URL y solo se aceptan los hosts exactos `localhost`, `127.0.0.1` o `::1`, sin credenciales ni redirecciones. Cualquier otro destino impide el arranque. El cliente usa tiempos límite y no hereda proxies para esta conexión local.
-2. **La persistencia es local:** SQLite en `network-llm/data/network_llm.db`. No hay servidor de base de datos.
+2. **La persistencia es local:** SQLite en `Atalaya/data/atalaya.db`. No hay servidor de base de datos.
 3. **Solo lectura sobre el sistema.** La herramienta observa y nunca actúa: no mata procesos, no borra archivos y no toca el firewall. Las acciones aparecen como *recomendaciones* en el informe.
 4. **Detectan las reglas, no el LLM.** Las reglas deterministas de Python generan las alertas. El LLM solo recibe alertas ya filtradas y agregadas para correlacionarlas, explicarlas y darles prioridad. Si el LLM falla o no está disponible, la herramienta sigue funcionando y genera un informe solo con las reglas.
 5. **Los datos recolectados no son de confianza.** Nombres de archivo, líneas de comando, nombres de usuario y rutas los puede controlar un atacante, que podría usarlos para inyectar instrucciones en el prompt. Hay que pasarlos al LLM siempre como datos delimitados (JSON dentro de un bloque marcado), recortados de longitud, y con una instrucción de sistema que diga que nunca son instrucciones.
@@ -26,7 +26,7 @@ Este documento es el plan que debe seguir el agente que implemente la herramient
 - **SO:** Windows 11. La herramienta es específica de Windows y no hace falta que sea portable.
 - **Python:** el `.venv` de la raíz del repo.
 - **LLM:** Ollama local con `qwen3.5:4b`, modo sin razonamiento (`think=False`) y `temperature=0.7, top_p=0.8, top_k=20`, que son los valores del repo para Qwen3 sin thinking. Debe poder cambiarse por config (por ejemplo a `gemma4:e2b` o `granite4.1:3b`).
-- **Dependencias:** añadir a `network-llm/requirements.txt`, sin tocar el `requirements.txt` raíz:
+- **Dependencias:** añadir a `Atalaya/requirements.txt`, sin tocar el `requirements.txt` raíz:
   - `psutil`: conexiones y procesos
   - `pywin32`: lectura del Visor de eventos (`win32evtlog.EvtQuery`)
   - `watchdog`: monitor de archivos en vivo
@@ -76,7 +76,7 @@ Los repositorios exponen operaciones semánticas (`add_auth_events`, `find_alert
 ### Estructura de carpetas
 
 ```
-network-llm/
+Atalaya/
 ├── agente.md              ← este plan
 ├── README.md              ← uso, requisitos, cómo activar auditoría/Sysmon
 ├── requirements.txt
@@ -131,7 +131,7 @@ network-llm/
 │   └── limits.py          ← truncado y límites comunes
 ├── .streamlit/
 │   └── config.toml        ← 127.0.0.1, headless, sin telemetría
-├── data/                  ← network_llm.db (git-ignored)
+├── data/                  ← atalaya.db (git-ignored)
 ├── reports/               ← informes generados (git-ignored)
 └── tests/
     ├── unit/              ← dominio y casos de uso con fakes
@@ -155,7 +155,7 @@ network-llm/
 
 ## 3. Persistencia local (SQLite)
 
-**Archivo:** `network-llm/data/network_llm.db`. La ruta se puede cambiar mediante el objeto inmutable definido en `settings.py`.
+**Archivo:** `Atalaya/data/atalaya.db`. La ruta se puede cambiar mediante el objeto inmutable definido en `settings.py`.
 
 **Configuración de la conexión:** `PRAGMA journal_mode=WAL` (para que `watch` y `analyze` puedan funcionar a la vez), `PRAGMA foreign_keys=ON`, `PRAGMA busy_timeout=5000` y `PRAGMA user_version` para versionar el esquema. Las migraciones son transaccionales, ordenadas e inmutables en `infrastructure/sqlite/migrations.py`.
 
@@ -337,7 +337,7 @@ CREATE INDEX idx_evidence_entity ON alert_evidence(entity_type, entity_id);
 **Objetivo:** recolectar lo que Windows ya ofrece por defecto, guardarlo en SQLite y ver un resumen por consola.
 
 Tareas:
-1. Crear `.gitignore`, `requirements.txt`, `settings.py`, los contratos de `ports/`, modelos de `domain/`, adaptadores SQLite y el ensamblaje en `bootstrap.py`; añadir `status` y `collect` a `interfaces/cli.py`. La CLI pública sigue invocándose con `python network-llm/main.py ...`.
+1. Crear `.gitignore`, `requirements.txt`, `settings.py`, los contratos de `ports/`, modelos de `domain/`, adaptadores SQLite y el ensamblaje en `bootstrap.py`; añadir `status` y `collect` a `interfaces/cli.py`. La CLI pública sigue invocándose con `python Atalaya/main.py ...`.
 2. `infrastructure/windows/connections.py`: usar `psutil.net_connections(kind="inet")`. Por cada conexión obtener el proceso (nombre, ruta del ejecutable, usuario). Clasificar `direction` como inferencia:
    - `LISTEN` → `listen`
    - `ESTABLISHED` con coincidencia de protocolo, dirección local, puerto local y PID en un listener de la misma instantánea → `inbound`
@@ -350,7 +350,7 @@ Tareas:
 6. `application/collect.py` ejecuta los recolectores registrados, persiste cada lote de forma transaccional, avanza el cursor solo tras confirmar la escritura e imprime un resumen: número de filas nuevas por tipo, recolectores saltados y motivo.
 
 **Criterios de aceptación:**
-- [x] `python network-llm/main.py collect` funciona **sin** administrador: salta el registro de Seguridad, avisa y termina con estado `partial`.
+- [x] `python Atalaya/main.py collect` funciona **sin** administrador: salta el registro de Seguridad, avisa y termina con estado `partial`.
 - [ ] Con administrador también lee los eventos de autenticación. **Pendiente de prueba manual en una terminal elevada.** El mapeo XML se cubre con un fixture sintético.
 - [x] Dos ejecuciones seguidas no duplican eventos; las instantáneas de conexión permanecen distinguibles por ejecución.
 - [x] `status` muestra el tamaño de la BD, el número de filas por tabla y la fecha de la última ejecución.
@@ -378,7 +378,7 @@ Tareas:
 
 **Objetivo:** ver de un vistazo el estado del equipo, revisar alertas con su evidencia y la explicación del LLM, y explorar los datos recolectados sin usar SQL ni la consola.
 
-**Tecnología:** **Streamlit** (100 % Python, servidor local) con gráficos **Plotly**, que Streamlit sirve sin CDN externo. Se arranca con `python network-llm/main.py gui`, que ejecuta `streamlit run interfaces/gui/app.py` con `cwd` fijado a `network-llm/`, para que encuentre `.streamlit/config.toml`, y se abre en `http://127.0.0.1:8501`.
+**Tecnología:** **Streamlit** (100 % Python, servidor local) con gráficos **Plotly**, que Streamlit sirve sin CDN externo. Se arranca con `python Atalaya/main.py gui`, que ejecuta `streamlit run interfaces/gui/app.py` con `cwd` fijado a `Atalaya/`, para que encuentre `.streamlit/config.toml`, y se abre en `http://127.0.0.1:8501`.
 
 Va justo después de la Fase 2 porque es cuando ya hay alertas y análisis que mostrar. Las páginas de fases posteriores (Firewall, Chat) aparecen desde el principio con un estado vacío que explica qué falta activar.
 
@@ -444,7 +444,7 @@ developmentMode = false
 - Objetivo: cada página carga en menos de 2 s con 30 días de datos de un equipo normal.
 
 **Criterios de aceptación:**
-- [x] `python network-llm/main.py gui` abre el panel en `http://127.0.0.1:8501` y **no** es accesible desde otro equipo de la red (la escucha se verificó con `netstat` exclusivamente en `127.0.0.1`).
+- [x] `python Atalaya/main.py gui` abre el panel en `http://127.0.0.1:8501` y **no** es accesible desde otro equipo de la red (la escucha se verificó con `netstat` exclusivamente en `127.0.0.1`).
 - [ ] No hay peticiones salientes desde el navegador ni desde el servidor de Streamlit aparte de `127.0.0.1` (comprobado en las herramientas de red del navegador y con la propia herramienta).
 - [x] Con la BD vacía, todas las páginas cargan sin errores y muestran estados vacíos que explican qué hacer.
 - [x] Con fixtures cargados, el flujo de evidencia y cambio de estado actualiza la alerta en la BD.
@@ -571,7 +571,7 @@ Cada alerta guarda una `dedup_key` (regla + entidad + ventana) para no generar l
 - Tests de Windows con XML, salidas estructuradas y logs sintéticos: canal vacío/inaccesible/limpiado, proceso que termina durante la consulta, IPv6, UDP, junctions, rutas largas, archivo que cambia durante el hash y rotación/truncamiento del firewall.
 - Tests del adaptador Ollama con cliente simulado: respuesta válida, timeout, JSON inválido o truncado, campos extra, ids inventados e intento de inyección en los datos.
 - Tests de concurrencia: dos `collect`, interrupción de `watch` durante un lote y ejecución simultánea de `watch`, `analyze` y consultas GUI.
-- Comando: `python -m pytest network-llm/tests`.
+- Comando: `python -m pytest Atalaya/tests`.
 - Prueba manual de extremo a extremo (documentarla en el README):
   1. Con administrador, `collect`.
   2. Provocar 12 inicios de sesión fallidos en local con `runas /user:usuario_inexistente cmd` y una contraseña incorrecta.
