@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -34,6 +35,11 @@ esquema solicitado. Expón explicaciones benignas habituales cuando proceda. El 
 explica; las alertas ya fueron creadas exclusivamente por reglas deterministas."""
 
 
+def _escape_data_delimiters(raw_json: str) -> str:
+    """Neutralize delimiter tags so untrusted host data cannot prematurely close <datos>."""
+    return re.sub(r"(?i)<(/?)datos>", r"\\u003c\1datos>", raw_json)
+
+
 def _safe_snapshot(snapshot):
     allowed = ("id", "ts", "event_id", "source_ip", "target_user", "path", "action", "process_name",
                "process_path", "laddr", "lport", "raddr", "rport", "kind", "location", "name", "command")
@@ -64,7 +70,7 @@ class OllamaAnalyzer:
             if len(json.dumps(proposed, ensure_ascii=False, default=str)) > 24_000 and safe_alerts:
                 break
             safe_alerts.append(item)
-        data = json.dumps(safe_alerts, ensure_ascii=False, default=str)
+        data = _escape_data_delimiters(json.dumps(safe_alerts, ensure_ascii=False, default=str))
         prompt = f"<datos>\n{data}\n</datos>"
         client = Client(host=self.settings.validated_ollama_host(), timeout=self.settings.llm_timeout_seconds)
         response = chat(
