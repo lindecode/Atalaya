@@ -206,4 +206,24 @@ MIGRATIONS: tuple[str, ...] = (
     CREATE INDEX idx_file_reputation_checked ON file_reputation(checked_at);
     CREATE INDEX idx_file_reputation_verdict ON file_reputation(verdict);
     """,
+    """
+    CREATE TABLE chat_sessions (
+      id INTEGER PRIMARY KEY,
+      title TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE TABLE chat_messages (
+      id INTEGER PRIMARY KEY,
+      session_id INTEGER NOT NULL REFERENCES chat_sessions(id) ON DELETE CASCADE,
+      ts TEXT NOT NULL,
+      role TEXT NOT NULL CHECK(role IN ('user','assistant','error')),
+      content TEXT NOT NULL,
+      model TEXT,
+      tool_calls_json TEXT,
+      duration_ms INTEGER
+    );
+    CREATE INDEX idx_chat_messages_session ON chat_messages(session_id, id);
+    CREATE INDEX idx_chat_sessions_updated ON chat_sessions(updated_at);
+    """,
 )

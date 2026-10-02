@@ -8,6 +8,7 @@ from application.reports import ReportService
 from application.status import StatusService
 from application.watch import WatchService
 from application.chat import ChatService
+from application.chat_history import RecordedChatService
 from application.models import ModelService
 from application.rag import RagService
 from application.reputation import FileReputationService
@@ -17,6 +18,7 @@ from infrastructure.ollama.analyzer import OllamaAnalyzer
 from infrastructure.ollama.models import OllamaModelCatalog
 from infrastructure.ollama.embeddings import OllamaEmbeddingProvider
 from infrastructure.sqlite.repositories import SQLiteRepository
+from infrastructure.sqlite.chat_history import SQLiteChatHistory
 from infrastructure.sqlite.chat_tools import SQLiteQueryTools
 from infrastructure.sqlite.knowledge_store import SQLiteKnowledgeStore
 from infrastructure.sqlite.reputation_store import SQLiteReputationStore
@@ -92,6 +94,18 @@ def build_chat_service(settings: Settings | None = None, model: str | None = Non
     effective = _with_model(settings, model)
     rag = build_rag_service(effective)
     return ChatService(effective, SecureToolRouter(SQLiteQueryTools(effective), rag))
+
+
+def build_chat_history(settings: Settings | None = None) -> SQLiteChatHistory:
+    effective = settings or Settings()
+    build_repository(effective).initialize()  # applies the chat_* migration on existing databases
+    return SQLiteChatHistory(effective)
+
+
+def build_recorded_chat_service(settings: Settings | None = None, model: str | None = None) -> RecordedChatService:
+    effective = _with_model(settings, model)
+    return RecordedChatService(build_chat_service(effective, effective.ollama_model), build_chat_history(effective),
+                               SystemClock(), effective.ollama_model)
 
 
 def build_rag_service(settings: Settings | None = None, embedding_model: str | None = None,

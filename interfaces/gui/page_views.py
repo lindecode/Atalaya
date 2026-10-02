@@ -391,16 +391,19 @@ def reports():
     st.download_button("Descargar", content.encode("utf-8"), chosen.name, "text/markdown", icon=":material/download:")
 
 
-def chat():
-    context()
-    hero("💬 Chat", "Pregunte en lenguaje natural sobre la evidencia recolectada y la documentación local.")
-    model = st.session_state.get("llm_model_info")
-    if model and not model["tools"]:
-        st.warning(f"{model['name']} no admite tool calling; elija en la barra lateral un modelo con tools para el chat.")
+MARKDOWN_SPECIAL = set("\\`*_{}[]()#+-.!|~<>")
+
+
+def _plain(text: str) -> str:
+    """Button labels render Markdown (links, even images that would load a URL): escape it."""
+    return "".join("\\" + char if char in MARKDOWN_SPECIAL else char for char in text)
+
+
+def _rag_panel():
     from bootstrap import build_rag_service
     rag_status = build_rag_service(lexical_only=True).status()
-    st.caption(f"Conocimiento local: {rag_status['chunks']} chunks; {rag_status['embedded']} con embeddings")
-    with st.expander("Índice RAG local", icon=":material/library_books:"):
+    with st.expander(f"Índice RAG local · {rag_status['chunks']} chunks, {rag_status['embedded']} con embeddings",
+                     icon=":material/library_books:"):
         use_embeddings = st.checkbox("Generar embeddings con Ollama", value=True)
         if st.button("Indexar documentación confiable"):
             with st.status("Indexando documentación local...") as index_status:
@@ -413,18 +416,88 @@ def chat():
                     index_status.update(label=f"Indexados {result['chunks']} chunks", state="complete")
                     if result["embedding_error"]: st.warning(result["embedding_error"])
                     if result["removed_sources"]: st.caption("Retiradas del índice: " + ", ".join(result["removed_sources"]))
-    prompt = st.chat_input("Pregunta sobre alertas, accesos, conexiones, archivos o persistencia")
+
+
+def _show_message(message: dict):
+    role = {"user": "user", "assistant": "assistant", "error": "assistant"}[message["role"]]
+    with st.chat_message(role):
+        if message["role"] == "error":
+            st.error("Chat local no disponible")
+        # Answers are shaped by collected data and questions are free text: plain text only
+        st.text(message["content"])
+        details = [_local(message["ts"])]
+        if message.get("model"): details.append(message["model"])
+        if message.get("duration_ms"): details.append(f"{message['duration_ms'] / 1000:.1f} s")
+        st.caption(" · ".join(details))
+        if message.get("tool_calls"):
+            with st.expander("Herramientas y evidencia consultadas"):
+                st.json(message["tool_calls"])
+
+
+def chat():
+    context()
+    hero("💬 Chat", "Pregunte en lenguaje natural sobre la evidencia recolectada y la documentación local. "
+                    "Las conversaciones se guardan en la base local para consultarlas después.")
+    from bootstrap import build_chat_history
+    history = build_chat_history()
+    model = st.session_state.get("llm_model_info")
+    if model and not model["tools"]:
+        st.warning(f"{model['name']} no admite tool calling; elija en la barra lateral un modelo con tools para el chat.")
+
+    sessions_col, conversation_col = st.columns([1, 3], gap="large")
+    with sessions_col:
+        st.markdown("**Conversaciones**")
+        if st.button("Nueva conversación", icon=":material/add_comment:", width="stretch", key="chat-new"):
+            st.session_state["chat_session_id"] = None
+        search = st.text_input("Buscar", placeholder="texto en preguntas o respuestas", key="chat-search",
+                               label_visibility="collapsed")
+        sessions = history.list_sessions(search or None, 50)
+        if not sessions:
+            st.caption("Sin conversaciones" + (" que coincidan." if search else " todavía."))
+        current = st.session_state.get("chat_session_id")
+        for session in sessions:
+            label = f"{_plain(session['title'])}  \n{_local(session['updated_at'])} · {session['messages']} msj"
+            if st.button(label, key=f"chat-session-{session['id']}", width="stretch",
+                         type="primary" if session["id"] == current else "secondary"):
+                st.session_state["chat_session_id"] = session["id"]
+                st.rerun()
+
+    with conversation_col:
+        _rag_panel()
+        current = st.session_state.get("chat_session_id")
+        session = history.get_session(current) if current else None
+        if current and session is None:  # deleted elsewhere
+            st.session_state["chat_session_id"] = current = None
+        if session:
+            top_left, top_right = st.columns([3, 1])
+            top_left.markdown(f"**#{session['id']}** · creada {_local(session['created_at'])}")
+            with top_right.popover("Opciones", icon=":material/more_horiz:", width="stretch"):
+                st.download_button("Exportar a Markdown", history.export_markdown(session["id"]).encode("utf-8"),
+                                   f"chat_{session['id']}.md", "text/markdown", icon=":material/download:", key="chat-export")
+                if st.button("Borrar conversación", icon=":material/delete:", type="primary", key="chat-delete"):
+                    history.delete_session(session["id"])
+                    st.session_state["chat_session_id"] = None
+                    st.rerun()
+            for message in session["messages"]:
+                _show_message(message)
+        else:
+            st.info("Escriba una pregunta abajo para empezar una conversación nueva, o abra una anterior a la izquierda.")
+
+    prompt = st.chat_input("Pregunta sobre alertas, accesos, conexiones, archivos, persistencia o reputación")
     if prompt:
-        from bootstrap import build_chat_service
-        with st.chat_message("user"): st.text(prompt)
-        try:
-            result = build_chat_service().ask(prompt)
-            with st.chat_message("assistant"):
-                st.text(result["answer"])
-                with st.expander("Herramientas y evidencia"):
-                    st.json(result["tool_calls"])
-        except Exception as exc:
-            st.error(f"Chat local no disponible: {exc}")
+        from bootstrap import build_recorded_chat_service
+        with conversation_col:
+            with st.chat_message("user"): st.text(prompt)
+            with st.spinner("Consultando la evidencia local..."):
+                try:
+                    result = build_recorded_chat_service().ask(prompt, current)
+                    st.session_state["chat_session_id"] = result["session_id"]
+                except Exception as exc:
+                    # The error is already stored in the conversation; keep it selected so it is visible
+                    st.session_state["chat_session_id"] = getattr(exc, "session_id", current)
+                    st.error(f"Chat local no disponible: {exc}")
+                    return
+        st.rerun()
 
 
 def state():

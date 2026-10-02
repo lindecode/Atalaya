@@ -97,3 +97,28 @@ def test_network_pages_draw_the_flow_map(page, tmp_path, monkeypatch):
     # collected names are escaped before reaching Plotly, which renders a subset of HTML
     assert "&lt;b&gt;evil&lt;/b&gt;.exe" in labels and not any("<b>" in label for label in labels)
     assert any(color.startswith("rgba(239,68,68") for color in sankey["link"]["color"])  # port 4444 from Downloads
+
+
+def test_chat_page_lists_and_opens_saved_conversations(tmp_path, monkeypatch):
+    from infrastructure.sqlite.chat_history import SQLiteChatHistory
+
+    database = tmp_path / "chat.db"
+    monkeypatch.setenv("NETWORK_LLM_DB", str(database))
+    monkeypatch.setenv("NETWORK_LLM_REPORTS", str(tmp_path / "reports"))
+    settings = replace(Settings(), database_path=database, reports_dir=tmp_path / "reports")
+    SQLiteRepository(settings).initialize()
+    history = SQLiteChatHistory(settings)
+    now = datetime.now(timezone.utc).isoformat()
+    title = "![x](http://evil.example/beacon.png) conexiones"
+    session = history.create_session(title, now)
+    history.add_message(session, now, "user", title)
+    history.add_message(session, now, "assistant", "Hubo 2 conexiones RDP [K:1]", "qwen3.5:4b", [{"name": "get_auth_events", "ids": [7]}], 1200)
+
+    app = AppTest.from_file(ROOT / "interfaces/gui/pages/9_Chat.py", default_timeout=30).run()
+    assert not app.exception
+    button = next(b for b in app.button if b.key == f"chat-session-{session}")
+    assert button.label.startswith(r"\!\[x\]\(http://evil\.example") and "](http" not in button.label  # image escaped
+
+    app = button.click().run()
+    assert not app.exception
+    assert any("Hubo 2 conexiones RDP" in text.value for text in app.text)

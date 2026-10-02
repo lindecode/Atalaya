@@ -8,7 +8,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Sequence
 
-from bootstrap import build_analyze_service, build_chat_service, build_collect_service, build_model_service, build_rag_service, build_report_service, build_reputation_service, build_repository, build_status_service, build_watch_service
+from bootstrap import build_analyze_service, build_chat_history, build_chat_service, build_collect_service, build_model_service, build_rag_service, build_recorded_chat_service, build_report_service, build_reputation_service, build_repository, build_status_service, build_watch_service
 from infrastructure.clock import SystemClock
 
 
@@ -25,6 +25,18 @@ def _parser() -> argparse.ArgumentParser:
     chat = commands.add_parser("chat", help="Pregunta al analista local")
     chat.add_argument("question", nargs="?")
     chat.add_argument("--model", help="Modelo de Ollama solo para esta pregunta")
+    chat.add_argument("--session", type=int, help="Añade la pregunta a una conversación guardada (ver: historial list)")
+    chat.add_argument("--no-history", action="store_true", help="No guardar esta pregunta en el historial")
+    history = commands.add_parser("historial", help="Consulta las conversaciones guardadas del chat")
+    history_actions = history.add_subparsers(dest="history_action", required=True)
+    history_list = history_actions.add_parser("list", help="Lista conversaciones (más recientes primero)")
+    history_list.add_argument("--search", help="Texto a buscar en títulos y mensajes")
+    history_list.add_argument("--limit", type=int, default=30)
+    history_actions.add_parser("show", help="Muestra una conversación").add_argument("id", type=int)
+    history_export = history_actions.add_parser("export", help="Exporta una conversación a Markdown")
+    history_export.add_argument("id", type=int)
+    history_export.add_argument("--output", type=Path, help="Archivo de salida (por defecto, en pantalla)")
+    history_actions.add_parser("delete", help="Borra una conversación").add_argument("id", type=int)
     models = commands.add_parser("models", help="Lista los LLM locales de Ollama o elige uno")
     models_actions = models.add_subparsers(dest="models_action")
     models_actions.add_parser("use", help="Guarda el modelo para analyze/chat/GUI").add_argument("name")
@@ -197,10 +209,43 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
     if args.command == "chat":
         question = args.question or input("Pregunta: ")
-        result = build_chat_service(model=args.model).ask(question)
+        if args.no_history:
+            result = build_chat_service(model=args.model).ask(question)
+        else:
+            try:
+                result = build_recorded_chat_service(model=args.model).ask(question, args.session)
+            except (KeyError, ValueError) as exc:
+                raise SystemExit(str(exc))
         print(result["answer"])
         for call in result["tool_calls"]:
             print(f"- {call['name']}: ids={call['ids']}")
+        if "session_id" in result:
+            print(f"(guardado en la conversación #{result['session_id']}; continuar con --session {result['session_id']})")
+        return 0
+    if args.command == "historial":
+        store = build_chat_history()
+        if args.history_action == "list":
+            sessions = store.list_sessions(args.search, args.limit)
+            if not sessions:
+                print("No hay conversaciones guardadas" + (f" que contengan «{args.search}»" if args.search else ""))
+            for session in sessions:
+                print(f"#{session['id']:<5} {session['updated_at'][:16].replace('T', ' ')}  "
+                      f"{session['messages']:>3} msj  {session['title']}")
+            return 0
+        if args.history_action == "delete":
+            if not store.delete_session(args.id):
+                raise SystemExit(f"Conversación inexistente: {args.id}")
+            print(f"Conversación #{args.id} borrada")
+            return 0
+        try:
+            markdown = store.export_markdown(args.id)
+        except KeyError as exc:
+            raise SystemExit(str(exc))
+        if args.history_action == "export" and args.output:
+            args.output.write_text(markdown, encoding="utf-8")
+            print(args.output)
+        else:
+            print(markdown)
         return 0
     if args.command == "backup":
         repository = build_repository(); repository.initialize()
