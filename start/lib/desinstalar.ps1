@@ -9,6 +9,22 @@ foreach ($path in @((Get-DesktopShortcut), (Get-StartupShortcut), (Get-MenuFolde
     if (Test-Path $path) { Remove-Item -LiteralPath $path -Recurse -Force; Write-Ok "Eliminado $path" }
 }
 
+Write-Paso "Permisos de administrador"
+$permisos = Join-Path $PSScriptRoot 'configurar-permisos.ps1'
+try { $estado = & $permisos -MostrarEstado | Out-String | ConvertFrom-Json } catch { $estado = $null }
+if (-not $estado) {
+    Write-Aviso "No se pudo comprobar la configuracion de permisos; revisela con: configurar-permisos.bat revertir"
+} elseif ($estado.configuradoPorNetworkLlm) {
+    Write-Host "  configurar-permisos cambio el grupo 'Lectores del registro de eventos' y el log del firewall."
+    if (Confirm-Paso "Restaurar el estado anterior? (pide administrador una vez)" $true) {
+        & $permisos -Revertir
+    } else {
+        Write-Host "  Puede hacerlo despues con: configurar-permisos.bat revertir"
+    }
+} else {
+    Write-Ok "No hay permisos configurados por network-llm"
+}
+
 $ownVenv = Join-Path $Root '.venv'
 if ((Test-Path $ownVenv) -and (Confirm-Paso "Borrar el entorno de Python de network-llm ($ownVenv)?" $true)) {
     Remove-Item -LiteralPath $ownVenv -Recurse -Force
@@ -25,5 +41,4 @@ if ((Read-Host "  Escriba BORRAR para eliminarlos (Enter para conservarlos)") -c
     }
 } else { Write-Ok "Datos conservados" }
 
-Write-Host "`n  Los permisos (grupo de lectores y log del firewall) se revierten con: configurar-permisos.bat revertir"
 Write-Host "  Ollama y sus modelos no se tocan; se desinstalan desde Configuracion > Aplicaciones."
