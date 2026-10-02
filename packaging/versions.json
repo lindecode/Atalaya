@@ -1,0 +1,12 @@
+{
+  "python": {
+    "version": "3.13.13",
+    "url": "https://www.python.org/ftp/python/3.13.13/python-3.13.13-embed-amd64.zip",
+    "sha256": "8766a8775746235e23cf5aee5027ab1060bb981d93110577adcf3508aa0cbd55",
+    "note": "SHA-256 verificado contra la API de python.org (api/v2/downloads/release_file). Al cambiar de versión, actualizar los tres campos y regenerar requirements.lock.txt con la misma versión menor."
+  },
+  "innosetup": {
+    "minimum": "6.3",
+    "install": "winget install --id JRSoftware.InnoSetup -e"
+  }
+}

@@ -1,0 +1,144 @@
+﻿; Instalador de Atalaya (Inno Setup 6). Lo compila packaging\build.ps1, que pasa:
+;   /DAppVersion=<version de shared\about.py>  /DSourceDir=<build\Atalaya>  /DOutputDir=<dist>
+; Instala por usuario (sin administrador) en %LOCALAPPDATA%\Programs\Atalaya. Los datos del usuario viven
+; aparte, en %LOCALAPPDATA%\Atalaya, y sobreviven a actualizaciones y reinstalaciones.
+
+#ifndef AppVersion
+  #error Compile con packaging\build.ps1 (define AppVersion, SourceDir y OutputDir)
+#endif
+
+#define AppName "Atalaya"
+#define AppPublisher "LindeCode"
+#define AppURL "https://github.com/lindecode/Atalaya"
+#define OllamaURL "https://ollama.com/download/windows"
+
+[Setup]
+AppId={{8F3C2B71-5E4A-4D1B-9C7E-3A6F1D2B8E45}
+AppName={#AppName}
+AppVersion={#AppVersion}
+AppVerName={#AppName} {#AppVersion}
+AppPublisher={#AppPublisher}
+AppPublisherURL={#AppURL}
+AppSupportURL={#AppURL}
+AppCopyright=© 2026 {#AppPublisher}
+VersionInfoVersion={#AppVersion}
+DefaultDirName={localappdata}\Programs\{#AppName}
+DefaultGroupName={#AppName}
+DisableProgramGroupPage=yes
+PrivilegesRequired=lowest
+ArchitecturesAllowed=x64compatible
+ArchitecturesInstallIn64BitMode=x64compatible
+MinVersion=10.0
+LicenseFile=..\LICENSE
+SetupIconFile=..\assets\icon.ico
+UninstallDisplayIcon={app}\assets\icon.ico
+UninstallDisplayName={#AppName}
+OutputDir={#OutputDir}
+OutputBaseFilename=Atalaya-Setup-{#AppVersion}
+Compression=lzma2/max
+SolidCompression=yes
+WizardStyle=modern
+; Cierra el panel o el monitor si estan abiertos (archivos de runtime\ en uso) durante una actualizacion
+CloseApplications=yes
+RestartApplications=no
+
+[Languages]
+Name: "spanish"; MessagesFile: "compiler:Languages\Spanish.isl"
+
+[Tasks]
+Name: "desktopicon"; Description: "Crear un acceso directo en el escritorio"; GroupDescription: "Accesos directos:"
+Name: "autostartwatch"; Description: "Iniciar el monitor de archivos al entrar en Windows"; GroupDescription: "Inicio automático:"; Flags: unchecked
+
+[Files]
+Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+
+[InstallDelete]
+; Una actualizacion no debe dejar modulos de versiones anteriores mezclados con los nuevos
+Type: filesandordirs; Name: "{app}\runtime"
+Type: filesandordirs; Name: "{app}\application"
+Type: filesandordirs; Name: "{app}\domain"
+Type: filesandordirs; Name: "{app}\infrastructure"
+Type: filesandordirs; Name: "{app}\interfaces"
+Type: filesandordirs; Name: "{app}\ports"
+Type: filesandordirs; Name: "{app}\shared"
+
+[UninstallDelete]
+; Python crea __pycache__ al ejecutarse; el desinstalador no los conoce. Los datos del usuario estan en
+; %LOCALAPPDATA%\Atalaya, fuera de {app}, y no se tocan aqui.
+Type: filesandordirs; Name: "{app}\runtime"
+Type: filesandordirs; Name: "{app}\__pycache__"
+Type: filesandordirs; Name: "{app}\application"
+Type: filesandordirs; Name: "{app}\domain"
+Type: filesandordirs; Name: "{app}\infrastructure"
+Type: filesandordirs; Name: "{app}\interfaces"
+Type: filesandordirs; Name: "{app}\ports"
+Type: filesandordirs; Name: "{app}\shared"
+Type: dirifempty; Name: "{app}"
+
+[Icons]
+Name: "{autoprograms}\{#AppName}\{#AppName}"; Filename: "{app}\start\iniciar.bat"; WorkingDir: "{app}\start"; IconFilename: "{app}\assets\icon.ico"; Comment: "Abrir el panel de Atalaya"; Flags: runminimized
+Name: "{autoprograms}\{#AppName}\Recolectar y analizar"; Filename: "{app}\start\recolectar.bat"; WorkingDir: "{app}\start"; IconFilename: "{app}\assets\icon.ico"
+Name: "{autoprograms}\{#AppName}\Diagnóstico"; Filename: "{app}\start\diagnostico.bat"; WorkingDir: "{app}\start"; IconFilename: "{app}\assets\icon.ico"
+Name: "{autoprograms}\{#AppName}\Configurar permisos"; Filename: "{app}\start\configurar-permisos.bat"; WorkingDir: "{app}\start"; IconFilename: "{app}\assets\icon.ico"; Comment: "Una sola vez, pide administrador"
+Name: "{autoprograms}\{#AppName}\Detener Atalaya"; Filename: "{app}\start\detener.bat"; WorkingDir: "{app}\start"; IconFilename: "{app}\assets\icon.ico"
+Name: "{autoprograms}\{#AppName}\Desinstalar Atalaya"; Filename: "{uninstallexe}"
+Name: "{autodesktop}\{#AppName}"; Filename: "{app}\start\iniciar.bat"; WorkingDir: "{app}\start"; IconFilename: "{app}\assets\icon.ico"; Tasks: desktopicon; Flags: runminimized
+Name: "{userstartup}\{#AppName} - monitor"; Filename: "{app}\start\vigilar.bat"; WorkingDir: "{app}\start"; IconFilename: "{app}\assets\icon.ico"; Tasks: autostartwatch; Flags: runminimized
+
+[Run]
+Filename: "{app}\start\iniciar.bat"; WorkingDir: "{app}\start"; Description: "Abrir Atalaya (vaya a Herramientas > Primeros pasos)"; Flags: postinstall nowait skipifsilent runminimized
+
+[UninstallRun]
+; Detiene Atalaya, ofrece revertir los permisos de administrador y pregunta por los datos del usuario
+Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\start\lib\desinstalar.ps1"" -DesdeDesinstalador"; WorkingDir: "{app}\start"; Flags: waituntilterminated; RunOnceId: "AtalayaCleanup"; Check: not UninstallSilent
+; Desinstalacion silenciosa (despliegues): solo detiene Atalaya; datos y permisos se conservan
+Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\start\lib\desinstalar.ps1"" -DesdeDesinstalador -Silencioso"; WorkingDir: "{app}\start"; Flags: waituntilterminated runhidden; RunOnceId: "AtalayaCleanupSilent"; Check: UninstallSilent
+
+[Code]
+var
+  OllamaPage: TInputOptionWizardPage;
+
+function OllamaInstalled(): Boolean;
+begin
+  Result := FileExists(ExpandConstant('{localappdata}\Programs\Ollama\ollama.exe'))
+    or (FileSearch('ollama.exe', GetEnv('PATH')) <> '');
+end;
+
+procedure InitializeWizard();
+begin
+  OllamaPage := CreateInputOptionPage(wpSelectTasks,
+    'LLM local (Ollama)',
+    'Atalaya usa Ollama para explicar las alertas y para el chat.',
+    'No se encontró Ollama en este equipo. Sin él, Atalaya funciona (reglas, alertas, panel) pero sin ' +
+    'explicaciones del LLM ni chat. Los modelos (unos 4 GB) se descargan después desde ' +
+    'Herramientas > Primeros pasos.',
+    True, False);
+  OllamaPage.Add('Instalar Ollama ahora con winget (recomendado)');
+  OllamaPage.Add('Abrir la página de descarga de Ollama al terminar');
+  OllamaPage.Add('Continuar sin Ollama');
+  OllamaPage.SelectedValueIndex := 0;
+end;
+
+function ShouldSkipPage(PageID: Integer): Boolean;
+begin
+  Result := (PageID = OllamaPage.ID) and OllamaInstalled();
+end;
+
+procedure CurStepChanged(CurStep: TSetupStep);
+var
+  ResultCode: Integer;
+begin
+  if (CurStep = ssPostInstall) and not OllamaInstalled() then
+  begin
+    if OllamaPage.SelectedValueIndex = 0 then
+    begin
+      WizardForm.StatusLabel.Caption := 'Instalando Ollama con winget...';
+      if not Exec('winget.exe', 'install --id Ollama.Ollama -e --accept-package-agreements --accept-source-agreements',
+                  '', SW_SHOW, ewWaitUntilTerminated, ResultCode) or (ResultCode <> 0) then
+        MsgBox('No se pudo instalar Ollama con winget (código ' + IntToStr(ResultCode) + '). ' +
+               'Puede descargarlo desde {#OllamaURL}', mbInformation, MB_OK);
+    end
+    else if OllamaPage.SelectedValueIndex = 1 then
+      ShellExec('open', '{#OllamaURL}', '', '', SW_SHOWNORMAL, ewNoWait, ResultCode);
+  end;
+end;

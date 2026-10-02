@@ -1,10 +1,12 @@
-psutil>=6.1,<8
-pywin32>=308; sys_platform == "win32"
-watchdog>=6,<7
-ollama>=0.6,<1
-pydantic>=2.7,<3
-pytest>=8.3,<10
-streamlit>=1.41,<2
+# Dependencias de ejecución de Atalaya (Windows 10/11 x64, Python 3.11+).
+# Instalación desde el código fuente: start\instalar.bat (o pip install -r requirements.txt).
+# El instalador y el ZIP portable usan requirements.lock.txt (versiones exactas, ver packaging\README.md).
+# Herramientas de desarrollo y tests: requirements-dev.txt.
+psutil>=6.1,<8                              # conexiones y procesos
+pywin32>=308; sys_platform == "win32"       # Visor de eventos (Security, RDP, Sysmon) y firma Authenticode
+watchdog>=6,<7                              # monitor de archivos en vivo
+ollama>=0.6,<1                              # cliente del LLM local
+pydantic>=2.7,<3                            # validación de la salida del LLM
+streamlit>=1.41,<2                          # interfaz gráfica local
 pandas>=2.2,<4
 plotly>=5.24,<7
-

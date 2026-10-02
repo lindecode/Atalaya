@@ -28,6 +28,13 @@ function Find-VenvPython {
 
 function Test-BundledRuntime { Test-Path (Join-Path $Root 'runtime\python.exe') }
 
+function Get-DataHome {
+    # Igual que settings.data_home(): ATALAYA_HOME, modo portable (archivo "portable"), o %LOCALAPPDATA%\Atalaya
+    if ($env:ATALAYA_HOME) { return $env:ATALAYA_HOME }
+    if (Test-Path (Join-Path $Root 'portable')) { return (Join-Path $Root 'userdata') }
+    return (Join-Path $env:LOCALAPPDATA 'Atalaya')
+}
+
 function Get-Python {
     $python = Find-VenvPython
     if (-not $python) { throw "No hay entorno de Python. Ejecute primero start\instalar.bat (ver README\README.instalacion.md)" }

@@ -9,27 +9,36 @@ backup y validaciones manuales consulte [README.man.md](README.man.md).
 
 ## Requisitos
 
-- Windows 11 y Python 3.13 en el `.venv` de la raíz del repositorio.
+Requisitos completos (Windows, Ollama, modelos, RAM, espacio) y las tres formas
+de instalar (instalador `.exe`, ZIP portable, código fuente) en
+**[README.instalacion.md](README.instalacion.md)**. Para compilar el instalador:
+[../packaging/README.md](../packaging/README.md).
+
+- Windows 10/11 x64. Python 3.11+ solo si se instala desde el código fuente
+  (el instalador y el ZIP portable lo incluyen).
 - Permisos de administrador opcionales. `start\configurar-permisos.bat` permite
   leer el registro Security sin elevación (grupo *Lectores del registro de
   eventos*). Sin ninguno de los dos se omite el registro Security;
   según la configuración del equipo, Windows también puede limitar tareas
   programadas, servicios o metadatos de procesos. La ejecución termina como
   `partial` y conserva todo lo que sí pudo recolectar.
-- La base contiene actividad sensible del usuario. Proteja `Atalaya/data/`
-  con los controles de acceso del sistema; BitLocker o EFS son opciones externas.
+- La base contiene actividad sensible del usuario. Vive en `%LOCALAPPDATA%\Atalaya`
+  (o donde indique `ATALAYA_HOME`); protéjala con los controles de acceso del
+  sistema. BitLocker o EFS son opciones externas.
 
 ## Instalación
 
-**Forma rápida:** doble clic en `start\instalar.bat` y, después, `start\iniciar.bat`
-(o el acceso directo del escritorio). Los lanzadores, el instalador y la
-configuración de permisos sin administrador están descritos en
-[README.start.md](README.start.md).
+**Usuarios:** `Atalaya-Setup-<versión>.exe` (ver [README.instalacion.md](README.instalacion.md)).
 
-Manualmente, desde la raíz del repositorio:
+**Desde el código fuente:** doble clic en `start\instalar.bat` y, después,
+`start\iniciar.bat` (o el acceso directo del escritorio). Los lanzadores y la
+configuración de permisos sin administrador están descritos en
+[README.start.md](README.start.md). Manualmente:
 
 ```powershell
-.\.venv\Scripts\python.exe -m pip install -r Atalaya\requirements.txt
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt       # ejecución
+.\.venv\Scripts\python.exe -m pip install -r requirements-dev.txt   # + tests
 ```
 
 ## Uso de Fase 1
