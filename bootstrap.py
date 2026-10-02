@@ -10,6 +10,7 @@ from application.watch import WatchService
 from application.chat import ChatService
 from application.models import ModelService
 from application.rag import RagService
+from application.reputation import FileReputationService
 from application.tool_router import SecureToolRouter
 from infrastructure.clock import SystemClock
 from infrastructure.ollama.analyzer import OllamaAnalyzer
@@ -18,6 +19,9 @@ from infrastructure.ollama.embeddings import OllamaEmbeddingProvider
 from infrastructure.sqlite.repositories import SQLiteRepository
 from infrastructure.sqlite.chat_tools import SQLiteQueryTools
 from infrastructure.sqlite.knowledge_store import SQLiteKnowledgeStore
+from infrastructure.sqlite.reputation_store import SQLiteReputationStore
+from infrastructure.reputation.virustotal import VirusTotalHashProvider
+from infrastructure.windows.authenticode import PowerShellAuthenticodeAnalyzer
 from infrastructure.windows.common import WindowsSystemInfo
 from infrastructure.windows.connections import PsutilConnectionCollector
 from infrastructure.windows.event_log import RDP_CHANNEL, SECURITY_CHANNEL, WindowsEventLogCollector
@@ -95,3 +99,11 @@ def build_rag_service(settings: Settings | None = None, embedding_model: str | N
     effective = settings or Settings()
     embedder = None if lexical_only else OllamaEmbeddingProvider(effective, embedding_model)
     return RagService(SQLiteKnowledgeStore(effective), SystemClock(), effective, embedder)
+
+
+def build_reputation_service(settings: Settings | None = None) -> FileReputationService:
+    effective = settings or Settings()
+    provider = (VirusTotalHashProvider(effective.virustotal_api_key, effective.reputation_timeout_seconds)
+                if effective.virustotal_api_key else None)
+    return FileReputationService(SQLiteReputationStore(effective), SystemClock(), effective,
+                                 PowerShellAuthenticodeAnalyzer(), provider)

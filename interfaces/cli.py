@@ -8,7 +8,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Sequence
 
-from bootstrap import build_analyze_service, build_chat_service, build_collect_service, build_model_service, build_rag_service, build_report_service, build_repository, build_status_service, build_watch_service
+from bootstrap import build_analyze_service, build_chat_service, build_collect_service, build_model_service, build_rag_service, build_report_service, build_reputation_service, build_repository, build_status_service, build_watch_service
 from infrastructure.clock import SystemClock
 
 
@@ -43,6 +43,14 @@ def _parser() -> argparse.ArgumentParser:
     rag_eval = rag_actions.add_parser("eval", help="Ejecuta el harness local de recuperación y seguridad")
     rag_eval.add_argument("--fixtures", type=Path, default=Path(__file__).resolve().parents[1] / "tests" / "fixtures" / "rag_eval.json")
     rag_eval.add_argument("--lexical-only", action="store_true")
+    reputation = commands.add_parser("reputation", help="Analiza ejecutables sin cargarlos a Internet")
+    reputation_actions = reputation.add_subparsers(dest="reputation_action", required=True)
+    reputation_inspect = reputation_actions.add_parser("inspect", help="Hash, firma Authenticode y reputación opcional")
+    reputation_inspect.add_argument("path", type=Path)
+    reputation_inspect.add_argument("--online", action="store_true", help="Consulta sólo SHA-256 en VirusTotal")
+    reputation_lookup = reputation_actions.add_parser("lookup", help="Consulta un SHA-256 en VirusTotal")
+    reputation_lookup.add_argument("sha256")
+    reputation_actions.add_parser("list", help="Lista resultados guardados")
     commands.add_parser("backup", help="Crea una copia consistente de SQLite")
     purge = commands.add_parser("purge", help="Aplica la retención local")
     purge.add_argument("--days", type=int, default=30)
@@ -149,6 +157,26 @@ def main(argv: Sequence[str] | None = None) -> int:
             print(f"Score: {result['passed']}/{result['total']} ({result['score']:.0%})")
             return 0 if result["passed"] == result["total"] else 1
         print(service.status())
+        return 0
+    if args.command == "reputation":
+        service = build_reputation_service()
+        try:
+            if args.reputation_action == "inspect":
+                result = service.inspect(args.path, args.online)
+                print(f"{result.verdict} confidence={result.confidence:.0%} sha256={result.sha256}")
+                signature = result.local.get("signature", {})
+                print(f"Firma={signature.get('status', 'no comprobada')} publisher={signature.get('subject') or '-'}")
+                if result.external: print(f"VirusTotal={result.external.get('stats', {})}")
+                for reason in result.reasons: print(f"- {reason}")
+            elif args.reputation_action == "lookup":
+                result = service.lookup(args.sha256)
+                print(f"{result.verdict} confidence={result.confidence:.0%} sha256={result.sha256}")
+                print(f"VirusTotal={result.external.get('stats', {}) if result.external else 'sin resultado'}")
+            else:
+                for row in service.latest():
+                    print(f"{row['checked_at']} {row['verdict']:<12} {row['confidence']:.0%} {row['sha256']} {row['path'] or '-'}")
+        except (ValueError, OSError, RuntimeError) as exc:
+            raise SystemExit(f"No se pudo obtener reputación: {exc}")
         return 0
     if args.command == "report":
         print(build_report_service().execute())

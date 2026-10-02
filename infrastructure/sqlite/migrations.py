@@ -189,4 +189,21 @@ MIGRATIONS: tuple[str, ...] = (
       duration_ms INTEGER NOT NULL
     );
     """,
+    """
+    CREATE TABLE file_reputation (
+      id INTEGER PRIMARY KEY,
+      sha256 TEXT NOT NULL,
+      path TEXT,
+      checked_at TEXT NOT NULL,
+      local_json TEXT NOT NULL,
+      provider TEXT NOT NULL,
+      external_json TEXT,
+      verdict TEXT NOT NULL CHECK(verdict IN ('trusted','likely_safe','unknown','suspicious','malicious')),
+      confidence REAL NOT NULL CHECK(confidence >= 0 AND confidence <= 1),
+      reasons_json TEXT NOT NULL,
+      UNIQUE(sha256, provider)
+    );
+    CREATE INDEX idx_file_reputation_checked ON file_reputation(checked_at);
+    CREATE INDEX idx_file_reputation_verdict ON file_reputation(verdict);
+    """,
 )

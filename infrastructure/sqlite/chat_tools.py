@@ -41,6 +41,11 @@ class SQLiteQueryTools:
             sql, params = "SELECT * FROM file_events WHERE ts>=?", [since]
             if args.get("path_contains"): sql += " AND path LIKE ?"; params.append(f"%{args['path_contains']}%")
             if args.get("action"): sql += " AND action=?"; params.append(args["action"])
+        elif name == "get_file_reputation":
+            sql, params = "SELECT * FROM file_reputation WHERE checked_at>=?", [since]
+            if args.get("sha256"): sql += " AND sha256=?"; params.append(args["sha256"].casefold())
+            if args.get("path_contains"): sql += " AND path LIKE ?"; params.append(f"%{args['path_contains']}%")
+            if args.get("verdict"): sql += " AND verdict=?"; params.append(args["verdict"])
         elif name == "get_persistence_new":
             sql, params = "SELECT * FROM persistence_items WHERE first_seen>=?", [since]
         else:

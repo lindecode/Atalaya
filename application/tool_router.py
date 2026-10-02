@@ -4,7 +4,7 @@ from __future__ import annotations
 class SecureToolRouter:
     """Closed router: SQL evidence stays exact; RAG only searches approved knowledge."""
 
-    SQL_TOOLS = {"get_alerts", "get_auth_events", "get_connections", "get_file_events", "get_persistence_new"}
+    SQL_TOOLS = {"get_alerts", "get_auth_events", "get_connections", "get_file_events", "get_file_reputation", "get_persistence_new"}
 
     def __init__(self, sql_tools, rag_service):
         self.sql_tools, self.rag_service = sql_tools, rag_service
@@ -20,4 +20,3 @@ class SecureToolRouter:
             top_k = int(args.get("top_k", 6))
             return self.rag_service.as_tool_rows(query, top_k)
         raise ValueError(f"Herramienta no permitida: {name}")
-

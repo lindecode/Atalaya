@@ -52,6 +52,9 @@ class Settings:
     rag_chunk_overlap_chars: int = 300
     rag_top_k: int = 6
     rag_max_context_chars: int = 16_000
+    virustotal_api_key: str | None = field(default_factory=lambda: os.environ.get("VIRUSTOTAL_API_KEY"))
+    reputation_timeout_seconds: float = 15.0
+    reputation_max_bytes: int = 50 * 1024 * 1024
     firewall_log_path: Path = field(default_factory=lambda: Path(os.environ.get("NETWORK_LLM_FIREWALL_LOG", os.path.expandvars(r"%SystemRoot%\System32\LogFiles\Firewall\pfirewall.log"))))
     watch_batch_seconds: float = 5.0
 

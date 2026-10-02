@@ -13,6 +13,8 @@ TOOL_SCHEMAS = [
         ("get_auth_events", "Consulta accesos y RDP", {"event_id": {"type": "integer"}, "source_ip": {"type": "string"}, "since": {"type": "string"}}),
         ("get_connections", "Consulta conexiones", {"process": {"type": "string"}, "remote_ip": {"type": "string"}, "since": {"type": "string"}}),
         ("get_file_events", "Consulta archivos", {"path_contains": {"type": "string"}, "action": {"type": "string"}, "since": {"type": "string"}}),
+        ("get_file_reputation", "Consulta reputación ya almacenada de ejecutables; no envía archivos ni hace llamadas externas",
+         {"sha256": {"type": "string"}, "path_contains": {"type": "string"}, "verdict": {"type": "string"}, "since": {"type": "string"}}),
         ("get_persistence_new", "Consulta persistencia nueva", {"since": {"type": "string"}}),
         ("search_knowledge", "Busca procedimientos y explicaciones en documentación local confiable",
          {"query": {"type": "string"}, "top_k": {"type": "integer", "minimum": 1, "maximum": 10}}),
