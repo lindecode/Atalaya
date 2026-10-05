@@ -39,7 +39,7 @@ Qué hace `build.ps1`, en orden:
 
 ## Actualizar dependencias o Python
 
-- **Dependencias**: edita `requirements.txt`, ejecuta `packaging\actualizar-lock.ps1` (resuelve en un entorno limpio y reescribe `requirements.lock.txt`), revisa el diff y compila.
+- **Dependencias**: edita `requirements.txt`, ejecuta `packaging\actualizar-lock.ps1` y revisa el diff. Respeta las versiones ya fijadas y solo resuelve lo nuevo; `-Actualizar` re-resuelve todo (hay que probar después).
 - **Python embebido**: cambia `version`, `url` y `sha256` en `versions.json`. El hash debe coincidir con el de `https://www.python.org/api/v2/downloads/release_file/?release=<id>`. Si cambia la versión menor (3.13 a 3.14), regenera también el lock con esa versión.
 - **Versión de Atalaya**: solo `APP_VERSION` en `shared\about.py`.
 
