@@ -9,5 +9,6 @@ ollama>=0.6,<1                              # cliente del LLM local
 pydantic>=2.7,<3                            # validación de la salida del LLM
 streamlit>=1.41,<2                          # interfaz gráfica local
 pystray>=0.19,<1                            # icono en el área de notificación (segundo plano)
+pywebview>=6,<7; sys_platform == "win32"    # ventana propia de Atalaya (WebView2); sin ella, el navegador
 pandas>=2.2,<4
 plotly>=5.24,<7

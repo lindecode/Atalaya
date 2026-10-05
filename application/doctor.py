@@ -15,7 +15,7 @@ from typing import Callable, Literal
 
 Status = Literal["ok", "warn", "fail", "info"]
 
-RUNTIME_MODULES = ("psutil", "win32evtlog", "watchdog", "ollama", "streamlit", "pydantic", "pandas", "plotly", "pystray")
+RUNTIME_MODULES = ("psutil", "win32evtlog", "watchdog", "ollama", "streamlit", "pydantic", "pandas", "plotly", "pystray", "webview")
 MIN_PYTHON = (3, 11)
 MIN_FREE_GB = 2.0
 OLLAMA_DOWNLOAD = "https://ollama.com/download/windows"
@@ -74,10 +74,15 @@ class DoctorService:
                  sysmon_installed: Callable[[], bool] = _sysmon_installed,
                  total_ram_gb: Callable[[], float | None] = _total_ram_gb,
                  module_available: Callable[[str], bool] = lambda name: importlib.util.find_spec(name) is not None,
-                 disk_free_gb: Callable[[Path], float] = lambda path: shutil.disk_usage(path).free / 1024 ** 3):
+                 disk_free_gb: Callable[[Path], float] = lambda path: shutil.disk_usage(path).free / 1024 ** 3,
+                 webview2_version: Callable[[], str | None] | None = None):
         self.settings, self.models = settings, model_service
         self.find_ollama, self.security_readable, self.sysmon_installed = find_ollama, security_readable, sysmon_installed
         self.total_ram_gb, self.module_available, self.disk_free_gb = total_ram_gb, module_available, disk_free_gb
+        if webview2_version is None:
+            from infrastructure.windows.webview2 import webview2_version as detect
+            webview2_version = detect
+        self.webview2_version = webview2_version
 
     def run(self) -> list[Check]:
         return self._python() + self._data() + self._ollama() + self._sources()
@@ -94,6 +99,10 @@ class DoctorService:
         checks.append(Check("deps", "Programa", "Dependencias", "fail" if missing else "ok",
                             f"Faltan: {', '.join(missing)}" if missing else f"{len(RUNTIME_MODULES)} paquetes disponibles",
                             "Ejecute start\\instalar.bat o reinstale Atalaya" if missing else ""))
+        webview2 = self.webview2_version()
+        checks.append(Check("window", "Programa", "Ventana de la aplicación (WebView2)", "ok" if webview2 else "info",
+                            f"WebView2 {webview2}" if webview2 else "No disponible: el panel se abre en el navegador",
+                            "" if webview2 else "Instale «winget install Microsoft.EdgeWebView2Runtime» para usar la ventana propia"))
         return checks
 
     # --- Datos ----------------------------------------------------------------------------------

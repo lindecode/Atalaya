@@ -110,9 +110,11 @@ class AlertWatcher:
 class TrayController:
     def __init__(self, settings: Settings, processes: ProcessManager, alerts: AlertWatcher,
                  notify: Callable[[str, str], None], open_url: Callable[[str], object] = webbrowser.open,
-                 gui_ready: Callable[[], bool] = lambda: port_open(GUI_PORT)):
+                 gui_ready: Callable[[], bool] = lambda: port_open(GUI_PORT),
+                 preload_url: Callable[[str], object] | None = None, browser: Callable[[str], object] = webbrowser.open):
         self.settings, self.processes, self.alerts = settings, processes, alerts
         self.notify, self.open_url, self.gui_ready = notify, open_url, gui_ready
+        self.preload_url, self.browser = preload_url, browser
         self.collecting = False
 
     # --- status -----------------------------------------------------------------------------------
@@ -135,11 +137,21 @@ class TrayController:
         self.ensure_gui()
         threading.Thread(target=self._open_when_ready, args=(page,), daemon=True).start()
 
-    def _open_when_ready(self, page: str, timeout: float = 60.0) -> None:
+    def open_panel_later(self) -> None:
+        """Load the panel into the (hidden) window without showing it."""
+        if self.preload_url:
+            self.ensure_gui()
+            threading.Thread(target=self._open_when_ready, args=("", self.preload_url), daemon=True).start()
+
+    def open_in_browser(self, page: str = "") -> None:
+        self.ensure_gui()
+        threading.Thread(target=self._open_when_ready, args=(page, self.browser), daemon=True).start()
+
+    def _open_when_ready(self, page: str, opener: Callable[[str], object] | None = None, timeout: float = 60.0) -> None:
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             if self.gui_ready():
-                self.open_url(f"{GUI_URL}/{page}" if page else GUI_URL)
+                (opener or self.open_url)(f"{GUI_URL}/{page}" if page else GUI_URL)
                 return
             time.sleep(0.5)
         self.notify(APP_NAME, "El panel no arrancó. Revise Primeros pasos o el registro en %LOCALAPPDATA%\\Atalaya\\logs.")
@@ -220,12 +232,19 @@ def _single_instance() -> object | None:
     return handle
 
 
-def run_tray(open_browser: bool = True, monitor: bool = False) -> int:
+def run_tray(open_browser: bool = True, monitor: bool = False, force_browser: bool = False) -> int:
+    """Tray icon + panel. With WebView2 the panel opens in Atalaya's own window; otherwise in the browser.
+
+    `open_browser=False` starts hidden (autostart); the name is kept for the CLI's --no-browser flag.
+    """
+    from interfaces import desktop
+
     logs = data_home() / "logs"
     logs.mkdir(parents=True, exist_ok=True)
     logging.basicConfig(filename=logs / "tray.log", level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
-    if _single_instance() is None:  # already in the tray: just show the panel
-        if open_browser:
+    requests = desktop.ShowRequests()
+    if _single_instance() is None:  # already running: ask it to show itself
+        if open_browser and not requests.signal():
             webbrowser.open(GUI_URL)
         return 0
 
@@ -233,6 +252,7 @@ def run_tray(open_browser: bool = True, monitor: bool = False) -> int:
     from infrastructure.sqlite.queries import SQLiteQueryRepository
     from infrastructure.sqlite.repositories import SQLiteRepository
 
+    use_window = not force_browser and desktop.available()
     settings = Settings()
     SQLiteRepository(settings).initialize()
     icon = pystray.Icon("Atalaya", tray_image(), APP_NAME)
@@ -243,8 +263,18 @@ def run_tray(open_browser: bool = True, monitor: bool = False) -> int:
         except Exception:
             log.exception("notify failed")
 
+    window = None
+    if use_window:
+        import webview
+        desktop.set_app_user_model_id()
+        window = desktop.AppWindow(
+            webview, str(data_home() / "webview"), start_hidden=not open_browser,
+            on_first_hide=lambda: notify(APP_NAME, "Atalaya sigue en segundo plano. Ábralo desde este icono junto al "
+                                                   "reloj; para cerrarlo del todo: Salir de Atalaya."))
     controller = TrayController(settings, ProcessManager(PROJECT_DIR, logs),
-                                AlertWatcher(SQLiteQueryRepository(settings).open_alerts_by_severity), notify)
+                                AlertWatcher(SQLiteQueryRepository(settings).open_alerts_by_severity), notify,
+                                open_url=window.show if window else webbrowser.open,
+                                preload_url=window.preload if window else None)
 
     def refresh() -> None:
         icon.title = controller.status_text()[:127]           # Windows tooltips are limited to 128 chars
@@ -259,7 +289,10 @@ def run_tray(open_browser: bool = True, monitor: bool = False) -> int:
             controller.processes.start("watch", "watch")
         if open_browser:
             controller.open_panel()
-        notify(APP_NAME, "Atalaya sigue en segundo plano. Use este icono junto al reloj para abrir el panel o salir.")
+        elif window:
+            controller.open_panel_later()  # hidden window gets the panel loaded, ready for the first "Abrir"
+        if not open_browser:
+            notify(APP_NAME, "Atalaya está en segundo plano. Use este icono junto al reloj para abrirlo o salir.")
         while True:
             controller.check_alerts()
             refresh()
@@ -277,10 +310,13 @@ def run_tray(open_browser: bool = True, monitor: bool = False) -> int:
     def quit_all(_icon, _item) -> None:
         controller.quit()
         _icon.visible = False
-        _icon.stop()
+        if window:
+            window.quit()          # ends window.run() on the main thread, which then stops the icon
+        else:
+            _icon.stop()
 
     icon.menu = pystray.Menu(
-        pystray.MenuItem("Abrir panel", action(controller.open_panel), default=True),
+        pystray.MenuItem("Abrir Atalaya", action(controller.open_panel), default=True),
         pystray.MenuItem(lambda item: controller.status_text().split(" · ", 1)[1], None, enabled=False),
         pystray.Menu.SEPARATOR,
         pystray.MenuItem("Recolectar y analizar ahora", action(controller.collect_now),
@@ -288,9 +324,16 @@ def run_tray(open_browser: bool = True, monitor: bool = False) -> int:
         pystray.MenuItem("Monitor de archivos", action(controller.toggle_monitor),
                          checked=lambda item: controller.processes.running("watch")),
         pystray.MenuItem("Primeros pasos", action(lambda: controller.open_panel("primeros-pasos"))),
+        pystray.MenuItem("Abrir en el navegador", action(controller.open_in_browser), visible=bool(window)),
         pystray.Menu.SEPARATOR,
         pystray.MenuItem(f"Salir de {APP_NAME}", quit_all),
     )
-    log.info("tray started (browser=%s, monitor=%s)", open_browser, monitor)
-    icon.run(setup=background)
+    requests.listen(controller.open_panel)  # a second launch (menu Inicio, escritorio) shows this instance
+    log.info("tray started (window=%s, open=%s, monitor=%s)", use_window, open_browser, monitor)
+    if window:
+        icon.run_detached(setup=background)
+        window.run()               # main thread: WebView2 needs it; returns after quit()
+        icon.stop()
+    else:
+        icon.run(setup=background)
     return 0
