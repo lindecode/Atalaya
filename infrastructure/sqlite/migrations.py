@@ -252,4 +252,33 @@ MIGRATIONS: tuple[str, ...] = (
     CREATE INDEX idx_ssh_ts ON ssh_observations(ts);
     CREATE INDEX idx_ssh_remote ON ssh_observations(remote_address, ts);
     """,
+    """
+    CREATE TABLE conversation_chunks (
+      id INTEGER PRIMARY KEY,
+      session_id INTEGER NOT NULL REFERENCES chat_sessions(id) ON DELETE CASCADE,
+      first_message_id INTEGER NOT NULL,
+      last_message_id INTEGER NOT NULL,
+      content TEXT NOT NULL,
+      content_hash TEXT NOT NULL,
+      embedding_model TEXT,
+      embedding_json TEXT,
+      created_at TEXT NOT NULL,
+      UNIQUE(session_id, first_message_id, last_message_id)
+    );
+    CREATE INDEX idx_conversation_chunks_session ON conversation_chunks(session_id, last_message_id);
+    CREATE VIRTUAL TABLE conversation_chunks_fts USING fts5(
+      chunk_id UNINDEXED, content, tokenize='unicode61 remove_diacritics 2'
+    );
+    """,
+    """
+    CREATE TABLE analysis_cache (
+      cache_key TEXT PRIMARY KEY,
+      model TEXT NOT NULL,
+      result_json TEXT NOT NULL,
+      prompt_chars INTEGER NOT NULL,
+      alert_ids_json TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX idx_analysis_cache_model ON analysis_cache(model, created_at);
+    """,
 )

@@ -17,7 +17,7 @@ from settings import Settings
 TABLES = (
     "runs", "connections", "auth_events", "file_events", "firewall_events",
     "persistence_items", "baseline", "alerts", "llm_analyses", "cursors", "sysmon_events", "preferences",
-    "knowledge_chunks", "rag_audit", "file_reputation", "ssh_observations",
+    "knowledge_chunks", "rag_audit", "file_reputation", "ssh_observations", "conversation_chunks", "analysis_cache",
 )
 BASELINE_RULES = ("R03", "R04", "R05", "R10")
 
@@ -263,6 +263,19 @@ class SQLiteRepository:
             if result:
                 db.executemany("UPDATE alerts SET status='analyzed', status_at=? WHERE id=? AND status='new'", ((ts, alert_id) for alert_id in alert_ids))
 
+    def get_analysis_cache(self, cache_key: str):
+        with self._connect(readonly=True) as db:
+            row = db.execute("SELECT * FROM analysis_cache WHERE cache_key=?", (cache_key,)).fetchone()
+        if not row: return None
+        value = dict(row)
+        return json.loads(value["result_json"]), int(value["prompt_chars"]), json.loads(value["alert_ids_json"])
+
+    def save_analysis_cache(self, cache_key: str, model: str, result, prompt_chars: int, alert_ids, ts: str):
+        with self._connect() as db:
+            db.execute("""INSERT OR REPLACE INTO analysis_cache
+                (cache_key,model,result_json,prompt_chars,alert_ids_json,created_at) VALUES (?,?,?,?,?,?)""",
+                (cache_key, model, json.dumps(result, ensure_ascii=False), prompt_chars, json.dumps(alert_ids), ts))
+
     def update_alert_status(self, alert_id: int, status: str, note: str | None, ts: str) -> None:
         if status not in {"new", "analyzed", "dismissed", "confirmed"}:
             raise ValueError("Estado de alerta inválido")
@@ -418,6 +431,7 @@ class SQLiteRepository:
             "firewall_events": "DELETE FROM firewall_events WHERE ts<?",
             "sysmon_events": "DELETE FROM sysmon_events WHERE ts<?",
             "llm_analyses": "DELETE FROM llm_analyses WHERE ts<?",
+            "analysis_cache": "DELETE FROM analysis_cache WHERE created_at<?",
             "rag_audit": "DELETE FROM rag_audit WHERE ts<?",
             "file_reputation": "DELETE FROM file_reputation WHERE checked_at<?",
             "ssh_observations": "DELETE FROM ssh_observations WHERE ts<?",

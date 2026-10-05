@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import time
+import hashlib
+import json
 from datetime import datetime, timedelta
 
 from domain.rules import ALL_RULES
@@ -48,10 +50,16 @@ class AnalyzeService:
             prompt_chars = 0
             begin = time.perf_counter()
             batch_size = self.settings.llm_batch_size
+            cache_hits = 0
             for offset in range(0, len(alerts), batch_size):
                 batch = alerts[offset:offset + batch_size]
                 try:
-                    batch_result, chars, sent_ids = self._analyze_with_retry(batch)
+                    cached = self._cached(batch)
+                    if cached:
+                        batch_result, chars, sent_ids = cached; cache_hits += 1
+                    else:
+                        batch_result, chars, sent_ids = self._analyze_with_retry(batch)
+                        self._save_cache(batch, batch_result, chars, sent_ids)
                 except RuntimeError as exc:
                     errors.append(f"lote {offset // batch_size + 1}: {exc}")
                     continue
@@ -73,7 +81,8 @@ class AnalyzeService:
         status = "partial" if error else "ok"
         self.repository.finish_run(run_id, self.clock.now_iso(), status, {
             "rules": {"status": "ok", "candidates": len(candidates), "inserted": len(inserted), "learning_baseline": learning},
-            "llm": {"status": "disabled" if not use_llm else "error" if error else "ok", "model": self.analyzer.model, "error": error},
+            "llm": {"status": "disabled" if not use_llm else "error" if error else "ok", "model": self.analyzer.model,
+                    "error": error, "cache_hits": locals().get("cache_hits", 0)},
         })
         return {"run_id": run_id, "status": status, "candidates": len(candidates), "learning": learning,
                 "new_alerts": len(inserted), "llm_alerts": len(analyzed_ids), "llm_model": self.analyzer.model,
@@ -87,3 +96,16 @@ class AnalyzeService:
                 return self.analyzer.analyze(batch)
             except Exception as second:
                 raise RuntimeError(f"{type(second).__name__}: {second} (primer intento: {type(first).__name__})") from second
+
+    def _cache_key(self, batch):
+        material = json.dumps({"version": 1, "model": self.analyzer.model, "alerts": batch},
+                              ensure_ascii=False, sort_keys=True, default=str)
+        return hashlib.sha256(material.encode()).hexdigest()
+
+    def _cached(self, batch):
+        getter = getattr(self.repository, "get_analysis_cache", None)
+        return getter(self._cache_key(batch)) if getter else None
+
+    def _save_cache(self, batch, result, chars, sent_ids):
+        saver = getattr(self.repository, "save_analysis_cache", None)
+        if saver: saver(self._cache_key(batch), self.analyzer.model, result, chars, sent_ids, self.clock.now_iso())

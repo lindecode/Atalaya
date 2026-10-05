@@ -51,8 +51,11 @@ def _parser() -> argparse.ArgumentParser:
     history_actions.add_parser("delete", help="Borra una conversación").add_argument("id", type=int)
     models = commands.add_parser("models", help="Lista los LLM locales de Ollama o elige uno")
     models_actions = models.add_subparsers(dest="models_action")
-    models_actions.add_parser("use", help="Guarda el modelo para analyze/chat/GUI").add_argument("name")
+    models_use = models_actions.add_parser("use", help="Guarda el modelo para un rol")
+    models_use.add_argument("name")
+    models_use.add_argument("--role", choices=("chat", "analysis", "summary"), default="chat")
     models_actions.add_parser("pull", help="Descarga un modelo con el Ollama local").add_argument("name")
+    models_actions.add_parser("recommend", help="Recomienda modelos instalados por función")
     commands.add_parser("doctor", help="Comprueba requisitos (Python, Ollama, modelos, permisos) y cómo resolverlos")
     rag = commands.add_parser("rag", help="Indexa y consulta conocimiento local seguro")
     rag_actions = rag.add_subparsers(dest="rag_action", required=True)
@@ -180,10 +183,15 @@ def main(argv: Sequence[str] | None = None) -> int:
             return 0
         if args.models_action == "use":
             try:
-                model = service.select(args.name)
+                model = service.select(args.name, args.role)
             except ValueError as exc:
                 raise SystemExit(str(exc))
-            print(f"Modelo seleccionado: {model['name']}" + ("" if model["tools"] else " (aviso: sin tool calling, el chat no funcionará)"))
+            print(f"Modelo seleccionado para {args.role}: {model['name']}" +
+                  ("" if model["tools"] or args.role != "chat" else " (aviso: sin tool calling)"))
+            return 0
+        if args.models_action == "recommend":
+            for role, model in service.recommendations().items():
+                print(f"{role:<10} {model['name'] if model else 'sin modelo compatible'}")
             return 0
         current = service.current()
         try:

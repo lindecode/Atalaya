@@ -39,7 +39,7 @@ def model_selector() -> dict | None:
         model = by_name[name]
         return f"{name} · {model['parameters'] or '?'} · {model['size_gb']} GB" + ("" if model["tools"] else " · sin tools")
 
-    chosen = st.sidebar.selectbox("Modelo para analizar y chat", names, index=names.index(current) if current in by_name else 0,
+    chosen = st.sidebar.selectbox("Modelo para chat", names, index=names.index(current) if current in by_name else 0,
                                   format_func=label, key="llm_model")
     if chosen != current:
         service.select(chosen)

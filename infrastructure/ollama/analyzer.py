@@ -79,7 +79,7 @@ class OllamaAnalyzer:
             messages=[{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": prompt}],
             format=AnalysisOutput.model_json_schema(),
             think=False,
-            options={"temperature": 0.7, "top_p": 0.8, "top_k": 20},
+            options={"temperature": 0.1, "top_p": 0.8, "top_k": 20, "seed": 42},
         )
         parsed = AnalysisOutput.model_validate_json(response.message.content)
         cleaned = parsed.model_dump()

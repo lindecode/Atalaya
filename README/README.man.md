@@ -79,6 +79,20 @@ Puede usar otro modelo de embeddings instalado mediante la variable anterior o
 `rag index --embedding-model NOMBRE`. El modelo de chat y el de embeddings son
 independientes.
 
+También puede separar los modelos de análisis, chat y resumen:
+
+```powershell
+& $Python $Main models recommend
+& $Python $Main models use qwen3.5:4b --role chat
+& $Python $Main models use granite4.1:3b --role analysis
+& $Python $Main models use qwen3.5:0.8b --role summary
+```
+
+La pantalla **Estado → Modelos por función** ofrece los mismos selectores. La
+recomendación considera capacidades y tamaño de los modelos instalados; debe
+contrastarse con los evals locales. El análisis estructurado usa baja
+temperatura y una caché ligada a evidencia, modelo y versión del prompt.
+
 La aplicación acepta exclusivamente `localhost`, `127.0.0.1` o `::1` como
 `OLLAMA_HOST`. Para fijarlo explícitamente en una sesión:
 

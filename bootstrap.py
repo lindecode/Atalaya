@@ -9,6 +9,7 @@ from application.status import StatusService
 from application.watch import WatchService
 from application.chat import ChatService
 from application.chat_history import RecordedChatService
+from application.conversation_memory import ConversationMemoryService
 from application.doctor import DoctorService
 from application.models import ModelService
 from application.rag import RagService
@@ -84,10 +85,10 @@ def build_model_service(settings: Settings | None = None) -> ModelService:
     return ModelService(build_repository(effective), OllamaModelCatalog(effective), SystemClock(), effective)
 
 
-def _with_model(settings: Settings | None, model: str | None) -> Settings:
+def _with_model(settings: Settings | None, model: str | None, role: str = "chat") -> Settings:
     """Explicit --model wins, then the model chosen in the GUI/`models use`, then the default in settings.py."""
     effective = settings or Settings()
-    return replace(effective, ollama_model=model or build_model_service(effective).current())
+    return replace(effective, ollama_model=model or build_model_service(effective).current(role))
 
 
 def build_analyze_service(settings: Settings | None = None, model: str | None = None) -> AnalyzeService:
@@ -124,9 +125,11 @@ def build_chat_history(settings: Settings | None = None) -> SQLiteChatHistory:
 
 
 def build_recorded_chat_service(settings: Settings | None = None, model: str | None = None) -> RecordedChatService:
-    effective = _with_model(settings, model)
-    return RecordedChatService(build_chat_service(effective, effective.ollama_model), build_chat_history(effective),
-                               SystemClock(), effective.ollama_model)
+    effective = _with_model(settings, model, "analysis")
+    history = build_chat_history(effective)
+    memory = ConversationMemoryService(history, OllamaEmbeddingProvider(effective))
+    return RecordedChatService(build_chat_service(effective, effective.ollama_model), history,
+                               SystemClock(), effective.ollama_model, memory)
 
 
 def build_rag_service(settings: Settings | None = None, embedding_model: str | None = None,

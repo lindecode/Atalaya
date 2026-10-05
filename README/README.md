@@ -96,6 +96,9 @@ las mismas dos acciones.
 .\.venv\Scripts\python.exe Atalaya\main.py models
 # Guarda el modelo para analyze, chat y la GUI (se persiste en la BD local)
 .\.venv\Scripts\python.exe Atalaya\main.py models use granite4.1:3b
+.\.venv\Scripts\python.exe Atalaya\main.py models use granite4.1:3b --role analysis
+.\.venv\Scripts\python.exe Atalaya\main.py models use qwen3.5:0.8b --role summary
+.\.venv\Scripts\python.exe Atalaya\main.py models recommend
 # Usar otro modelo solo una vez
 .\.venv\Scripts\python.exe Atalaya\main.py analyze --model qwen3.5:0.8b
 ```
@@ -150,6 +153,12 @@ leer `Microsoft-Windows-Sysmon/Operational` y se degrada si no existe.
 El chat puede llamar únicamente a consultas parametrizadas y limitadas para
 alertas, accesos, conexiones, archivos y persistencia. No acepta ni genera SQL
 libre.
+
+Las conversaciones continuadas conservan memoria local limitada: últimos
+turnos y hasta tres fragmentos anteriores recuperados con FTS5 y embeddings.
+Esta memoria se marca como conversación no confiable y permanece separada del
+RAG documental. Los datos operativos actuales se vuelven a consultar mediante
+herramientas e IDs.
 
 ## RAG local y harness de seguridad
 

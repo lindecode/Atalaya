@@ -8,6 +8,7 @@ from settings import Settings
 
 
 MODEL_PREFERENCE = "ollama_model"
+ROLE_PREFERENCES = {"chat": "ollama_model_chat", "analysis": "ollama_model_analysis", "summary": "ollama_model_summary"}
 
 
 class ModelService:
@@ -19,20 +20,36 @@ class ModelService:
         self.clock = clock
         self.settings = settings
 
-    def current(self) -> str:
+    def current(self, role: str = "chat") -> str:
         self.repository.initialize()
-        return self.repository.get_preference(MODEL_PREFERENCE) or self.settings.ollama_model
+        if role not in ROLE_PREFERENCES: raise ValueError(f"Rol de modelo inválido: {role}")
+        return (self.repository.get_preference(ROLE_PREFERENCES[role])
+                or self.repository.get_preference(MODEL_PREFERENCE) or self.settings.ollama_model)
 
     def available(self) -> list[dict[str, Any]]:
         """Raises if Ollama is unreachable; callers decide how to degrade."""
         return self.catalog.list_models()
 
-    def select(self, name: str) -> dict[str, Any]:
+    def select(self, name: str, role: str = "chat") -> dict[str, Any]:
         model = next((item for item in self.available() if item["name"] == name), None)
         if model is None:
             raise ValueError(f"El modelo {name!r} no está instalado en Ollama (ollama pull {name})")
         if not model["chat"]:
             raise ValueError(f"{name} es un modelo de embeddings y no puede analizar ni conversar")
         self.repository.initialize()
-        self.repository.set_preference(MODEL_PREFERENCE, name, self.clock.now_iso())
+        if role not in ROLE_PREFERENCES: raise ValueError(f"Rol de modelo inválido: {role}")
+        self.repository.set_preference(ROLE_PREFERENCES[role], name, self.clock.now_iso())
         return model
+
+    def recommendations(self) -> dict[str, dict[str, Any] | None]:
+        models = self.available()
+        chat = [model for model in models if model["chat"]]
+        tools = [model for model in chat if model["tools"]]
+        embeddings = [model for model in models if not model["chat"]]
+        size = lambda model: model.get("size_gb") or 0
+        return {
+            "analysis": max(chat, key=size, default=None),
+            "chat": max(tools, key=size, default=None),
+            "summary": min(chat, key=size, default=None),
+            "embedding": max(embeddings, key=size, default=None),
+        }

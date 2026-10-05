@@ -542,6 +542,29 @@ def state():
           key="state-tables")
     st.subheader("Ejecuciones", divider="gray")
     table(query.rows("runs", None, 100), key="runs")
+    st.subheader("Modelos por función", divider="gray")
+    from bootstrap import build_model_service
+    model_service = build_model_service(settings)
+    try:
+        installed = model_service.available()
+    except Exception as exc:
+        st.warning(f"Ollama no disponible: {exc}")
+    else:
+        usable = [item for item in installed if item["chat"]]
+        names = [item["name"] for item in usable]
+        recommendations = model_service.recommendations()
+        if names:
+            columns = st.columns(3)
+            for column, role, label in zip(columns, ("analysis", "chat", "summary"),
+                                           ("Análisis estructurado", "Chat con herramientas", "Resúmenes")):
+                current_model = model_service.current(role)
+                selected = column.selectbox(label, names, index=names.index(current_model) if current_model in names else 0,
+                                            key=f"model-role-{role}")
+                recommended = recommendations.get(role)
+                column.caption("Recomendado localmente: " + (recommended["name"] if recommended else "ninguno"))
+                if selected != current_model: model_service.select(selected, role)
+        embedding = recommendations.get("embedding")
+        if embedding: st.caption(f"Embeddings recomendados: `{embedding['name']}`. La recomendación usa capacidades y tamaño instalados; valide con los evals locales.")
     st.subheader("Configuración de análisis automático", divider="gray")
     from application.automation import AutomationConfig
     from bootstrap import build_automation_config_service, build_cycle_service
