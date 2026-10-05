@@ -72,8 +72,16 @@ Write-Host "  SHA-256 verificado; $($pth.Name) configurado"
 
 Write-Paso "Dependencias (requirements.lock.txt)"
 $sitePackages = Join-Path $Runtime 'Lib\site-packages'
-& $builderPython -m pip install --disable-pip-version-check -q --no-deps --only-binary=:all: `
-    --platform win_amd64 --python-version $pyMinor --implementation cp `
+# Almacen de ruedas: pip descarga las publicadas y construye las que solo existen como codigo fuente
+# (p. ej. proxy_tools, de pywebview). El equipo de compilacion es Windows x64 con el mismo Python, asi que
+# las ruedas construidas valen para el runtime. Se guardan en cache para las siguientes compilaciones.
+$wheels = Join-Path $Cache "wheels-cp$($pyMinor -replace '\.', '')"
+& $builderPython -c "import struct, sys; sys.exit(0 if struct.calcsize('P') == 8 else 1)"
+if ($LASTEXITCODE) { throw "El Python de compilacion debe ser de 64 bits" }
+& $builderPython -m pip wheel --disable-pip-version-check -q --no-deps -w $wheels -r (Join-Path $Root 'requirements.lock.txt')
+if ($LASTEXITCODE) { throw "pip no pudo preparar las ruedas de requirements.lock.txt" }
+& $builderPython -m pip install --disable-pip-version-check -q --no-deps --no-index --find-links $wheels `
+    --only-binary=:all: --platform win_amd64 --python-version $pyMinor --implementation cp `
     --target $sitePackages -r (Join-Path $Root 'requirements.lock.txt')
 if ($LASTEXITCODE) { throw "pip no pudo instalar las dependencias en el runtime" }
 Get-ChildItem $sitePackages -Recurse -Directory -Filter '__pycache__' | Remove-Item -Recurse -Force

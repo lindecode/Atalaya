@@ -13,6 +13,9 @@ Atalaya es un monitor de seguridad **local** para Windows. Observa las conexione
 | Modelo de análisis y chat | `qwen3.5:4b`: 3,4 GB de disco y ~6 GB de RAM libre. Con menos de 8 GB de RAM: `qwen3.5:0.8b` (1 GB) | Con Ollama |
 | Modelo de embeddings | `embeddinggemma`: 0,6 GB. Mejora la búsqueda del chat en la documentación | Opcional |
 | GPU | Ollama la aprovecha si existe (NVIDIA o AMD); también funciona solo con CPU | Opcional |
+| WebView2 Runtime | Permite que Atalaya se abra en **su propia ventana**. Windows 11 lo incluye y Windows 10 lo recibe con Edge. Si falta, Atalaya usa el navegador (`winget install Microsoft.EdgeWebView2Runtime` para instalarlo) | Recomendado |
+
+Atalaya funciona **en segundo plano**: su icono aparece junto al reloj. Cerrar la ventana la oculta pero no detiene Atalaya; para salir del todo, usa el icono > **Salir de Atalaya**. Si prefieres el navegador, el mismo menú tiene **Abrir en el navegador**.
 | Permisos | Ninguno para usar Atalaya. La configuración opcional *Configurar permisos* pide administrador **una vez** para leer accesos/RDP y el log del firewall | Opcional |
 | Sysmon | Añade conexiones por proceso y borrados de archivos (ver `README.md`, fase 5) | Opcional |
 

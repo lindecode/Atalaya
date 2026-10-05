@@ -32,7 +32,7 @@ Qué hace `build.ps1`, en orden:
 1. Lee la versión de `shared\about.py` (`APP_VERSION`), que es la única fuente.
 2. Copia a `build\Atalaya\` los archivos versionados, excepto `tests\` y `packaging\`. Avisa si hay cambios sin commit.
 3. Descarga el Python embebido indicado en `versions.json`, **verifica su SHA-256** y configura `python313._pth` para que encuentre las dependencias, la aplicación (`..`) e `import site` (necesario para las DLL de pywin32).
-4. Instala `requirements.lock.txt` en `runtime\Lib\site-packages` con ruedas binarias para `win_amd64`/`cp313` (`--no-deps`: el lock ya incluye todo). Quita las suites de tests de las librerías y las plantillas de desarrollo de Streamlit.
+4. Prepara un almacén de ruedas en `packaging\cache\wheels-cp313` (`pip wheel`): descarga las publicadas y construye las que solo existen como código fuente (por ejemplo `proxy_tools`, de pywebview). Después instala `requirements.lock.txt` en `runtime\Lib\site-packages` **sin conexión**, desde ese almacén (`--no-index --no-deps`: el lock ya incluye todo). Quita las suites de tests de las librerías y las plantillas de desarrollo de Streamlit.
 5. **Prueba de humo** con el Python del paquete: importaciones, `--version`, base de datos y `doctor`.
 6. Comprueba que ninguna ruta relativa supera 170 caracteres. Windows corta en 260, y la instalación añade unos 46 más el nombre de usuario.
 7. Genera el ZIP (con el archivo `portable`) y compila `atalaya.iss` con Inno Setup.
