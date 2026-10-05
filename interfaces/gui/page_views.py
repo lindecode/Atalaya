@@ -519,7 +519,7 @@ def chat():
 
 
 def state():
-    _, repository, query, _ = context()
+    settings, repository, query, _ = context()
     hero("⚙️ Estado", "Base de datos, ejecuciones y mantenimiento.")
     status = repository.status()
     a, b, c = st.columns(3)
@@ -542,6 +542,45 @@ def state():
           key="state-tables")
     st.subheader("Ejecuciones", divider="gray")
     table(query.rows("runs", None, 100), key="runs")
+    st.subheader("Configuración de análisis automático", divider="gray")
+    from application.automation import AutomationConfig
+    from bootstrap import build_automation_config_service, build_cycle_service
+    automation = build_automation_config_service(settings)
+    current = automation.load()
+    with st.form("automation-config"):
+        left, middle, right = st.columns(3)
+        profile = left.selectbox("Perfil habitual", ["quick", "standard", "deep"],
+                                 index=["quick", "standard", "deep"].index(current.profile),
+                                 help="quick evita escaneos costosos; standard incluye archivos y persistencia.")
+        window = middle.number_input("Ventana de análisis (horas)", 1, 720, current.analysis_window_hours)
+        interval = right.number_input("Intervalo recomendado (minutos)", 1, 1440, current.cycle_minutes)
+        automatic = left.checkbox("Analizar cuando haya novedades", current.automatic_analysis)
+        use_llm = middle.checkbox("Usar Ollama para explicar alertas", current.use_llm)
+        backup_daily = right.checkbox("Backup diario recomendado", current.backup_daily)
+        standard_every = left.number_input("Perfil standard cada N ciclos", 1, 10_000, current.standard_every_cycles)
+        deep_every = middle.number_input("Perfil deep cada N ciclos", 1, 100_000, current.deep_every_cycles)
+        retention = right.number_input("Retención (días)", 1, 3650, current.retention_days)
+        if st.form_submit_button("Guardar configuración", icon=":material/save:"):
+            try:
+                automation.save(AutomationConfig(profile, int(window), automatic, use_llm, int(interval),
+                                                   int(standard_every), int(deep_every), int(retention), backup_daily))
+            except ValueError as exc:
+                st.error(str(exc))
+            else:
+                st.success("Configuración guardada. Las tareas futuras usarán estos valores.")
+    col_run, col_note = st.columns([1, 3])
+    if col_run.button("Ejecutar ciclo ahora", icon=":material/play_arrow:", width="stretch"):
+        try:
+            with st.spinner("Recolectando y evaluando novedades..."):
+                cycle_result = build_cycle_service(settings).execute()
+        except RuntimeError as exc:
+            st.error(str(exc))
+        else:
+            analyzed = cycle_result.get("analyzed")
+            st.success(f"Perfil {cycle_result['profile']}: {cycle_result['collected']['inserted']} filas nuevas; "
+                       + (f"{analyzed['new_alerts']} alertas nuevas." if analyzed else "análisis omitido."))
+    col_note.caption("Para periodicidad sin la GUI, Task Scheduler debe ejecutar `main.py cycle`; "
+                     "el bloqueo interno impide ciclos simultáneos.")
     st.subheader("Mantenimiento", divider="gray")
     if st.button("Crear backup", icon=":material/backup:"):
         from datetime import timezone

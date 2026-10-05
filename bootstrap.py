@@ -13,6 +13,7 @@ from application.doctor import DoctorService
 from application.models import ModelService
 from application.rag import RagService
 from application.reputation import FileReputationService
+from application.automation import AutomationConfigService, CycleService
 from application.tool_router import SecureToolRouter
 from infrastructure.clock import SystemClock
 from infrastructure.ollama.analyzer import OllamaAnalyzer
@@ -41,8 +42,17 @@ def build_repository(settings: Settings | None = None) -> SQLiteRepository:
     return SQLiteRepository(settings or Settings())
 
 
-def build_collect_service(settings: Settings | None = None) -> CollectService:
+COLLECTOR_PROFILES = {
+    "quick": {"psutil_connections", "security_events", "rdp_events", "windows_firewall", "sysmon_network",
+              "sysmon_process_registry", "ssh_observability"},
+    "standard": None,
+    "deep": None,
+}
+
+
+def build_collect_service(settings: Settings | None = None, profile: str = "standard") -> CollectService:
     effective = settings or Settings()
+    if profile == "deep": effective = replace(effective, scan_hours=max(effective.scan_hours, 24 * 7))
     repository = build_repository(effective)
     collectors = (
         PsutilConnectionCollector(),
@@ -59,6 +69,9 @@ def build_collect_service(settings: Settings | None = None) -> CollectService:
         SysmonCollector("sysmon_process_registry", (1, 12, 13), "sysmon_events"),
         SSHObservationCollector(),
     )
+    if profile not in COLLECTOR_PROFILES: raise ValueError(f"Perfil de recolección inválido: {profile}")
+    allowed = COLLECTOR_PROFILES[profile]
+    if allowed is not None: collectors = tuple(collector for collector in collectors if collector.name in allowed)
     return CollectService(repository, collectors, SystemClock(), WindowsSystemInfo())
 
 
@@ -129,3 +142,16 @@ def build_reputation_service(settings: Settings | None = None) -> FileReputation
                 if effective.virustotal_api_key else None)
     return FileReputationService(SQLiteReputationStore(effective), SystemClock(), effective,
                                  PowerShellAuthenticodeAnalyzer(), provider)
+
+
+def build_automation_config_service(settings: Settings | None = None) -> AutomationConfigService:
+    effective = settings or Settings()
+    return AutomationConfigService(build_repository(effective), SystemClock())
+
+
+def build_cycle_service(settings: Settings | None = None) -> CycleService:
+    effective = settings or Settings()
+    repository = build_repository(effective)
+    return CycleService(repository, SystemClock(), effective, AutomationConfigService(repository, SystemClock()),
+                        lambda profile: build_collect_service(effective, profile),
+                        lambda configured: build_analyze_service(configured))

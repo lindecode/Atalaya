@@ -24,7 +24,7 @@ class AnalyzeService:
         self.settings = settings
         self.rules = tuple(rules)
 
-    def execute(self) -> dict[str, object]:
+    def execute(self, use_llm: bool = True) -> dict[str, object]:
         self.repository.initialize()
         started = self.clock.now_iso()
         run_id = self.repository.start_run("analyze", started, self.system_info.is_admin())
@@ -42,7 +42,7 @@ class AnalyzeService:
         alerts = self.repository.get_new_alerts(limit=self.settings.llm_max_alerts)
         error = None
         analyzed_ids: list[int] = []
-        if alerts:
+        if alerts and use_llm:
             batch_results = []
             errors = []
             prompt_chars = 0
@@ -73,7 +73,7 @@ class AnalyzeService:
         status = "partial" if error else "ok"
         self.repository.finish_run(run_id, self.clock.now_iso(), status, {
             "rules": {"status": "ok", "candidates": len(candidates), "inserted": len(inserted), "learning_baseline": learning},
-            "llm": {"status": "error" if error else "ok", "model": self.analyzer.model, "error": error},
+            "llm": {"status": "disabled" if not use_llm else "error" if error else "ok", "model": self.analyzer.model, "error": error},
         })
         return {"run_id": run_id, "status": status, "candidates": len(candidates), "learning": learning,
                 "new_alerts": len(inserted), "llm_alerts": len(analyzed_ids), "llm_model": self.analyzer.model,

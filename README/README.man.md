@@ -299,6 +299,20 @@ SQL libre ni comandos del sistema.
 
 ## 8. Ejecución automática con Task Scheduler
 
+La forma recomendada es usar el lanzador incluido. No requiere guardar una
+contraseña y ejecuta el ciclo sólo mientras el usuario tiene una sesión:
+
+```powershell
+.\start\automatizacion.bat activar 5
+.\start\automatizacion.bat estado
+.\start\automatizacion.bat desactivar
+```
+
+Cada ejecución llama a `main.py cycle`: selecciona el perfil configurado,
+impide ciclos simultáneos y sólo inicia el análisis cuando hubo evidencia
+nueva. La ventana temporal, el uso del LLM, las frecuencias de perfiles y la
+retención se editan en **Estado → Configuración de análisis automático**.
+
 La opción recomendada para `watch` es crear la tarea manualmente desde
 **Task Scheduler**:
 

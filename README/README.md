@@ -175,6 +175,19 @@ texto. Los embeddings se cachean por hash del contenido.
 .\.venv\Scripts\python.exe Atalaya\main.py purge --days 30
 ```
 
+Para operación periódica, `cycle` usa un perfil de lectura y sólo invoca el
+análisis cuando ingresó evidencia nueva:
+
+```powershell
+.\.venv\Scripts\python.exe Atalaya\main.py collect --profile quick
+.\.venv\Scripts\python.exe Atalaya\main.py cycle
+.\Atalaya\start\automatizacion.bat activar 5
+```
+
+Los perfiles `standard` y `deep` se intercalan con la frecuencia configurada
+en **Estado → Configuración de análisis automático**. El ciclo profundo crea el
+backup diario antes de aplicar la retención.
+
 El backup usa la API consistente de SQLite. La purga conserva las alertas
 confirmadas y sus instantáneas de evidencia.
 

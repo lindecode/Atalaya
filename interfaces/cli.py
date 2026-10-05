@@ -8,7 +8,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Sequence
 
-from bootstrap import build_analyze_service, build_chat_history, build_chat_service, build_collect_service, build_doctor_service, build_model_service, build_rag_service, build_recorded_chat_service, build_report_service, build_reputation_service, build_repository, build_status_service, build_watch_service
+from bootstrap import build_analyze_service, build_chat_history, build_chat_service, build_collect_service, build_cycle_service, build_doctor_service, build_model_service, build_rag_service, build_recorded_chat_service, build_report_service, build_reputation_service, build_repository, build_status_service, build_watch_service
 from infrastructure.clock import SystemClock
 from shared.about import APP_NAME, APP_VERSION, COPYRIGHT, REPOSITORY_URL
 
@@ -18,7 +18,12 @@ def _parser() -> argparse.ArgumentParser:
                                      epilog=f"{COPYRIGHT} {REPOSITORY_URL}")
     parser.add_argument("--version", action="version", version=f"{APP_NAME} {APP_VERSION} · {COPYRIGHT}")
     commands = parser.add_subparsers(dest="command", required=True)
-    commands.add_parser("collect", help="Recolecta una instantánea local")
+    collect = commands.add_parser("collect", help="Recolecta una instantánea local")
+    collect.add_argument("--profile", choices=("quick", "standard", "deep"), default="standard")
+    cycle = commands.add_parser("cycle", help="Recolecta y analiza sólo cuando hay novedades")
+    cycle.add_argument("--profile", choices=("quick", "standard", "deep"))
+    cycle.add_argument("--force-analysis", action="store_true")
+    cycle.add_argument("--no-llm", action="store_true")
     commands.add_parser("status", help="Muestra el estado y tamaño de la base de datos")
     analyze = commands.add_parser("analyze", help="Ejecuta reglas y correlación local opcional")
     analyze.add_argument("--model", help="Modelo de Ollama solo para esta ejecución")
@@ -116,7 +121,20 @@ def main(argv: Sequence[str] | None = None) -> int:
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     args = _parser().parse_args(argv)
     if args.command == "collect":
-        _print_collect(build_collect_service().execute())
+        _print_collect(build_collect_service(profile=args.profile).execute())
+        return 0
+    if args.command == "cycle":
+        try:
+            result = build_cycle_service().execute(args.profile, args.force_analysis,
+                                                   False if args.no_llm else None)
+        except (ValueError, RuntimeError) as exc:
+            raise SystemExit(f"No se pudo ejecutar el ciclo: {exc}")
+        print(f"Perfil={result['profile']}")
+        _print_collect(result["collected"])
+        if result["analysis_skipped"]: print("Análisis omitido: no hubo evidencia nueva o está desactivado.")
+        elif result["analyzed"]:
+            analysis = result["analyzed"]
+            print(f"Análisis #{analysis['run_id']}: alertas nuevas={analysis['new_alerts']}; LLM={analysis['llm_alerts']}")
         return 0
     if args.command == "status":
         _print_status(build_status_service().execute())
