@@ -281,4 +281,49 @@ MIGRATIONS: tuple[str, ...] = (
     );
     CREATE INDEX idx_analysis_cache_model ON analysis_cache(model, created_at);
     """,
+    """
+    CREATE TABLE process_snapshots (
+      id INTEGER PRIMARY KEY,
+      run_id INTEGER NOT NULL REFERENCES runs(id),
+      ts TEXT NOT NULL,
+      process_key TEXT NOT NULL,
+      pid INTEGER NOT NULL,
+      create_time REAL NOT NULL,
+      name TEXT,
+      path TEXT,
+      process_user TEXT,
+      status TEXT,
+      parent_pid INTEGER,
+      parent_name TEXT,
+      command_summary TEXT,
+      rss_bytes INTEGER NOT NULL,
+      private_bytes INTEGER,
+      vms_bytes INTEGER NOT NULL,
+      memory_percent REAL NOT NULL,
+      cpu_seconds REAL NOT NULL,
+      thread_count INTEGER NOT NULL,
+      read_bytes INTEGER,
+      write_bytes INTEGER,
+      UNIQUE(run_id, process_key)
+    );
+    CREATE TABLE process_lifecycle (
+      process_key TEXT PRIMARY KEY,
+      pid INTEGER NOT NULL,
+      create_time REAL NOT NULL,
+      name TEXT,
+      path TEXT,
+      process_user TEXT,
+      first_seen TEXT NOT NULL,
+      last_seen TEXT NOT NULL,
+      ended_at TEXT,
+      active INTEGER NOT NULL DEFAULT 1,
+      missed_snapshots INTEGER NOT NULL DEFAULT 0,
+      peak_rss_bytes INTEGER NOT NULL DEFAULT 0,
+      peak_private_bytes INTEGER
+    );
+    CREATE INDEX idx_process_snapshot_ts ON process_snapshots(ts);
+    CREATE INDEX idx_process_snapshot_key_ts ON process_snapshots(process_key, ts);
+    CREATE INDEX idx_process_snapshot_memory ON process_snapshots(private_bytes, rss_bytes);
+    CREATE INDEX idx_process_lifecycle_active ON process_lifecycle(active, last_seen);
+    """,
 )

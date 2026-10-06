@@ -41,8 +41,8 @@ def _escape_data_delimiters(raw_json: str) -> str:
 
 
 def _safe_snapshot(snapshot):
-    allowed = ("id", "ts", "event_id", "source_ip", "target_user", "path", "action", "process_name",
-               "process_path", "laddr", "lport", "raddr", "rport", "kind", "location", "name", "command")
+    allowed = ("id", "ts", "event_id", "source_ip", "target_user", "path", "action", "process_name", "name",
+               "process_path", "laddr", "lport", "raddr", "rport", "kind", "location", "command")
     return {key: (str(snapshot[key])[:300] if snapshot.get(key) is not None else None)
             for key in allowed if key in snapshot}
 

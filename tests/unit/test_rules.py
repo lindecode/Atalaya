@@ -14,6 +14,7 @@ CFG = SimpleNamespace(
     brute_force_count=10, brute_force_minutes=5, mass_file_count=100,
     mass_file_minutes=1, anomalous_extension_count=20, port_scan_count=20,
     suspicious_ports=(4444, 1337, 31337, 6667, 5555, 9001),
+    process_growth_mb=1024, process_high_memory_percent=25.0,
 )
 
 
@@ -56,6 +57,12 @@ def test_numeric_rule_boundaries():
     (catalog.r12, EvidenceView(firewall_events=tuple({"id": i, "ts": ts(i), "action": "DROP", "src_ip": "203.0.113.3", "dst_port": 1000 + i} for i in range(20))), "R12"),
     (catalog.r13, EvidenceView(auth_events=(auth(1, 1102),)), "R13"),
     (catalog.r14, EvidenceView(auth_events=(auth(1, 4732, target_user="alice"),)), "R14"),
+    (catalog.r15, EvidenceView(process_snapshots=(
+        {"id": 1, "ts": ts(), "process_key": "p", "name": "leak.exe", "private_bytes": 10, "rss_bytes": 10},
+        {"id": 2, "ts": ts(60), "process_key": "p", "name": "leak.exe", "private_bytes": 2 * 1024**3, "rss_bytes": 2 * 1024**3},)), "R15"),
+    (catalog.r16, EvidenceView(process_snapshots=(
+        {"id": 1, "ts": ts(), "process_key": "p", "name": "x.exe", "path": r"C:\Users\me\Downloads\x.exe",
+         "parent_name": "powershell.exe", "memory_percent": 1, "private_bytes": 10},)), "R16"),
 ])
 def test_each_rule_has_trigger(rule, view, rule_id):
     assert any(alert.rule_id == rule_id for alert in rule(view, CFG))
@@ -63,6 +70,6 @@ def test_each_rule_has_trigger(rule, view, rule_id):
 
 @pytest.mark.parametrize("rule", [catalog.r02, catalog.r03, catalog.r04, catalog.r05, catalog.r06,
                                    catalog.r07, catalog.r08, catalog.r09, catalog.r10, catalog.r11,
-                                   catalog.r12, catalog.r13, catalog.r14])
+                                   catalog.r12, catalog.r13, catalog.r14, catalog.r15, catalog.r16])
 def test_each_rule_has_negative_case(rule):
     assert rule(EvidenceView(), CFG) == []

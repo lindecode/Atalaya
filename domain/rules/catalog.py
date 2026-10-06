@@ -169,4 +169,37 @@ def r14(view, cfg):
     return [candidate("R14", "medium", "Cambio de privilegios o cuenta", str(r.get("target_user")), [r], "auth_event", {"event_id": r["event_id"]}, r["ts"]) for r in view.auth_events if r["event_id"] in {4720, 4732}]
 
 
-ALL_RULES: tuple[Rule, ...] = (r01, r02, r03, r04, r05, r06, r07, r08, r09, r10, r11, r12, r13, r14)
+def r15(view, cfg):
+    alerts = []
+    by_process = defaultdict(list)
+    for row in view.process_snapshots: by_process[row["process_key"]].append(row)
+    threshold = int(cfg.process_growth_mb) * 1024 * 1024
+    for key, rows in by_process.items():
+        ordered = sorted(rows, key=lambda row: row["ts"])
+        if len(ordered) < 2: continue
+        first, last = ordered[0], ordered[-1]
+        before = first.get("private_bytes") or first.get("rss_bytes") or 0
+        after = last.get("private_bytes") or last.get("rss_bytes") or 0
+        if after - before >= threshold:
+            alerts.append(candidate("R15", "medium", "Crecimiento anómalo de memoria", last.get("name") or key,
+                                    [first, last], "process_snapshot",
+                                    {"growth_mb": round((after-before)/1024**2), "current_mb": round(after/1024**2)},
+                                    last["ts"], dt(last["ts"]).strftime("%Y%m%d")))
+    return alerts
+
+
+def r16(view, cfg):
+    suspicious = ("\\temp\\", "\\downloads\\", "\\users\\public\\", "\\$recycle.bin\\")
+    interpreters = {"powershell.exe", "pwsh.exe", "cmd.exe", "wscript.exe", "cscript.exe", "mshta.exe"}
+    latest = {}
+    for row in view.process_snapshots: latest[row["process_key"]] = row
+    return [candidate("R16", "high", "Proceso activo desde ruta sospechosa", row.get("path") or row.get("name") or key,
+                      [row], "process_snapshot", {"parent": row.get("parent_name"), "memory_mb": round((row.get("private_bytes") or row.get("rss_bytes") or 0)/1024**2)},
+                      row["ts"], "first")
+            for key, row in latest.items()
+            if any(part in str(row.get("path") or "").replace("/", "\\").casefold() for part in suspicious)
+            and (str(row.get("parent_name") or "").casefold() in interpreters
+                 or float(row.get("memory_percent") or 0) >= cfg.process_high_memory_percent)]
+
+
+ALL_RULES: tuple[Rule, ...] = (r01, r02, r03, r04, r05, r06, r07, r08, r09, r10, r11, r12, r13, r14, r15, r16)

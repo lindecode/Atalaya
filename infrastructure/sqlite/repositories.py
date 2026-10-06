@@ -4,6 +4,7 @@ import hashlib
 import json
 import sqlite3
 from dataclasses import asdict
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -18,6 +19,7 @@ TABLES = (
     "runs", "connections", "auth_events", "file_events", "firewall_events",
     "persistence_items", "baseline", "alerts", "llm_analyses", "cursors", "sysmon_events", "preferences",
     "knowledge_chunks", "rag_audit", "file_reputation", "ssh_observations", "conversation_chunks", "analysis_cache",
+    "process_snapshots", "process_lifecycle",
 )
 BASELINE_RULES = ("R03", "R04", "R05", "R10")
 
@@ -142,6 +144,36 @@ class SQLiteRepository:
                          v["service_status"], v["service_start_type"], v["dedup_key"]),
                     )
                     inserted += max(cursor.rowcount, 0)
+            elif result.item_kind == "process_snapshots":
+                if result.status == "ok":
+                    db.execute("UPDATE process_lifecycle SET missed_snapshots=missed_snapshots+1 WHERE active=1")
+                    db.execute("UPDATE process_lifecycle SET active=0, ended_at=? WHERE active=1 AND missed_snapshots>=2", (now,))
+                for item in result.items:
+                    v = asdict(item)
+                    cursor = db.execute(
+                        """INSERT OR IGNORE INTO process_snapshots
+                        (run_id,ts,process_key,pid,create_time,name,path,process_user,status,parent_pid,parent_name,
+                         command_summary,rss_bytes,private_bytes,vms_bytes,memory_percent,cpu_seconds,thread_count,
+                         read_bytes,write_bytes) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                        (run_id, v["ts"], v["process_key"], v["pid"], v["create_time"], v["name"], v["path"],
+                         v["user"], v["status"], v["parent_pid"], v["parent_name"], v["command_summary"],
+                         v["rss_bytes"], v["private_bytes"], v["vms_bytes"], v["memory_percent"], v["cpu_seconds"],
+                         v["thread_count"], v["read_bytes"], v["write_bytes"]),
+                    )
+                    inserted += max(cursor.rowcount, 0)
+                    db.execute(
+                        """INSERT INTO process_lifecycle
+                        (process_key,pid,create_time,name,path,process_user,first_seen,last_seen,ended_at,active,
+                         missed_snapshots,peak_rss_bytes,peak_private_bytes) VALUES (?,?,?,?,?,?,?,?,NULL,1,0,?,?)
+                        ON CONFLICT(process_key) DO UPDATE SET
+                          name=excluded.name,path=excluded.path,process_user=excluded.process_user,
+                          last_seen=excluded.last_seen,ended_at=NULL,active=1,missed_snapshots=0,
+                          peak_rss_bytes=MAX(process_lifecycle.peak_rss_bytes,excluded.peak_rss_bytes),
+                          peak_private_bytes=CASE WHEN excluded.peak_private_bytes IS NULL THEN process_lifecycle.peak_private_bytes
+                            ELSE MAX(COALESCE(process_lifecycle.peak_private_bytes,0),excluded.peak_private_bytes) END""",
+                        (v["process_key"], v["pid"], v["create_time"], v["name"], v["path"], v["user"],
+                         v["ts"], v["ts"], v["rss_bytes"], v["private_bytes"]),
+                    )
             elif result.item_kind == "persistence_items":
                 db.execute("UPDATE persistence_items SET active=0, last_missing_at=? WHERE active=1", (now,))
                 for item in result.items:
@@ -213,6 +245,13 @@ class SQLiteRepository:
                 file_events=self._rows(db, "SELECT * FROM file_events WHERE ts>=? ORDER BY ts", (since,)),
                 firewall_events=self._rows(db, "SELECT * FROM firewall_events WHERE ts>=? ORDER BY ts", (since,)),
                 persistence_items=self._rows(db, "SELECT * FROM persistence_items WHERE first_seen>=? ORDER BY first_seen", (since,)),
+                # R15 needs the first and last sample; R16 only the last. Do not load every five-minute
+                # snapshot into the analyzer (hundreds of processes would unnecessarily inflate memory/prompts).
+                process_snapshots=self._rows(db, """SELECT * FROM process_snapshots
+                    WHERE ts>=? AND id IN (
+                      SELECT MIN(id) FROM process_snapshots WHERE ts>=? GROUP BY process_key
+                      UNION SELECT MAX(id) FROM process_snapshots WHERE ts>=? GROUP BY process_key
+                    ) ORDER BY ts""", (since, since, since)),
                 baseline=baseline,
             )
 
@@ -424,6 +463,9 @@ class SQLiteRepository:
 
     def purge(self, cutoff: str) -> dict[str, int]:
         deleted = {}
+        general_cutoff = datetime.fromisoformat(cutoff)
+        process_cutoff = (general_cutoff + timedelta(
+            days=max(self.settings.retention_days - self.settings.process_retention_days, 0))).isoformat()
         statements = {
             "connections": "DELETE FROM connections WHERE ts<?",
             "auth_events": "DELETE FROM auth_events WHERE ts<?",
@@ -435,10 +477,13 @@ class SQLiteRepository:
             "rag_audit": "DELETE FROM rag_audit WHERE ts<?",
             "file_reputation": "DELETE FROM file_reputation WHERE checked_at<?",
             "ssh_observations": "DELETE FROM ssh_observations WHERE ts<?",
+            "process_lifecycle": "DELETE FROM process_lifecycle WHERE active=0 AND last_seen<?",
             "runs": "DELETE FROM runs WHERE started_at<? AND id NOT IN (SELECT run_id FROM llm_analyses WHERE run_id IS NOT NULL)",
             "alerts": "DELETE FROM alerts WHERE ts<? AND status!='confirmed'",
         }
         with self._connect() as db:
+            cursor = db.execute("DELETE FROM process_snapshots WHERE ts<?", (process_cutoff,))
+            deleted["process_snapshots"] = max(cursor.rowcount, 0)
             for table, sql in statements.items():
                 cursor = db.execute(sql, (cutoff,))
                 deleted[table] = max(cursor.rowcount, 0)

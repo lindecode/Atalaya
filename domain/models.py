@@ -109,6 +109,29 @@ class SSHObservation:
 
 
 @dataclass(frozen=True, slots=True)
+class ProcessSnapshot:
+    ts: str
+    process_key: str
+    pid: int
+    create_time: float
+    name: str | None
+    path: str | None
+    user: str | None
+    status: str | None
+    parent_pid: int | None
+    parent_name: str | None
+    command_summary: str | None
+    rss_bytes: int
+    private_bytes: int | None
+    vms_bytes: int
+    memory_percent: float
+    cpu_seconds: float
+    thread_count: int
+    read_bytes: int | None
+    write_bytes: int | None
+
+
+@dataclass(frozen=True, slots=True)
 class CollectionRequest:
     now: str
     cursor: dict[str, Any] | None = None
@@ -117,7 +140,7 @@ class CollectionRequest:
 @dataclass(frozen=True, slots=True)
 class CollectionResult:
     collector: str
-    item_kind: Literal["connections", "auth_events", "file_events", "firewall_events", "persistence_items", "sysmon_events", "ssh_observations"]
+    item_kind: Literal["connections", "auth_events", "file_events", "firewall_events", "persistence_items", "sysmon_events", "ssh_observations", "process_snapshots"]
     items: tuple[Any, ...]
     status: CollectionStatus
     warnings: tuple[str, ...] = ()
@@ -150,4 +173,5 @@ class EvidenceView:
     file_events: tuple[dict[str, Any], ...] = ()
     firewall_events: tuple[dict[str, Any], ...] = ()
     persistence_items: tuple[dict[str, Any], ...] = ()
+    process_snapshots: tuple[dict[str, Any], ...] = ()
     baseline: frozenset[tuple[str, str]] = frozenset()

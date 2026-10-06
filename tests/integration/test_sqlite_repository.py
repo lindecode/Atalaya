@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 
-from domain.models import CollectionResult, FileEvent, PersistenceItem, SSHObservation
+from domain.models import CollectionResult, FileEvent, PersistenceItem, ProcessSnapshot, SSHObservation
 from infrastructure.sqlite.repositories import SQLiteRepository
 from settings import Settings
 
@@ -61,6 +61,31 @@ def test_cursor_is_saved_with_collection(tmp_path):
     result = CollectionResult("security", "auth_events", (), "ok", next_cursor={"record_id": 100})
     repository.save_collection(run_id, result, NOW)
     assert repository.get_cursor("security") == {"record_id": 100}
+
+
+def test_process_snapshots_track_lifecycle_and_peaks(tmp_path):
+    repository = make_repository(tmp_path)
+    first_run = repository.start_run("collect", NOW, False)
+    first = ProcessSnapshot(NOW, "process-key", 42, 1000.0, "app.exe", r"C:\app.exe", "alice", "running",
+                            1, "parent.exe", "app.exe --safe", 200, 150, 500, 1.0, 2.0, 3, 10, 20)
+    assert repository.save_collection(first_run, CollectionResult("processes", "process_snapshots", (first,), "ok"), NOW) == 1
+    later = "2026-10-01T12:05:00+00:00"
+    second_run = repository.start_run("collect", later, False)
+    second = replace(first, ts=later, rss_bytes=400, private_bytes=350)
+    repository.save_collection(second_run, CollectionResult("processes", "process_snapshots", (second,), "ok"), later)
+    ended = "2026-10-01T12:10:00+00:00"
+    third_run = repository.start_run("collect", ended, False)
+    repository.save_collection(third_run, CollectionResult("processes", "process_snapshots", (), "ok"), ended)
+    with repository._connect(readonly=True) as connection:
+        assert connection.execute(
+            "SELECT active FROM process_lifecycle WHERE process_key='process-key'").fetchone()[0] == 1
+    final = "2026-10-01T12:15:00+00:00"
+    fourth_run = repository.start_run("collect", final, False)
+    repository.save_collection(fourth_run, CollectionResult("processes", "process_snapshots", (), "ok"), final)
+    with repository._connect(readonly=True) as connection:
+        lifecycle = connection.execute(
+            "SELECT active,ended_at,peak_rss_bytes,peak_private_bytes FROM process_lifecycle WHERE process_key='process-key'").fetchone()
+    assert tuple(lifecycle) == (0, final, 400, 350)
 
 
 def test_backup_and_purge_preserve_confirmed_alert_snapshot(tmp_path):

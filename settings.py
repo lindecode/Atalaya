@@ -69,6 +69,9 @@ class Settings:
     anomalous_extension_count: int = 20
     port_scan_count: int = 20
     suspicious_ports: tuple[int, ...] = (4444, 1337, 31337, 6667, 5555, 9001)
+    process_high_memory_percent: float = 25.0
+    process_growth_mb: int = 1024
+    process_retention_days: int = 7
     ollama_host: str = field(default_factory=lambda: os.environ.get("OLLAMA_HOST", "http://localhost:11434"))
     ollama_model: str = "qwen3.5:4b"
     ollama_embedding_model: str = field(default_factory=lambda: os.environ.get("OLLAMA_EMBEDDING_MODEL", "embeddinggemma:latest"))

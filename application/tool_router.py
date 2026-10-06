@@ -4,7 +4,7 @@ from __future__ import annotations
 class SecureToolRouter:
     """Closed router: SQL evidence stays exact; RAG only searches approved knowledge."""
 
-    SQL_TOOLS = {"get_alerts", "get_auth_events", "get_connections", "get_file_events", "get_file_reputation", "get_persistence_new", "get_ssh_observations"}
+    SQL_TOOLS = {"get_alerts", "get_auth_events", "get_connections", "get_processes", "get_file_events", "get_file_reputation", "get_persistence_new", "get_ssh_observations"}
 
     def __init__(self, sql_tools, rag_service):
         self.sql_tools, self.rag_service = sql_tools, rag_service

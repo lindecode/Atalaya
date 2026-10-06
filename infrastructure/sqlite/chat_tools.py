@@ -37,6 +37,14 @@ class SQLiteQueryTools:
             sql, params = "SELECT * FROM connections WHERE ts>=?", [since]
             if args.get("process"): sql += " AND process_name LIKE ?"; params.append(f"%{args['process']}%")
             if args.get("remote_ip"): sql += " AND raddr=?"; params.append(args["remote_ip"])
+        elif name == "get_processes":
+            sql, params = """SELECT s.id,s.ts,s.pid,s.name,s.path,s.process_user,s.status,s.parent_name,
+                s.rss_bytes,s.private_bytes,s.memory_percent,s.cpu_seconds,s.thread_count,l.first_seen,l.last_seen,
+                l.ended_at,l.active,l.peak_rss_bytes,l.peak_private_bytes
+                FROM process_snapshots s JOIN process_lifecycle l ON l.process_key=s.process_key
+                WHERE s.ts>=?""", [since]
+            if args.get("process"): sql += " AND s.name LIKE ?"; params.append(f"%{args['process']}%")
+            if args.get("active") is not None: sql += " AND l.active=?"; params.append(int(bool(args["active"])))
         elif name == "get_file_events":
             sql, params = "SELECT * FROM file_events WHERE ts>=?", [since]
             if args.get("path_contains"): sql += " AND path LIKE ?"; params.append(f"%{args['path_contains']}%")

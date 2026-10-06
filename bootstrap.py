@@ -33,6 +33,7 @@ from infrastructure.windows.event_log import RDP_CHANNEL, SECURITY_CHANNEL, Wind
 from infrastructure.windows.files import RecentFileCollector
 from infrastructure.windows.firewall import FirewallLogCollector
 from infrastructure.windows.persistence import WindowsPersistenceCollector
+from infrastructure.windows.processes import PsutilProcessCollector
 from infrastructure.windows.notifier import WindowsNotifier
 from infrastructure.windows.sysmon import SysmonCollector
 from infrastructure.windows.ssh import SSHObservationCollector
@@ -44,7 +45,7 @@ def build_repository(settings: Settings | None = None) -> SQLiteRepository:
 
 
 COLLECTOR_PROFILES = {
-    "quick": {"psutil_connections", "security_events", "rdp_events", "windows_firewall", "sysmon_network",
+    "quick": {"psutil_connections", "psutil_processes", "security_events", "rdp_events", "windows_firewall", "sysmon_network",
               "sysmon_process_registry", "ssh_observability"},
     "standard": None,
     "deep": None,
@@ -57,6 +58,7 @@ def build_collect_service(settings: Settings | None = None, profile: str = "stan
     repository = build_repository(effective)
     collectors = (
         PsutilConnectionCollector(),
+        PsutilProcessCollector(),
         WindowsEventLogCollector(
             "security_events", SECURITY_CHANNEL,
             (4624, 4625, 4648, 4672, 4698, 4720, 4732, 1102), requires_admin=True,

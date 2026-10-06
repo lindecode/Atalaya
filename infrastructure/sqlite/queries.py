@@ -7,7 +7,7 @@ from infrastructure.sqlite.connection import connect
 from settings import Settings
 
 
-ALLOWED_TABLES = {"connections", "auth_events", "file_events", "file_reputation", "firewall_events", "persistence_items", "alerts", "llm_analyses", "runs", "ssh_observations"}
+ALLOWED_TABLES = {"connections", "auth_events", "file_events", "file_reputation", "firewall_events", "persistence_items", "alerts", "llm_analyses", "runs", "ssh_observations", "process_snapshots", "process_lifecycle"}
 
 
 class SQLiteQueryRepository:
@@ -17,7 +17,7 @@ class SQLiteQueryRepository:
     def rows(self, table: str, since: str | None = None, limit: int = 5000):
         if table not in ALLOWED_TABLES:
             raise ValueError("Tabla no permitida")
-        column = ("first_seen" if table == "persistence_items" else "started_at" if table == "runs"
+        column = ("first_seen" if table in {"persistence_items", "process_lifecycle"} else "started_at" if table == "runs"
                   else "checked_at" if table == "file_reputation" else "ts")
         sql = f"SELECT * FROM {table}"
         params = []
@@ -59,6 +59,30 @@ class SQLiteQueryRepository:
             else:
                 sql, params = "SELECT * FROM connections WHERE ts>=? ORDER BY ts LIMIT ?", (since, limit)
             return [dict(row) for row in db.execute(sql, params)]
+
+    def processes_current(self, limit: int = 2000):
+        with connect(self.settings.database_path, readonly=True) as db:
+            run = db.execute("SELECT MAX(run_id) FROM process_snapshots").fetchone()[0]
+            if run is None: return []
+            return [dict(row) for row in db.execute(
+                "SELECT * FROM process_snapshots WHERE run_id=? ORDER BY COALESCE(private_bytes,rss_bytes) DESC LIMIT ?",
+                (run, min(max(limit, 1), 5000)))]
+
+    def process_history(self, since: str, process_key: str | None = None, limit: int = 20000):
+        sql, params = "SELECT * FROM process_snapshots WHERE ts>=?", [since]
+        if process_key:
+            sql += " AND process_key=?"; params.append(process_key)
+        sql += " ORDER BY ts LIMIT ?"; params.append(min(max(limit, 1), 20000))
+        with connect(self.settings.database_path, readonly=True) as db:
+            return [dict(row) for row in db.execute(sql, tuple(params))]
+
+    def process_lifecycle(self, active: bool | None = None, limit: int = 2000):
+        sql, params = "SELECT * FROM process_lifecycle", []
+        if active is not None:
+            sql += " WHERE active=?"; params.append(int(active))
+        sql += " ORDER BY last_seen DESC LIMIT ?"; params.append(min(max(limit, 1), 5000))
+        with connect(self.settings.database_path, readonly=True) as db:
+            return [dict(row) for row in db.execute(sql, tuple(params))]
 
     def open_alerts_by_severity(self) -> dict[str, int]:
         with connect(self.settings.database_path, readonly=True) as db:
