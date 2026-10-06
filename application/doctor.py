@@ -8,6 +8,7 @@ from __future__ import annotations
 import importlib.util
 import os
 import shutil
+import sqlite3
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -85,7 +86,7 @@ class DoctorService:
         self.webview2_version = webview2_version
 
     def run(self) -> list[Check]:
-        return self._python() + self._data() + self._ollama() + self._sources()
+        return self._python() + self._data() + self._operation() + self._ollama() + self._sources()
 
     # --- Python y dependencias ------------------------------------------------------------------
     def _python(self) -> list[Check]:
@@ -120,6 +121,44 @@ class DoctorService:
         return [Check("data", "Programa", "Carpeta de datos", status, f"{folder} · {free:.1f} GB libres",
                       "Libere espacio: los modelos y la base de datos lo necesitan" if status == "warn" else "")]
 
+    def _operation(self) -> list[Check]:
+        checks: list[Check] = []
+        database = self.settings.database_path
+        if not database.exists():
+            return [Check("database", "Operación", "Base de datos", "info", "Todavía no inicializada",
+                          "Abra Atalaya o ejecute «python main.py status»")]
+        try:
+            with sqlite3.connect(database) as connection:
+                integrity = connection.execute("PRAGMA integrity_check").fetchone()[0]
+                tables = {row[0] for row in connection.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table'")}
+                chunks = (connection.execute("SELECT COUNT(*) FROM knowledge_chunks").fetchone()[0]
+                          if "knowledge_chunks" in tables else 0)
+                last_run = (connection.execute(
+                    "SELECT finished_at,status FROM runs ORDER BY id DESC LIMIT 1").fetchone()
+                            if "runs" in tables else None)
+            checks.append(Check("database", "Operación", "Base de datos", "ok" if integrity == "ok" else "fail",
+                                f"Integridad: {integrity} · {database.stat().st_size / 1024 ** 2:.1f} MB",
+                                "Restaure un backup verificado" if integrity != "ok" else ""))
+            checks.append(Check("rag", "Operación", "Índice RAG", "ok" if chunks else "info",
+                                f"{chunks} fragmento(s)" if chunks else "Sin documentación indexada",
+                                "Ejecute «python main.py rag index»" if not chunks else ""))
+            checks.append(Check("last-run", "Operación", "Última recolección", "ok" if last_run else "info",
+                                f"{last_run[0] or 'en curso'} · {last_run[1]}" if last_run else "Todavía no hay ejecuciones"))
+        except (OSError, sqlite3.Error) as exc:
+            checks.append(Check("database", "Operación", "Base de datos", "fail", str(exc),
+                                "Ejecute el diagnóstico con Atalaya detenida o restaure un backup"))
+        lock = database.with_suffix(".cycle.lock")
+        checks.append(Check("cycle-lock", "Operación", "Bloqueo del ciclo", "warn" if lock.exists() else "ok",
+                            str(lock) if lock.exists() else "Sin bloqueo abandonado",
+                            "Detenga Atalaya y elimine el archivo solo si no hay ningún ciclo activo" if lock.exists() else ""))
+        backups = (sorted(self.settings.backup_dir.glob("*.db"), key=lambda path: path.stat().st_mtime, reverse=True)
+                   if self.settings.backup_dir.exists() else [])
+        checks.append(Check("backup", "Operación", "Backup local", "ok" if backups else "info",
+                            f"Último: {backups[0].name}" if backups else "No hay backups",
+                            "Cree uno desde Herramientas o con «python main.py backup»" if not backups else ""))
+        return checks
+
     # --- Ollama y modelos -----------------------------------------------------------------------
     def _ollama(self) -> list[Check]:
         exe = self.find_ollama()
@@ -133,18 +172,19 @@ class DoctorService:
             return [Check("ollama", "LLM local", "Ollama", "warn", f"Instalado ({exe}) pero no responde: {exc}",
                           "Ábralo desde el menú Inicio (Ollama) o pulse Abrir panel: Atalaya lo arranca")]
         checks = [Check("ollama", "LLM local", "Ollama", "ok", f"En marcha · {len(installed)} modelo(s) instalados")]
-        chat_model = self.models.current()
-        chat = installed.get(chat_model) or installed.get(f"{chat_model}:latest")
-        if not chat:
-            checks.append(Check("model-chat", "LLM local", "Modelo de análisis y chat", "warn",
-                                f"{chat_model} no está descargado", f"Descárguelo aquí o con «ollama pull {chat_model}»"))
-        elif not chat["tools"]:
-            checks.append(Check("model-chat", "LLM local", "Modelo de análisis y chat", "warn",
-                                f"{chat_model} analiza, pero no admite herramientas: el chat no funcionará",
-                                "Elija un modelo con tools en la barra lateral (p. ej. qwen3.5:4b)"))
-        else:
-            checks.append(Check("model-chat", "LLM local", "Modelo de análisis y chat", "ok",
-                                f"{chat_model} · {chat.get('parameters') or '?'} · {chat.get('size_gb', '?')} GB"))
+        for role, label in (("analysis", "análisis"), ("chat", "chat"), ("summary", "resumen")):
+            name = self.models.current(role)
+            model = installed.get(name) or installed.get(f"{name}:latest")
+            if not model:
+                checks.append(Check(f"model-{role}", "LLM local", f"Modelo de {label}", "warn",
+                                    f"{name} no está descargado", f"Descárguelo con «ollama pull {name}»"))
+            elif role == "chat" and not model["tools"]:
+                checks.append(Check("model-chat", "LLM local", "Modelo de chat", "warn",
+                                    f"{name} no admite herramientas: el chat no funcionará",
+                                    "Elija un modelo con tools (p. ej. qwen3.5:4b)"))
+            else:
+                checks.append(Check(f"model-{role}", "LLM local", f"Modelo de {label}", "ok",
+                                    f"{name} · {model.get('parameters') or '?'} · {model.get('size_gb', '?')} GB"))
         embedding = self.settings.ollama_embedding_model
         has_embedding = embedding in installed or f"{embedding}:latest" in installed or embedding.removesuffix(":latest") in installed
         checks.append(Check("model-embed", "LLM local", "Modelo de embeddings (opcional)", "ok" if has_embedding else "info",

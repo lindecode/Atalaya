@@ -8,6 +8,14 @@ $Host.UI.RawUI.WindowTitle = 'Desinstalar Atalaya'
 Write-Paso "Deteniendo Atalaya"
 & (Join-Path $PSScriptRoot 'detener.ps1')
 
+Write-Paso "Ciclo automatico"
+$taskName = 'Atalaya - ciclo automatico'
+$task = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+if ($task) {
+    Unregister-ScheduledTask -TaskName $taskName -Confirm:$false
+    Write-Ok "Tarea programada eliminada"
+} else { Write-Ok "No habia una tarea programada" }
+
 if (-not $DesdeDesinstalador) {
     Write-Paso "Accesos directos e inicio automatico"
     foreach ($path in @((Get-DesktopShortcut), (Get-StartupShortcut), (Get-LegacyStartupShortcut), (Get-MenuFolder))) {

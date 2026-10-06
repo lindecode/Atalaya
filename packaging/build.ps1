@@ -154,4 +154,9 @@ if (-not $SinInstalador) {
     Write-Host "  Sin firma digital: Windows SmartScreen mostrara 'editor desconocido' (ver packaging\README.md)"
 }
 
-Write-Host "`nListo. Salida en $Dist" -ForegroundColor Green
+$manifest = Get-ChildItem $Dist -File | Where-Object { $_.Name -ne 'SHA256SUMS.txt' } | Sort-Object Name | ForEach-Object {
+    "{0}  {1}" -f (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLower(), $_.Name
+}
+$manifest | Set-Content -Path (Join-Path $Dist 'SHA256SUMS.txt') -Encoding ascii
+Write-Host "`nListo. Salida en $Dist"
+Write-Host "Hashes: $(Join-Path $Dist 'SHA256SUMS.txt')" -ForegroundColor Green

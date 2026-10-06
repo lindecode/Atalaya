@@ -5,12 +5,19 @@ param(
     [switch]$SinAccesos,         # no crear accesos directos (escritorio / menu Inicio)
     [switch]$SinInicioAutomatico,
     [switch]$SinModelos,         # no descargar modelos de Ollama
-    [switch]$SinPermisos         # no ofrecer la configuracion de permisos (requiere administrador)
+    [switch]$SinPermisos,        # no ofrecer la configuracion de permisos (requiere administrador)
+    [switch]$SinRed,             # no instalar paquetes, Ollama ni descargar modelos
+    [string]$Modelo = 'qwen3.5:4b'
 )
 . "$PSScriptRoot\comun.ps1"
 
-$ChatModel = 'qwen3.5:4b'
+$ChatModel = $Modelo
 $EmbeddingModel = 'embeddinggemma:latest'
+
+function Test-PythonRuntime([string]$exe) {
+    & $exe -c "import struct,sys; sys.exit(0 if sys.version_info >= (3,11) and struct.calcsize('P') == 8 else 1)" 2>$null
+    return $LASTEXITCODE -eq 0
+}
 
 function Find-BasePython {
     # Python >= 3.11 (la herramienta usa tomllib). Se ignora el alias de la Microsoft Store.
@@ -44,12 +51,15 @@ Write-Host "Carpeta: $Root"
 Write-Paso "Entorno de Python"
 $python = Find-VenvPython
 if ($python) {
+    if (-not (Test-PythonRuntime $python)) {
+        throw "El entorno existente no usa Python 3.11+ de 64 bits. Renombre o elimine .venv y repita la instalacion."
+    }
     Write-Ok "Entorno existente: $python"
 } else {
     $base = Find-BasePython
     if (-not $base) {
         Write-Aviso "No se encontro Python 3.11 o superior."
-        if ((Get-Command winget -ErrorAction SilentlyContinue) -and (Confirm-Paso "Instalar Python 3.12 con winget?" $true $Si)) {
+        if (-not $SinRed -and (Get-Command winget -ErrorAction SilentlyContinue) -and (Confirm-Paso "Instalar Python 3.12 con winget?" $true $Si)) {
             winget install --id Python.Python.3.12 -e --accept-package-agreements --accept-source-agreements
             $base = Find-BasePython
         }
@@ -59,15 +69,17 @@ if ($python) {
     & $base -m venv (Join-Path $Root '.venv')
     if ($LASTEXITCODE) { throw "No se pudo crear el entorno virtual" }
     $python = Find-VenvPython
+    if (-not $python -or -not (Test-PythonRuntime $python)) { throw "El entorno creado no es Python 3.11+ x64" }
     Write-Ok "Entorno creado: $python"
 }
 
 # 2. Dependencias -------------------------------------------------------------------------------
-Write-Paso "Dependencias (requirements.txt)"
+Write-Paso "Dependencias reproducibles (requirements.lock.txt)"
 if (Test-BundledRuntime) {
     Write-Ok "Incluidas en el paquete (runtime\); no se descarga nada"
 } else {
-    & $python -m pip install --disable-pip-version-check -q -r (Join-Path $Root 'requirements.txt')
+    if ($SinRed) { throw "SinRed requiere un runtime ya preparado; no se pueden descargar dependencias para .venv." }
+    & $python -m pip install --disable-pip-version-check -r (Join-Path $Root 'requirements.lock.txt')
     if ($LASTEXITCODE) { throw "Fallo la instalacion de dependencias" }
     Write-Ok "Dependencias instaladas"
 }
@@ -76,13 +88,13 @@ if (Test-BundledRuntime) {
 Write-Paso "Ollama (LLM local)"
 if (-not (Find-Ollama)) {
     Write-Aviso "Ollama no esta instalado. Sin el, las reglas funcionan pero no hay explicaciones ni chat."
-    if ((Get-Command winget -ErrorAction SilentlyContinue) -and (Confirm-Paso "Instalar Ollama con winget?" $true $Si)) {
+    if (-not $SinRed -and (Get-Command winget -ErrorAction SilentlyContinue) -and (Confirm-Paso "Instalar Ollama con winget?" $true $Si)) {
         winget install --id Ollama.Ollama -e --accept-package-agreements --accept-source-agreements
     }
 }
 if (Find-Ollama) {
     Write-Ok "Ollama: $(Find-Ollama)"
-    if ((Start-OllamaIfNeeded) -and -not $SinModelos) {
+    if ((Start-OllamaIfNeeded) -and -not $SinModelos -and -not $SinRed) {
         $installed = @(Get-OllamaModels)
         foreach ($model in @($ChatModel, $EmbeddingModel)) {
             $present = $installed | Where-Object { $_ -eq $model -or "$($_):latest" -eq $model -or $_ -eq "$($model):latest" }
