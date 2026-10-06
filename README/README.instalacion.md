@@ -46,12 +46,17 @@ winget install Python.Python.3.13      # si no tienes Python 3.11+
 winget install Ollama.Ollama           # recomendado
 git clone <repositorio> Atalaya
 cd Atalaya
-start\instalar.bat                     # crea .venv, instala requirements.txt, modelos, accesos directos
+start\instalar.bat                     # crea .venv, instala el lock, modelos y accesos directos
 ```
 
 - `requirements.txt`: dependencias de ejecución.
 - `requirements-dev.txt`: añade `pytest`, para ejecutar los tests con `python -m pytest`.
-- `requirements.lock.txt`: versiones exactas usadas por el instalador y el ZIP.
+- `requirements.lock.txt`: versiones exactas usadas por el instalador, el ZIP y la instalación desde código.
+
+Para preparar solo la aplicación sin descargas posteriores de modelos use
+`start\lib\instalar.ps1 -SinModelos`. `-Modelo NOMBRE` selecciona el modelo a
+descargar y `-SinRed` verifica/prepara únicamente un runtime que ya contenga las
+dependencias; no intenta instalar Python, paquetes, Ollama ni modelos.
 
 ## Dónde quedan los datos
 

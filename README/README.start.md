@@ -6,7 +6,7 @@ Lanzadores de doble clic para instalar, abrir y mantener la herramienta sin escr
 
 1. Doble clic en **`instalar.bat`**. Hace lo siguiente y se puede repetir sin problema:
    - Usa el entorno de Python existente (`Atalaya\.venv` o el `.venv` del repositorio). Si no hay ninguno, crea uno; necesita Python 3.11 o superior y, si falta, ofrece instalarlo con `winget`.
-   - Instala `requirements.txt`.
+   - Instala las versiones exactas de `requirements.lock.txt`.
    - Comprueba Ollama (ofrece instalarlo con `winget`) y descarga `qwen3.5:4b` y `embeddinggemma` si faltan.
    - Inicializa la base de datos y el índice de documentación del chat.
    - Pregunta si crear accesos directos (escritorio y menú Inicio), si arrancar el monitor al iniciar sesión y si configurar los permisos.
@@ -36,6 +36,10 @@ Lanzadores de doble clic para instalar, abrir y mantener la herramienta sin escr
 | `inicio-automatico.bat` | Sin argumentos, pregunta si activar o desactivar. También acepta `activar`, `desactivar` o `estado`. Usa un acceso directo en la carpeta Inicio del usuario y no necesita administrador |
 | `limpiar-cache.bat` | Borra `__pycache__` y las cachés de pytest. No toca `data\`, `reports\` ni `.venv\` |
 | `desinstalar.bat` | Quita accesos directos e inicio automático. Si detecta permisos configurados, ofrece restaurar el estado anterior (un aviso UAC). Si lo confirmas, borra el entorno propio. Los datos solo se borran si escribes `BORRAR` |
+
+`automatizacion.bat activar 5` crea el ciclo programado. El diagnóstico valida
+su ejecutable y su carpeta de trabajo; el desinstalador elimina esta tarea para
+que no quede apuntando a una instalación inexistente.
 
 ## Notas
 
