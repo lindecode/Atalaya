@@ -58,7 +58,7 @@ python -m venv .venv
 .\.venv\Scripts\python.exe main.py baseline approve remote_ip 192.0.2.10
 ```
 
-`analyze` siempre ejecuta R01–R14. Después intenta explicar las alertas con
+`analyze` siempre ejecuta R01–R16. Después intenta explicar las alertas con
 Ollama en loopback. Si Ollama o el modelo no están disponibles, registra el
 error y conserva las alertas deterministas. Los datos se delimitan y recortan
 antes de entrar al prompt; nombres de archivo y demás evidencia nunca se
@@ -117,6 +117,14 @@ lateral.
 Abra `http://127.0.0.1:8501`. Streamlit escucha exclusivamente en loopback,
 desactiva telemetría y no usa HTML inseguro para representar evidencia. Las
 tablas pueden filtrarse, ordenarse y descargarse localmente como CSV.
+
+La página **Procesos y RAM** conserva snapshots locales de procesos. Identifica
+cada ejecución por PID y hora de creación, separa memoria privada de RSS, muestra
+crecimiento histórico y registra cuándo una ejecución deja de observarse. Las
+reglas R15 y R16 detectan crecimiento anómalo y procesos ejecutados desde rutas
+sospechosas con señales adicionales; un consumo alto por sí solo no implica malware.
+Los snapshots detallados se conservan 7 días por defecto; el ciclo de vida compacto
+se conserva con la retención general.
 
 ## Firewall y monitor en vivo (Fase 4)
 

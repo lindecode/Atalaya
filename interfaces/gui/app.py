@@ -13,6 +13,7 @@ navigation = st.navigation({
     "Vigilancia": [
         st.Page("pages/0_Panel.py", title="Panel", icon=":material/dashboard:", default=True),
         st.Page("pages/3_Conexiones.py", title="Conexiones", icon=":material/hub:"),
+        st.Page("pages/12_Procesos.py", title="Procesos y RAM", icon=":material/memory:"),
         st.Page("pages/2_Alertas.py", title="Alertas", icon=":material/notification_important:"),
         st.Page("pages/1_Resumen.py", title="Actividad", icon=":material/monitoring:"),
     ],

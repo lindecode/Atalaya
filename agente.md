@@ -86,7 +86,7 @@ Atalaya/
 ├── settings.py            ← carga y validación de configuración, sin estado global mutable
 ├── domain/
 │   ├── models.py          ← entidades y value objects inmutables
-│   ├── rules/             ← R01..R14, una regla pura por módulo
+│   ├── rules/             ← R01..R16, reglas puras y comprobables
 │   ├── baseline.py        ← políticas de observación y aprobación
 │   └── severity.py        ← orden y restricciones de severidad
 ├── ports/
@@ -516,6 +516,8 @@ Los umbrales forman parte de `RuleSettings`, cargado por `settings.py` e inyecta
 | R12 | high | Escaneo de puertos | ≥ 20 puertos destino distintos con DROP desde la misma IP en 2 min (firewall) |
 | R13 | critical | Borrado de rastros | Evento 1102 (registro de auditoría borrado) |
 | R14 | medium | Cambio de privilegios | 4720 (usuario creado) o 4732 (añadido a un grupo local, sobre todo Administradores) |
+| R15 | medium | Crecimiento anómalo de memoria | La memoria privada crece por encima del umbral configurado dentro de la ventana |
+| R16 | high | Proceso activo desde ruta sospechosa | Ruta escribible más padre intérprete o consumo elevado; nunca sólo por usar mucha RAM |
 
 Cada alerta guarda una `dedup_key` (regla + entidad + ventana) para no generar la misma alerta en cada ejecución.
 

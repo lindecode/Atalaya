@@ -101,7 +101,7 @@ $env:OLLAMA_HOST = "http://127.0.0.1:11434"
 & $Python $Main analyze
 ```
 
-Si Ollama está apagado, las reglas R01–R14 siguen funcionando. `analyze` termina
+Si Ollama está apagado, las reglas R01–R16 siguen funcionando. `analyze` termina
 como `partial`, registra el error y `report` conserva las alertas deterministas.
 
 ## 4. Auditoría de Windows y ejecución elevada

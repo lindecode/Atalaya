@@ -75,7 +75,7 @@ flowchart TB
 
     subgraph DOM["domain/ — reglas puras"]
         dmodels["models.py<br/>NetworkConnection · AuthEvent<br/>FileEvent · AlertCandidate…"]
-        rules["rules/catalog.py<br/>R01–R14"]
+        rules["rules/catalog.py<br/>R01–R16"]
         rbase["rules/base.py<br/>ventanas · baseline_key"]
         know["knowledge.py<br/>KnowledgeChunk · TrustLevel"]
     end
@@ -120,7 +120,7 @@ sequenceDiagram
     participant W as Recolectores Windows
     participant DB as SQLite
     participant A as AnalyzeService
-    participant R as Reglas R01–R14
+    participant R as Reglas R01–R16
     participant L as OllamaAnalyzer
     participant O as Ollama (local)
     participant Rep as ReportService
@@ -393,10 +393,11 @@ erDiagram
 | [main.py](../main.py) | Punto de entrada; delega en `interfaces/cli.py` |
 | [bootstrap.py](../bootstrap.py) | Composición: construye cada servicio con sus adaptadores y el modelo elegido |
 | [settings.py](../settings.py) | Configuración: rutas, umbrales de reglas, modelo, RAG y validación de loopback |
-| `domain/` | Modelos inmutables y reglas R01–R14 como funciones puras |
+| `domain/` | Modelos inmutables y reglas R01–R16 como funciones puras |
 | `application/` | Casos de uso: collect, analyze, watch, report, chat, models, rag y evals |
 | `ports/` | Contratos (`Protocol`) entre los casos de uso y la infraestructura |
 | `infrastructure/windows/` | Lectura del sistema: psutil, Visor de eventos, firewall, archivos, persistencia y Sysmon |
+| `infrastructure/windows/processes.py` | Snapshots de RAM y ciclo de vida; identidad estable por PID y hora de creación |
 | `infrastructure/sqlite/` | Persistencia, consultas de solo lectura, herramientas del chat y almacén de conocimiento |
 | `infrastructure/ollama/` | Análisis estructurado, catálogo de modelos, embeddings y llamada con fallback de `think` |
 | `interfaces/gui/` | Panel Streamlit local |

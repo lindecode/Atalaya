@@ -660,6 +660,68 @@ def getting_started():
             "- Guía completa: `README/README.instalacion.md`.")
 
 
+def processes():
+    settings, _, query, since = context()
+    hero("🧠 Procesos y RAM", "Consumo actual, evolución y ciclo de vida observados localmente.")
+    current = query.processes_current()
+    if not current:
+        empty("Todavía no hay snapshots de procesos. Pulse Recolectar para crear el primero.")
+        return
+    for row in current:
+        row["memoria_mb"] = round((row.get("private_bytes") or row.get("rss_bytes") or 0) / 1024 ** 2, 1)
+        row["rss_mb"] = round((row.get("rss_bytes") or 0) / 1024 ** 2, 1)
+    suspicious_dirs = ("\\temp\\", "\\downloads\\", "\\users\\public\\", "\\$recycle.bin\\")
+    suspicious = [row for row in current if any(part in str(row.get("path") or "").replace("/", "\\").casefold()
+                                                   for part in suspicious_dirs)]
+    a, b, c, d = st.columns(4)
+    a.metric("Procesos activos", len(current))
+    b.metric("Memoria privada atribuida", f"{sum(row['memoria_mb'] for row in current) / 1024:.1f} GB")
+    c.metric(f"Procesos ≥ {settings.process_high_memory_percent:.0f}% RAM",
+             sum(float(row.get("memory_percent") or 0) >= settings.process_high_memory_percent for row in current))
+    d.metric("Rutas a revisar", len(suspicious))
+    st.caption("La memoria privada evita contar páginas compartidas varias veces; RSS se muestra por separado.")
+    if suspicious:
+        with st.expander("Procesos en rutas que requieren revisión", icon=":material/warning:"):
+            table([{"proceso": row.get("name"), "pid": row.get("pid"), "padre": row.get("parent_name"),
+                    "memoria MB": row["memoria_mb"], "ruta": row.get("path")}
+                   for row in suspicious], key="processes-suspicious")
+
+    top = pd.DataFrame(current[:20])
+    figure = px.bar(top.sort_values("memoria_mb"), x="memoria_mb", y="name", orientation="h",
+                    hover_data=["pid", "rss_mb", "memory_percent", "path"],
+                    labels={"memoria_mb": "Memoria privada (MB)", "name": ""})
+    chart(_style(figure, 520), key="process-memory-top")
+
+    search = st.text_input("Filtrar por nombre, ruta o usuario", key="process-filter").casefold().strip()
+    filtered = [row for row in current if not search or search in " ".join(
+        str(row.get(key) or "") for key in ("name", "path", "process_user")).casefold()]
+    table([{"proceso": row.get("name"), "pid": row.get("pid"), "privada MB": row["memoria_mb"],
+            "RSS MB": row["rss_mb"], "% RAM": row.get("memory_percent"), "estado": row.get("status"),
+            "usuario": row.get("process_user"), "padre": row.get("parent_name"), "ruta": row.get("path")}
+           for row in filtered], key="processes-current")
+
+    st.subheader("Historial", divider="gray")
+    choices = {f"{row.get('name') or '?'} · PID {row['pid']} · {row['process_key'][:8]}": row["process_key"]
+               for row in current}
+    selected = st.selectbox("Proceso", list(choices), key="process-history-choice")
+    history = query.process_history(since, choices[selected])
+    if history:
+        frame = pd.DataFrame(history)
+        frame["hora"] = pd.to_datetime(frame["ts"], utc=True).dt.tz_convert(None)
+        frame["privada MB"] = frame["private_bytes"].fillna(frame["rss_bytes"]) / 1024 ** 2
+        frame["RSS MB"] = frame["rss_bytes"] / 1024 ** 2
+        chart(_style(px.line(frame, x="hora", y=["privada MB", "RSS MB"],
+                             labels={"value": "MB", "variable": "Métrica", "hora": ""}), 340),
+              key="process-memory-history")
+
+    st.subheader("Finalizados recientemente", divider="gray")
+    ended = query.process_lifecycle(False, 250)
+    table([{"proceso": row.get("name"), "pid": row.get("pid"), "inicio observado": _local(row.get("first_seen")),
+            "última observación": _local(row.get("last_seen")), "fin inferido": _local(row.get("ended_at")),
+            "pico privado MB": round((row.get("peak_private_bytes") or 0) / 1024 ** 2, 1), "ruta": row.get("path")}
+           for row in ended], key="processes-ended")
+
+
 def _pull_with_progress(doctor, model: str):
     bar = st.progress(0.0, text=f"Descargando {model}...")
     try:
