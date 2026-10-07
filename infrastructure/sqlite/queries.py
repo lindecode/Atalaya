@@ -154,6 +154,24 @@ class SQLiteQueryRepository:
             return [{"fuente": label, "ultima_observacion": db.execute(
                 f"SELECT MAX({column}) FROM {table}").fetchone()[0]} for label, table, column in sources]
 
+    def live_runs(self, limit: int = 10) -> list[dict]:
+        """Recent jobs and their per-collector outcome for operational diagnostics."""
+        limit = min(max(int(limit), 1), 50)
+        with connect(self.settings.database_path, readonly=True) as db:
+            rows = db.execute(
+                "SELECT id,kind,started_at,finished_at,status,heartbeat_at,is_admin,collectors "
+                "FROM runs ORDER BY id DESC LIMIT ?", (limit,),
+            ).fetchall()
+        result = []
+        for row in rows:
+            item = dict(row)
+            try:
+                item["collectors"] = json.loads(item["collectors"]) if item["collectors"] else {}
+            except (TypeError, json.JSONDecodeError):
+                item["collectors"] = {"manifiesto": {"status": "error", "warnings": ["JSON inválido"]}}
+            result.append(item)
+        return result
+
     def live_events(self, since: str, limit: int = 200) -> list[dict]:
         """Recent heterogeneous evidence as a bounded timeline; values remain data, never executable markup."""
         limit = min(max(int(limit), 1), 500)

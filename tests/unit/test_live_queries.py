@@ -38,8 +38,10 @@ def test_live_queries_return_bounded_current_state_and_timeline(tmp_path):
     status = query.live_status()
     events = query.live_events("2000-01-01T00:00:00+00:00", limit=2)
     freshness = {row["fuente"]: row["ultima_observacion"] for row in query.live_freshness()}
+    runs = query.live_runs()
 
     assert status["processes"] == 1 and status["memory_bytes"] == 100
     assert status["connections"] == 1 and status["alerts"] == {"high": 1}
     assert len(events) == 2 and {row["tipo"] for row in events} <= {"alerta", "conexión"}
     assert freshness["Procesos"] == now and freshness["Conexiones"] == now
+    assert runs[0]["id"] == run and runs[0]["collectors"] == {}

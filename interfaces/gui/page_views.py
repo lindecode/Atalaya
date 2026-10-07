@@ -152,6 +152,9 @@ def live_operations():
     seconds = controls[1].selectbox("Intervalo", [2, 5, 10, 30], index=1, key="live-seconds",
                                     disabled=not enabled, format_func=lambda value: f"{value} segundos")
     controls[2].caption("Las consultas están limitadas y leen solo el estado actual y los 200 eventos más recientes.")
+    event_types = st.multiselect("Tipos visibles", ["alerta", "conexión", "acceso", "archivo", "firewall", "ssh"],
+                                 default=["alerta", "conexión", "acceso", "archivo", "firewall", "ssh"],
+                                 key="live-types")
 
     @st.fragment(run_every=f"{seconds}s" if enabled else None)
     def current_state():
@@ -167,6 +170,39 @@ def live_operations():
         d.metric("Conexiones actuales", status["connections"], help=f"Última observación: {connection_age}")
         e.metric("Puertos en escucha", status["listeners"])
 
+        runs = query.live_runs(10)
+        last = runs[0] if runs else None
+        st.subheader("Ejecuciones y recolectores", divider="gray")
+        if last:
+            heartbeat, heartbeat_state = _age_label(last.get("heartbeat_at"))
+            running = last["status"] == "running"
+            if running and heartbeat_state == "stale":
+                st.error(f"La ejecución #{last['id']} ({last['kind']}) parece bloqueada: latido {heartbeat}.")
+            elif running:
+                st.info(f"Ejecución #{last['id']} ({last['kind']}) activa · latido {heartbeat}.")
+            elif last["status"] in {"error", "partial"}:
+                st.warning(f"Última ejecución #{last['id']} ({last['kind']}): {last['status']} · terminó {heartbeat}.")
+            else:
+                st.success(f"Última ejecución #{last['id']} ({last['kind']}): {last['status']} · terminó {heartbeat}.")
+            run_rows = [{"ID": run["id"], "Tipo": run["kind"], "Estado": run["status"],
+                         "Inicio": format_local_datetime(run["started_at"]),
+                         "Fin": format_local_datetime(run["finished_at"]),
+                         "Administrador": "Sí" if run["is_admin"] else "No"} for run in runs]
+            with st.expander("Historial y detalle de recolectores"):
+                st.dataframe(pd.DataFrame(run_rows), hide_index=True, width="stretch", key="live-runs")
+                latest_collect = next((run for run in runs if run["kind"] == "collect" and run["collectors"]), None)
+                if latest_collect:
+                    collector_rows = []
+                    for name, detail in latest_collect["collectors"].items():
+                        collector_rows.append({"Recolector": name, "Estado": detail.get("status", "?"),
+                                               "Encontrados": detail.get("found", 0),
+                                               "Insertados": detail.get("inserted", 0),
+                                               "Avisos": "; ".join(map(str, detail.get("warnings", [])))})
+                    st.dataframe(pd.DataFrame(collector_rows), hide_index=True, width="stretch",
+                                 key="live-collectors")
+        else:
+            empty("Todavía no hay ejecuciones registradas.")
+
         st.subheader("Frescura de fuentes", divider="gray")
         freshness = []
         for source in query.live_freshness():
@@ -181,6 +217,9 @@ def live_operations():
         if not events:
             empty("Todavía no hay eventos en la ventana seleccionada.")
         else:
+            events = [event for event in events if event["tipo"] in event_types]
+            if not events:
+                return empty("No hay eventos de los tipos seleccionados.")
             frame = pd.DataFrame(events)
             frame["ts"] = local_series(frame["ts"])
             frame = frame.rename(columns={"ts": "Fecha", "tipo": "Tipo", "nivel": "Nivel",
