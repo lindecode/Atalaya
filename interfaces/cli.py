@@ -28,7 +28,9 @@ def _parser() -> argparse.ArgumentParser:
     analyze = commands.add_parser("analyze", help="Ejecuta reglas y correlación local opcional")
     analyze.add_argument("--model", help="Modelo de Ollama solo para esta ejecución")
     commands.add_parser("report", help="Genera un informe Markdown")
-    commands.add_parser("gui", help="Abre la interfaz local Streamlit")
+    gui = commands.add_parser("gui", help="Abre la interfaz local Streamlit")
+    gui.add_argument("--port", type=int, help="Puerto loopback; si se omite se elige uno libre desde 8501")
+    gui.add_argument("--instance-token", help=argparse.SUPPRESS)
     tray = commands.add_parser("tray", help="Atalaya en segundo plano: icono junto al reloj con el panel y el monitor")
     tray.add_argument("--no-browser", action="store_true", help="No abrir el navegador al arrancar")
     tray.add_argument("--monitor", action="store_true", help="Activar también el monitor de archivos")
@@ -260,15 +262,26 @@ def main(argv: Sequence[str] | None = None) -> int:
         from interfaces.tray import run_tray
         return run_tray(open_browser=not args.no_browser, monitor=args.monitor, force_browser=args.navegador)
     if args.command == "gui":
+        from interfaces.gui_instance import available_port, new_token, remove_instance, write_instance
+        from settings import data_home
         project = Path(__file__).resolve().parents[1]
         config = tomllib.loads((project / ".streamlit" / "config.toml").read_text(encoding="utf-8"))
         address = config.get("server", {}).get("address")
         if address not in {"localhost", "127.0.0.1", "::1"}:
             raise SystemExit("La GUI solo puede escuchar en loopback")
+        port = args.port or available_port()
+        if not 1 <= port <= 65535:
+            raise SystemExit("Puerto de GUI inválido")
+        token = args.instance_token or new_token()
+        state = data_home() / "gui-instance.json"
+        write_instance(state, port, token)
         try:
-            return subprocess.call([sys.executable, "-m", "streamlit", "run", "interfaces/gui/app.py"], cwd=project)
+            return subprocess.call([sys.executable, "-m", "streamlit", "run", "interfaces/gui/app.py",
+                                    "--server.address", "127.0.0.1", "--server.port", str(port)], cwd=project)
         except KeyboardInterrupt:
             return 0
+        finally:
+            remove_instance(state, token)
     if args.command == "watch":
         result = build_watch_service().execute()
         print(f"Watch #{result['run_id']}: eventos={result['events']}; alertas={result['alerts']}")

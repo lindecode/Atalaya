@@ -74,8 +74,39 @@ function Wait-Port([int]$port, [int]$seconds) {
     return $false
 }
 
+function Test-Ollama([int]$timeoutSec = 2) {
+    try {
+        $response = Invoke-RestMethod -UseBasicParsing -Uri "http://127.0.0.1:$OllamaPort/api/version" `
+            -TimeoutSec $timeoutSec -ErrorAction Stop
+        return ($response.version -is [string] -and $response.version.Length -gt 0)
+    } catch { return $false }
+}
+
+function Wait-Ollama([int]$seconds) {
+    $deadline = (Get-Date).AddSeconds($seconds)
+    while ((Get-Date) -lt $deadline) {
+        if (Test-Ollama) { return $true }
+        Start-Sleep -Milliseconds 500
+    }
+    return $false
+}
+
+function Get-AtalayaGuiPort {
+    $state = Join-Path (Get-DataHome) 'gui-instance.json'
+    if (-not (Test-Path $state)) { return $null }
+    try {
+        $instance = Get-Content -LiteralPath $state -Raw -Encoding UTF8 | ConvertFrom-Json
+        if ($instance.app -ne 'Atalaya' -or $instance.version -ne 1 -or -not $instance.token) { return $null }
+        $process = Get-CimInstance Win32_Process -Filter "ProcessId=$($instance.pid)" -ErrorAction Stop
+        if (-not $process -or $process.CommandLine -notmatch 'main\.py[" ]+gui' `
+            -or $process.CommandLine -notlike "*$($instance.token)*") { return $null }
+        if (-not (Test-Port ([int]$instance.port))) { return $null }
+        return [int]$instance.port
+    } catch { return $null }
+}
+
 function Start-OllamaIfNeeded {
-    if (Test-Port $OllamaPort) { return $true }
+    if (Test-Ollama) { return $true }
     $exe = Find-Ollama
     if (-not $exe) {
         Write-Aviso "Ollama no esta instalado: las alertas funcionan, pero sin explicaciones del LLM ni chat."
@@ -85,8 +116,8 @@ function Start-OllamaIfNeeded {
     $app = Join-Path (Split-Path -Parent $exe) 'ollama app.exe'
     if (Test-Path $app) { Start-Process -FilePath $app }
     else { Start-Process -FilePath $exe -ArgumentList 'serve' -WindowStyle Hidden }
-    if (Wait-Port $OllamaPort 30) { Write-Ok "Ollama iniciado"; return $true }
-    Write-Aviso "Ollama no respondio en 30 s; se continua sin LLM."
+    if (Wait-Ollama 30) { Write-Ok "Ollama iniciado"; return $true }
+    Write-Aviso "El puerto $OllamaPort no responde como Ollama; se continua sin LLM."
     return $false
 }
 

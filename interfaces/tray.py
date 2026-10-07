@@ -17,15 +17,17 @@ import sys
 import threading
 import time
 import webbrowser
+import json
+from urllib.request import ProxyHandler, Request, build_opener
 from pathlib import Path
 from typing import Callable
 
 from settings import PROJECT_DIR, Settings, data_home
 from shared.about import APP_NAME, ICON_PATH
+from interfaces.gui_instance import DEFAULT_PORT, available_port, new_token, read_valid_instance
 
-GUI_PORT = 8501
+GUI_PORT = DEFAULT_PORT
 OLLAMA_PORT = 11434
-GUI_URL = f"http://127.0.0.1:{GUI_PORT}"
 POLL_SECONDS = 60
 MUTEX_NAME = "Local\\AtalayaTray"
 log = logging.getLogger("atalaya.tray")
@@ -36,6 +38,19 @@ def port_open(port: int, timeout: float = 0.4) -> bool:
         with socket.create_connection(("127.0.0.1", port), timeout=timeout):
             return True
     except OSError:
+        return False
+
+
+def ollama_ready(timeout: float = 1.0) -> bool:
+    """Validate the local service as Ollama instead of trusting an occupied TCP port."""
+    try:
+        response = build_opener(ProxyHandler({})).open(
+            Request(f"http://127.0.0.1:{OLLAMA_PORT}/api/version", headers={"Accept": "application/json"}),
+            timeout=timeout,
+        )
+        payload = json.loads(response.read(4096).decode("utf-8"))
+        return response.status == 200 and isinstance(payload.get("version"), str)
+    except (OSError, ValueError, TypeError, json.JSONDecodeError):
         return False
 
 
@@ -110,12 +125,24 @@ class AlertWatcher:
 class TrayController:
     def __init__(self, settings: Settings, processes: ProcessManager, alerts: AlertWatcher,
                  notify: Callable[[str, str], None], open_url: Callable[[str], object] = webbrowser.open,
-                 gui_ready: Callable[[], bool] = lambda: port_open(GUI_PORT),
+                 gui_ready: Callable[[], bool] | None = None,
                  preload_url: Callable[[str], object] | None = None, browser: Callable[[str], object] = webbrowser.open):
         self.settings, self.processes, self.alerts = settings, processes, alerts
-        self.notify, self.open_url, self.gui_ready = notify, open_url, gui_ready
+        self.notify, self.open_url = notify, open_url
         self.preload_url, self.browser = preload_url, browser
         self.collecting = False
+        self.gui_port = GUI_PORT
+        self.gui_token = new_token()
+        self.instance_path = data_home() / "gui-instance.json"
+        self.gui_ready = gui_ready or self._registered_gui_ready
+
+    @property
+    def gui_url(self) -> str:
+        return f"http://127.0.0.1:{self.gui_port}"
+
+    def _registered_gui_ready(self) -> bool:
+        instance = read_valid_instance(self.instance_path, self.gui_token)
+        return instance is not None and instance.port == self.gui_port
 
     # --- status -----------------------------------------------------------------------------------
     def status_text(self) -> str:
@@ -131,7 +158,9 @@ class TrayController:
     # --- actions ----------------------------------------------------------------------------------
     def ensure_gui(self) -> None:
         if not self.processes.running("gui") and not self.gui_ready():
-            self.processes.start("gui", "gui")
+            self.gui_port = available_port()
+            self.gui_token = new_token()
+            self.processes.start("gui", "gui", "--port", str(self.gui_port), "--instance-token", self.gui_token)
 
     def open_panel(self, page: str = "") -> None:
         self.ensure_gui()
@@ -151,7 +180,7 @@ class TrayController:
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             if self.gui_ready():
-                (opener or self.open_url)(f"{GUI_URL}/{page}" if page else GUI_URL)
+                (opener or self.open_url)(f"{self.gui_url}/{page}" if page else self.gui_url)
                 return
             time.sleep(0.5)
         self.notify(APP_NAME, "El panel no arrancó. Revise Primeros pasos o el registro en %LOCALAPPDATA%\\Atalaya\\logs.")
@@ -196,7 +225,7 @@ class TrayController:
 
 
 def start_ollama_if_needed() -> None:
-    if port_open(OLLAMA_PORT):
+    if ollama_ready():
         return
     from application.doctor import find_ollama
     exe = find_ollama()
@@ -245,7 +274,9 @@ def run_tray(open_browser: bool = True, monitor: bool = False, force_browser: bo
     requests = desktop.ShowRequests()
     if _single_instance() is None:  # already running: ask it to show itself
         if open_browser and not requests.signal():
-            webbrowser.open(GUI_URL)
+            instance = read_valid_instance(data_home() / "gui-instance.json")
+            if instance:
+                webbrowser.open(instance.url)
         return 0
 
     import pystray

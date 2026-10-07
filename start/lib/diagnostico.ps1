@@ -14,7 +14,9 @@ if (-not $python) {
 Write-Ok "$python $(if (Test-BundledRuntime) { '(incluido)' })"
 
 Write-Paso "Servicios de Atalaya"
-if (Test-Port $GuiPort) { Write-Ok "Panel en http://127.0.0.1:$GuiPort" } else { Write-Host "  Panel detenido" }
+$activeGuiPort = Get-AtalayaGuiPort
+if ($activeGuiPort) { Write-Ok "Panel Atalaya validado en http://127.0.0.1:$activeGuiPort" }
+else { Write-Host "  Panel detenido o puerto ocupado por otro servicio" }
 $watch = Get-GuiProcesses | Where-Object { $_.CommandLine -match 'main\.py"?\s+watch\b' }
 if ($watch) { Write-Ok "Monitor de archivos en marcha" } else { Write-Host "  Monitor de archivos detenido" }
 $tray = Get-GuiProcesses | Where-Object { $_.CommandLine -match 'main\.py"?\s+tray\b' }
