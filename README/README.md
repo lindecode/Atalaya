@@ -224,4 +224,5 @@ los casos de uso con repositorios o recolectores alternativos.
 
 Desarrollado por **LindeCode** · <https://github.com/lindecode/Atalaya>
 
-© 2026 LindeCode. Todos los derechos reservados; consulte [LICENSE](../LICENSE).
+© 2026 LindeCode. Código bajo MPL-2.0; las marcas no están licenciadas. Consulte
+[LICENSE](../LICENSE) y [TRADEMARKS.md](../TRADEMARKS.md).

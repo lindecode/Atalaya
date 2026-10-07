@@ -163,6 +163,17 @@ El proyecto separa dominio, casos de uso, infraestructura e interfaces. Consulte
 la documentación de arquitectura antes de añadir recolectores o reglas y agregue
 pruebas unitarias para cualquier cambio de comportamiento.
 
+## Ediciones y servicios
+
+**Atalaya Community** contiene la aplicación local completa disponible en este
+repositorio: recolectores, reglas, CLI, GUI, RAG local e integración con Ollama.
+Puede usarse y venderse conforme a MPL-2.0.
+
+Professional y Enterprise son líneas comerciales planeadas para distribución
+oficial firmada, soporte y administración organizacional. No todas esas funciones
+forman parte de la versión actual. Consulte [COMMERCIAL.md](COMMERCIAL.md) para
+conocer la separación entre código abierto, servicios y módulos comerciales.
+
 ## Documentación
 
 - [Instalación y requisitos](README/README.instalacion.md)
@@ -172,6 +183,11 @@ pruebas unitarias para cualquier cambio de comportamiento.
 - [Arquitectura y fronteras de confianza](README/README.arqu.md)
 - [Reputación de ejecutables](README.reputation.md)
 - [Construcción y firma del instalador](packaging/README.md)
+- [Seguridad y divulgación responsable](SECURITY.md)
+- [Contribuciones](CONTRIBUTING.md)
+- [Código de conducta](CODE_OF_CONDUCT.md)
+- [Ediciones y servicios comerciales](COMMERCIAL.md)
+- [Política de marcas](TRADEMARKS.md)
 
 ## Limitaciones
 
@@ -183,5 +199,8 @@ pruebas unitarias para cualquier cambio de comportamiento.
 
 ## Licencia y autor
 
-Atalaya es software de LindeCode. Consulte [LICENSE](LICENSE) para conocer los
-términos de uso.
+Atalaya Community se distribuye bajo **Mozilla Public License 2.0
+(MPL-2.0)**. Puede utilizarse, modificarse y comercializarse respetando sus
+condiciones. La licencia del código no concede derechos sobre las marcas Atalaya
+o LindeCode. Consulte [LICENSE](LICENSE), [NOTICE](NOTICE) y
+[TRADEMARKS.md](TRADEMARKS.md).

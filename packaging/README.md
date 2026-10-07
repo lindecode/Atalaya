@@ -66,3 +66,10 @@ signtool sign /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 /f certifi
 ```
 
 Inno Setup puede firmar también el desinstalador con la directiva `SignTool` (ver su documentación).
+
+## Distribución y marca
+
+El código cubierto se distribuye bajo MPL-2.0. Al entregar un ejecutable a
+terceros, conserve `LICENSE` y `NOTICE`, informe dónde obtener el código fuente
+cubierto correspondiente y no presente una compilación modificada como una
+distribución oficial. Consulte también `TRADEMARKS.md` y `COMMERCIAL.md`.

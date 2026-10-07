@@ -1,5 +1,6 @@
 data/
 reports/
+logs/
 *.db
 *.db-wal
 *.db-shm
@@ -26,3 +27,5 @@ packaging/cache/
 *.pfx
 secrets.json
 credentials.json
+*.crt
+*.cer

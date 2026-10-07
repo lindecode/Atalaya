@@ -8,7 +8,7 @@ APP_NAME = "Atalaya"
 APP_VERSION = "1.0.0"
 AUTHOR = "LindeCode"
 REPOSITORY_URL = "https://github.com/lindecode/Atalaya"
-COPYRIGHT = f"© 2026 {AUTHOR}. Todos los derechos reservados."
+COPYRIGHT = f"© 2026 {AUTHOR}. Código bajo MPL-2.0; marcas no incluidas."
 
 ASSETS_DIR = Path(__file__).resolve().parent.parent / "assets"
 ICON_PATH = ASSETS_DIR / "icon.png"

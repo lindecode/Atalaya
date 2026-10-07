@@ -1,10 +1,15 @@
-Copyright (c) 2026 LindeCode. Todos los derechos reservados.
+Mozilla Public License Version 2.0
+==================================
 
-Este software y su documentación son propiedad de LindeCode. No se concede
-ninguna licencia, expresa ni implícita. Queda prohibido copiar, modificar,
-distribuir, sublicenciar o usar este software, total o parcialmente, sin la
-autorización previa y por escrito de LindeCode.
+This Source Code Form is subject to the terms of the Mozilla Public License,
+v. 2.0. If a copy of the MPL was not distributed with this file, You can obtain
+one at https://mozilla.org/MPL/2.0/.
 
-EL SOFTWARE SE PROPORCIONA "TAL CUAL", SIN GARANTÍA DE NINGÚN TIPO, EXPRESA O
-IMPLÍCITA. EN NINGÚN CASO LINDECODE SERÁ RESPONSABLE DE NINGUNA RECLAMACIÓN,
-DAÑO U OTRA RESPONSABILIDAD DERIVADA DEL USO DEL SOFTWARE.
+SPDX-License-Identifier: MPL-2.0
+
+Copyright (c) 2026 LindeCode.
+
+The MPL-2.0 license applies to the source code in this repository. It does not
+grant rights to the Atalaya or LindeCode names, trademarks, logos, visual
+identity, code-signing certificates, hosted services, support, warranties, or
+separately licensed commercial modules. See TRADEMARKS.md and COMMERCIAL.md.
