@@ -183,6 +183,7 @@ conocer la separación entre código abierto, servicios y módulos comerciales.
 - [Arquitectura y fronteras de confianza](README/README.arqu.md)
 - [Reputación de ejecutables](README.reputation.md)
 - [Construcción y firma del instalador](packaging/README.md)
+- [Análisis periódico, retención y lectura de tablas](README/ANALISIS_PERIODICO.md)
 - [Seguridad y divulgación responsable](SECURITY.md)
 - [Contribuciones](CONTRIBUTING.md)
 - [Código de conducta](CODE_OF_CONDUCT.md)
