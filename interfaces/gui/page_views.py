@@ -12,7 +12,7 @@ from domain.rules.catalog import ALL_RULES
 from infrastructure.clock import SystemClock
 from infrastructure.sqlite.queries import ENTITY_LIMIT, ROWS_LIMIT
 from interfaces.gui import network
-from interfaces.gui.common import context, refresh_data
+from interfaces.gui.common import context, refresh_data, selected_window_hours
 from interfaces.gui.components import (SEVERITY_COLORS, SEVERITY_ICONS, SEVERITY_NAMES, chart, empty, hero, legend,
                                        page_link, plain_label, risk_banner, search_links, severity_label, table)
 from interfaces.gui.chart_data import hourly_frame
@@ -68,11 +68,62 @@ def _time_axis(figure, hourly_bars: bool = False):
     return figure
 
 
+# --- Resumen del LLM por sección -------------------------------------------------------------------
+
+def _ago(ts: str) -> str:
+    minutes = int((datetime.now().astimezone() - datetime.fromisoformat(ts).astimezone()).total_seconds() // 60)
+    if minutes < 1:
+        return "hace un momento"
+    if minutes < 60:
+        return f"hace {minutes} min"
+    return f"hace {minutes // 60} h" if minutes < 48 * 60 else f"hace {minutes // 1440} días"
+
+
+def _section_summary(query, settings, section: str):
+    """Latest LLM summary of this section (automatic or on demand) and a button to refresh it now."""
+    found = query.latest_section_summary(section)
+    latest, last = found["ok"], found["last"]
+    with st.container(border=True):
+        head, action = st.columns([3, 1], vertical_alignment="center")
+        if latest:
+            result = latest["result"]
+            origin = "automático" if latest["trigger"] == "auto" else "a petición"
+            head.markdown(f"**:material/psychology: Resumen del LLM** · {_severity_name(result['risk'])}")
+            head.caption(f"{_ago(latest['created_at'])} · {format_local_datetime(latest['created_at'])} · "
+                         f"{_plain(latest['model'] or '?')} · ventana de {latest['window_hours']} h · {origin}")
+        else:
+            head.markdown("**:material/psychology: Resumen del LLM**")
+            head.caption("Aún no hay resumen de esta sección: el ciclo automático genera uno por turno, "
+                         "o pulse «Resumir ahora».")
+        if action.button("Resumir ahora", key=f"summary-{section}", icon=":material/auto_awesome:", width="stretch",
+                         help="Usa la ventana temporal de la barra lateral. Solo corre un resumen a la vez."):
+            from bootstrap import build_section_summary_service
+            with st.spinner("El LLM local está resumiendo esta sección…"):
+                try:
+                    build_section_summary_service(settings).summarize(section, selected_window_hours(), "manual")
+                except RuntimeError as exc:  # another summary holds the LLM
+                    st.warning(str(exc))
+                    return
+            refresh_data()
+            st.rerun()
+        if latest:
+            # LLM text is shaped by collected data: plain text, never Markdown/HTML
+            st.text(latest["result"]["summary"])
+            points = latest["result"].get("highlights", [])
+            if points:
+                st.text("\n".join(f"• {point}" for point in points))
+            st.caption("Interpretación del LLM local a partir de cifras agregadas; contrástela con la evidencia de esta página.")
+        if last and last.get("error") and (not latest or last["id"] != latest["id"]):
+            st.caption(f"El último intento ({_ago(last['created_at'])}) falló; se muestra el resumen anterior.")
+            st.text(last["error"][:300])
+
+
 # --- Panel -----------------------------------------------------------------------------------------
 
 def overview():
     settings, _, query, since = context()
     hero("🛡️ Panel de seguridad", "Qué pasa ahora en este equipo: alertas abiertas, tráfico de red y exposición.")
+    _section_summary(query, settings, "panel")
     severities = query.open_alerts_by_severity()
     analysis = query.latest_analysis()
     last_collect = query.last_run("collect")
@@ -336,6 +387,7 @@ def _ip_profile(query, ip: str, since: str):
 def connections():
     settings, _, query, since = context()
     hero("🌐 Conexiones", "Quién habla con este equipo (entrantes), con quién habla él (salientes) y qué puertos deja abiertos.")
+    _section_summary(query, settings, "conexiones")
     controls = st.columns([2, 1, 1, 1])
     mode = controls[0].segmented_control("Datos", ["Última recolección", "Toda la ventana"], default="Última recolección",
                                          key="net-mode")
@@ -645,8 +697,9 @@ def _top_chart(query, table_name: str, column: str, since: str, title: str, name
 
 
 def access():
-    _, _, query, since = context()
+    settings, _, query, since = context()
     hero("🔑 Accesos", "Inicios de sesión, intentos fallidos, RDP y cambios de cuentas.")
+    _section_summary(query, settings, "accesos")
     rows = query.rows("auth_events", since)
     _truncation_note(rows)
     if not rows:
@@ -667,8 +720,9 @@ def access():
 
 
 def files():
-    _, _, query, since = context()
+    settings, _, query, since = context()
     hero("📁 Archivos", "Creaciones, cambios, renombrados y borrados en las carpetas vigiladas.")
+    _section_summary(query, settings, "archivos")
     rows = query.rows("file_events", since)
     _truncation_note(rows)
     if not rows:
@@ -693,8 +747,9 @@ def files():
 
 
 def persistence():
-    _, _, query, since = context()
+    settings, _, query, since = context()
     hero("🧩 Persistencia", "Lo que arranca solo: claves Run, carpeta Inicio, tareas programadas y servicios.")
+    _section_summary(query, settings, "persistencia")
     rows = query.rows("persistence_items", since)
     _truncation_note(rows)
     if not rows:
@@ -708,8 +763,9 @@ def persistence():
 
 
 def firewall():
-    _, _, query, since = context()
+    settings, _, query, since = context()
     hero("🧱 Firewall", "Paquetes que el firewall de Windows bloqueó: quién intentó entrar y a qué puertos.")
+    _section_summary(query, settings, "firewall")
     rows = query.rows("firewall_events", since)
     _truncation_note(rows)
     if not rows:
@@ -992,6 +1048,7 @@ def getting_started():
 def processes():
     settings, _, query, since = context()
     hero("🧠 Procesos y RAM", "Consumo actual, evolución y ciclo de vida observados localmente.")
+    _section_summary(query, settings, "procesos")
     current = query.processes_current()
     if not current:
         empty("Todavía no hay snapshots de procesos. Pulse Recolectar para crear el primero.")

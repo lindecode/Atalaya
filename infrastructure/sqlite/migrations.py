@@ -330,4 +330,19 @@ MIGRATIONS: tuple[str, ...] = (
     CREATE INDEX IF NOT EXISTS idx_fw_ts ON firewall_events(ts);
     CREATE INDEX IF NOT EXISTS idx_alert_ts ON alerts(ts);
     """,
+    """
+    CREATE TABLE section_summaries (
+      id INTEGER PRIMARY KEY,
+      section TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      trigger TEXT NOT NULL,
+      window_hours INTEGER NOT NULL,
+      model TEXT,
+      digest_hash TEXT NOT NULL,
+      digest_json TEXT NOT NULL,
+      result_json TEXT,
+      error TEXT
+    );
+    CREATE INDEX idx_section_summaries_section ON section_summaries(section, created_at);
+    """,
 )

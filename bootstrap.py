@@ -15,6 +15,7 @@ from application.models import ModelService
 from application.rag import RagService
 from application.reputation import FileReputationService
 from application.automation import AutomationConfigService, CycleService
+from application.section_summaries import SectionSummaryService
 from application.tool_router import SecureToolRouter
 from infrastructure.clock import SystemClock
 from infrastructure.ollama.analyzer import OllamaAnalyzer
@@ -22,6 +23,8 @@ from infrastructure.ollama.client import build_chat_client, pull_model
 from infrastructure.ollama.models import OllamaModelCatalog
 from infrastructure.ollama.embeddings import OllamaEmbeddingProvider
 from infrastructure.llm_provider import build_components, provider_name
+from infrastructure.llm_summary import ChatSectionSummarizer
+from infrastructure.sqlite.section_summaries import SQLiteSectionDigests, SQLiteSectionSummaryStore
 from infrastructure.sqlite.repositories import SQLiteRepository
 from infrastructure.sqlite.chat_history import SQLiteChatHistory
 from infrastructure.sqlite.chat_tools import SQLiteQueryTools
@@ -174,9 +177,23 @@ def build_automation_config_service(settings: Settings | None = None) -> Automat
     return AutomationConfigService(build_repository(effective), SystemClock())
 
 
+def build_section_summary_service(settings: Settings | None = None) -> SectionSummaryService:
+    effective = _with_model(settings, None, "summary")
+    build_repository(effective).initialize()  # applies the section_summaries migration on existing databases
+
+    def summarizer() -> ChatSectionSummarizer:
+        configured, _, client, _, _ = build_components(effective)  # starts llama.cpp only when a summary is due
+        return ChatSectionSummarizer(client, configured.ollama_model)
+
+    return SectionSummaryService(SQLiteSectionDigests(effective), SQLiteSectionSummaryStore(effective), summarizer,
+                                 effective.ollama_model, SystemClock(), effective.database_path.with_suffix(".llm.lock"),
+                                 pid_alive)
+
+
 def build_cycle_service(settings: Settings | None = None) -> CycleService:
     effective = settings or Settings()
     repository = build_repository(effective)
     return CycleService(repository, SystemClock(), effective, AutomationConfigService(repository, SystemClock()),
                         lambda profile: build_collect_service(effective, profile),
-                        lambda configured: build_analyze_service(configured), pid_alive)
+                        lambda configured: build_analyze_service(configured), pid_alive,
+                        lambda window_hours: build_section_summary_service(effective).run_next(window_hours))

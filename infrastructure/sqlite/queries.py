@@ -265,6 +265,12 @@ class SQLiteQueryRepository:
             return [{"entity_type": row[0], "entity_id": row[1], **json.loads(row[2])} for row in rows]
 
 
+    def latest_section_summary(self, section: str) -> dict:
+        """{'ok': latest successful summary or None, 'last': latest attempt or None} for one GUI section."""
+        from infrastructure.sqlite.section_summaries import SQLiteSectionSummaryStore
+        store = SQLiteSectionSummaryStore(self.settings)
+        return {"ok": store.latest(section, successful_only=True), "last": store.latest(section)}
+
     def alert(self, alert_id: int):
         with connect(self.settings.database_path, readonly=True) as db:
             row = db.execute("SELECT * FROM alerts WHERE id=?", (int(alert_id),)).fetchone()

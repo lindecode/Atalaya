@@ -8,6 +8,11 @@ from settings import Settings
 
 
 QUERY_TTL_SECONDS = 60
+WINDOW_HOURS = {"1 hora": 1, "24 horas": 24, "7 días": 168, "30 días": 720}
+
+
+def selected_window_hours() -> int:
+    return WINDOW_HOURS.get(st.session_state.get("window"), 24)
 
 
 @st.cache_data(ttl=QUERY_TTL_SECONDS, show_spinner=False)
@@ -116,7 +121,7 @@ def context():
         st.logo(str(wordmark), icon_image=str(ICON_PATH), size="large")
     elif ICON_PATH.exists():
         st.logo(str(ICON_PATH), size="large")
-    options = {"1 hora": 1, "24 horas": 24, "7 días": 168, "30 días": 720}
+    options = WINDOW_HOURS
     label = st.sidebar.selectbox("Ventana temporal", list(options), index=1, key="window")
     _actions(settings)
     st.sidebar.divider()
