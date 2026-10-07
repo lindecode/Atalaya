@@ -72,25 +72,27 @@ def _actions(settings):
 
 def context():
     from interfaces.gui.components import about_dialog, apply_style
-    from shared.about import ICON_PATH
+    from shared.about import ICON_PATH, WORDMARK_PATHS
 
     apply_style()
     settings = Settings()
     repository = SQLiteRepository(settings)
     repository.initialize()
     query = SQLiteQueryRepository(settings)
-    if ICON_PATH.exists():
+    # Name and subtitle sit beside the icon in the sidebar header; collapsed, only the icon remains
+    wordmark = WORDMARK_PATHS["light" if getattr(st.context.theme, "type", None) == "light" else "dark"]
+    if wordmark.exists() and ICON_PATH.exists():
+        st.logo(str(wordmark), icon_image=str(ICON_PATH), size="large")
+    elif ICON_PATH.exists():
         st.logo(str(ICON_PATH), size="large")
-    st.sidebar.markdown('<div class="nl-brand"><span>&lt;</span> Atalaya <span>/&gt;</span></div>', unsafe_allow_html=True)
-    st.sidebar.caption("Monitor local · solo lectura · 127.0.0.1")
-    st.sidebar.caption(":material/notifications_active: Atalaya sigue en segundo plano aunque cierre esta ventana. "
-                       "Para salir: icono junto al reloj > Salir de Atalaya.")
     options = {"1 hora": 1, "24 horas": 24, "7 días": 168, "30 días": 720}
     label = st.sidebar.selectbox("Ventana temporal", list(options), index=1, key="window")
     _actions(settings)
     st.sidebar.divider()
     model_selector()
     st.sidebar.divider()
+    st.sidebar.caption(":material/notifications_active: Atalaya sigue en segundo plano aunque cierre esta ventana. "
+                       "Para salir: icono junto al reloj > Salir de Atalaya.")
     if st.sidebar.button("Acerca de", icon=":material/info:", width="stretch", key="action-about"):
         about_dialog()
     return settings, repository, query, since_hours(options[label])

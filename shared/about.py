@@ -13,3 +13,5 @@ COPYRIGHT = f"© 2026 {AUTHOR}. Código bajo MPL-2.0; marcas no incluidas."
 ASSETS_DIR = Path(__file__).resolve().parent.parent / "assets"
 ICON_PATH = ASSETS_DIR / "icon.png"
 AUTHOR_LOGO_PATH = ASSETS_DIR / "lindecode.jpeg"
+# Sidebar header per theme; regenerate with packaging\wordmark.py
+WORDMARK_PATHS = {theme: ASSETS_DIR / f"wordmark-{theme}.png" for theme in ("dark", "light")}

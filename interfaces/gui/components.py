@@ -38,8 +38,7 @@ _STYLE = """
 .nl-legend {display: flex; flex-wrap: wrap; gap: 16px; font-size: .85rem; opacity: .85; margin: 2px 0 6px 0;}
 .nl-legend span::before {content: ""; display: inline-block; width: 10px; height: 10px; border-radius: 3px;
   margin-right: 6px; vertical-align: middle; background: var(--c);}
-section[data-testid="stSidebar"] .nl-brand {font-weight: 700; font-size: 1.2rem; margin-bottom: 2px; letter-spacing: .01em;}
-section[data-testid="stSidebar"] .nl-brand span {color: var(--nl-brand); font-weight: 500;}
+[data-testid="stSidebarLogo"] {height: 3rem; max-width: 100%;}
 .nl-about {text-align: center;}
 .nl-about h3 {margin: 4px 0 0 0; padding: 0;}
 .nl-about small {opacity: .6;}
