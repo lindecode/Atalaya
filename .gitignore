@@ -15,3 +15,14 @@ runtime/
 build/
 dist/
 packaging/cache/
+
+# Credenciales y configuración local
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+secrets.json
+credentials.json
