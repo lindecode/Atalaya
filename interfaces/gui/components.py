@@ -13,19 +13,22 @@ SEVERITY_NAMES = {"low": "Bajo", "medium": "Medio", "high": "Alto", "critical": 
 # Static stylesheet only: nothing collected from the machine is ever interpolated into HTML here
 _STYLE = """
 <style>
+:root {--nl-brand: #6BC043; --nl-brand-soft: rgba(107, 192, 67, .14); --nl-line: rgba(127, 127, 127, .2);}
 .block-container {padding-top: 1.6rem; padding-bottom: 3rem;}
 [data-testid="stMetric"] {
-  background: rgba(127, 127, 127, 0.07); border: 1px solid rgba(127, 127, 127, 0.18);
-  border-radius: 14px; padding: 14px 16px 10px 16px;
+  background: rgba(127, 127, 127, 0.06); border: 1px solid var(--nl-line);
+  border-left: 3px solid var(--nl-brand); border-radius: 12px; padding: 14px 16px 10px 16px;
 }
-[data-testid="stMetricLabel"] p {font-size: 0.82rem; opacity: 0.8; text-transform: uppercase; letter-spacing: .04em;}
+[data-testid="stMetricLabel"] p {font-size: 0.76rem; opacity: 0.75; text-transform: uppercase; letter-spacing: .03em;}
+[data-testid="stMetricValue"] {font-variant-numeric: tabular-nums;}
 [data-testid="stExpander"] details {border-radius: 12px;}
 .nl-hero {
-  border-radius: 18px; padding: 18px 22px; margin-bottom: 14px;
-  background: linear-gradient(120deg, rgba(56,189,248,.16), rgba(129,140,248,.14) 55%, rgba(45,212,191,.12));
-  border: 1px solid rgba(127,127,127,.18);
+  position: relative; overflow: hidden; border-radius: 16px; padding: 18px 22px 18px 26px; margin-bottom: 14px;
+  background: linear-gradient(115deg, var(--nl-brand-soft), rgba(107, 192, 67, .03) 60%, transparent);
+  border: 1px solid var(--nl-line);
 }
-.nl-hero h1 {font-size: 1.65rem; margin: 0 0 2px 0; padding: 0;}
+.nl-hero::before {content: ""; position: absolute; inset: 0 auto 0 0; width: 4px; background: var(--nl-brand);}
+.nl-hero h1 {font-size: 1.65rem; margin: 0 0 2px 0; padding: 0; letter-spacing: -.01em;}
 .nl-hero p {margin: 0; opacity: .78;}
 .nl-risk {display: flex; align-items: center; gap: 14px; border-radius: 14px; padding: 12px 18px;
   border: 1px solid rgba(127,127,127,.2); margin-bottom: 12px;}
@@ -34,19 +37,30 @@ _STYLE = """
 .nl-legend {display: flex; flex-wrap: wrap; gap: 16px; font-size: .85rem; opacity: .85; margin: 2px 0 6px 0;}
 .nl-legend span::before {content: ""; display: inline-block; width: 10px; height: 10px; border-radius: 3px;
   margin-right: 6px; vertical-align: middle; background: var(--c);}
-section[data-testid="stSidebar"] .nl-brand {font-weight: 700; font-size: 1.15rem; margin-bottom: 2px;}
+section[data-testid="stSidebar"] .nl-brand {font-weight: 700; font-size: 1.2rem; margin-bottom: 2px; letter-spacing: .01em;}
+section[data-testid="stSidebar"] .nl-brand span {color: var(--nl-brand); font-weight: 500;}
 .nl-about {text-align: center;}
 .nl-about h3 {margin: 4px 0 0 0; padding: 0;}
 .nl-about small {opacity: .6;}
 .nl-about hr {width: 40px; margin: 14px auto;}
 .nl-about p {margin: 0 0 2px 0; opacity: .75;}
-.nl-about b {font-size: 1.1rem; letter-spacing: .06em; color: #0EA5E9;}
+.nl-about b {font-size: 1.1rem; letter-spacing: .06em; color: var(--nl-brand);}
+</style>
+"""
+
+# The brand green is too light for white text: on dark, primary buttons use graphite ink (7.9:1);
+# on light the primary is the darker #367C1D and keeps Streamlit's white text (5.2:1)
+_DARK_STYLE = """
+<style>
+[data-testid="stBaseButton-primary"], [data-testid="stBaseButton-primary"] p {color: #13171F;}
 </style>
 """
 
 
 def apply_style():
     st.markdown(_STYLE, unsafe_allow_html=True)
+    if getattr(st.context.theme, "type", None) == "dark":
+        st.markdown(_DARK_STYLE, unsafe_allow_html=True)
 
 
 def hero(title: str, subtitle: str):

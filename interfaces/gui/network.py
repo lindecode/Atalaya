@@ -27,8 +27,8 @@ SUSPICIOUS_DIRS = ("\\temp\\", "\\downloads\\", "\\appdata\\local\\temp\\", "\\u
 
 # Shared palette: readable on light and dark backgrounds
 COLORS = {
-    "inbound": "#F59E0B", "outbound": "#38BDF8", "suspicious": "#EF4444", "process": "#818CF8",
-    "public": "#2DD4BF", "private": "#A78BFA", "loopback": "#94A3B8", "local": "#94A3B8", "other": "#64748B",
+    "inbound": "#F59E0B", "outbound": "#3987E5", "suspicious": "#EF4444", "process": "#9085E9",
+    "public": "#199E70", "private": "#D55181", "loopback": "#94A3B8", "local": "#94A3B8", "other": "#64748B",
 }
 SCOPE_LABELS = {
     "public": "Internet", "private": "Red local / VPN", "loopback": "Este equipo",

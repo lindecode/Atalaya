@@ -17,25 +17,40 @@ developmentMode = false
 # Sin botón "Deploy" ni menú de desarrollo: es un panel local
 toolbarMode = "minimal"
 
-# Tema propio en claro y oscuro (el usuario elige en Ajustes; por defecto, el del sistema).
-# Solo fuentes integradas en Streamlit: nada se descarga de Internet.
+# Tema propio en claro y oscuro con la paleta de LindeCode (verde del logo #6BC043 sobre grafito #13171F).
+# El usuario elige en Ajustes; por defecto, el del sistema. Solo fuentes integradas: nada se descarga de Internet.
+# Las series de gráficos siguen un orden fijo validado (contraste y daltonismo); en oscuro son los mismos tonos
+# ajustados a la superficie oscura. Los colores de severidad (components.SEVERITY_COLORS) quedan aparte.
 [theme]
 font = "sans-serif"
+headingFontWeights = [700, 650, 600, 600, 600, 600]
 baseRadius = "medium"
 showWidgetBorder = true
-chartCategoricalColors = ["#38BDF8", "#F59E0B", "#818CF8", "#2DD4BF", "#F472B6", "#A3E635", "#FB7185", "#94A3B8"]
 
 [theme.light]
-primaryColor = "#0284C7"
-backgroundColor = "#F8FAFC"
-secondaryBackgroundColor = "#EEF2F7"
-textColor = "#0F172A"
-borderColor = "#DCE3EC"
+primaryColor = "#367C1D"
+backgroundColor = "#F7F8F9"
+secondaryBackgroundColor = "#EDF0EE"
+textColor = "#13171F"
+linkColor = "#2F6E18"
+borderColor = "#D9DEDB"
+dataframeHeaderBackgroundColor = "#EDF0EE"
+chartCategoricalColors = ["#3F8F22", "#2A78D6", "#EB6834", "#1BAF7A", "#EDA100", "#E87BA4", "#4A3AA7", "#E34948"]
+
+[theme.light.sidebar]
+backgroundColor = "#EEF2EC"
+borderColor = "#D9DEDB"
 
 [theme.dark]
-primaryColor = "#38BDF8"
-backgroundColor = "#0B1220"
-secondaryBackgroundColor = "#131C2E"
-textColor = "#E2E8F0"
-borderColor = "#22304A"
+primaryColor = "#6BC043"
+backgroundColor = "#13171F"
+secondaryBackgroundColor = "#1B2029"
+textColor = "#E6E9EC"
+linkColor = "#8BD266"
+borderColor = "#2A313C"
+dataframeHeaderBackgroundColor = "#1B2029"
+chartCategoricalColors = ["#55A832", "#3987E5", "#D95926", "#199E70", "#C98500", "#D55181", "#9085E9", "#E66767"]
 
+[theme.dark.sidebar]
+backgroundColor = "#0F1218"
+borderColor = "#232A34"

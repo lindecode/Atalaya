@@ -81,7 +81,7 @@ def context():
     query = SQLiteQueryRepository(settings)
     if ICON_PATH.exists():
         st.logo(str(ICON_PATH), size="large")
-    st.sidebar.markdown('<div class="nl-brand">Atalaya</div>', unsafe_allow_html=True)
+    st.sidebar.markdown('<div class="nl-brand"><span>&lt;</span> Atalaya <span>/&gt;</span></div>', unsafe_allow_html=True)
     st.sidebar.caption("Monitor local · solo lectura · 127.0.0.1")
     st.sidebar.caption(":material/notifications_active: Atalaya sigue en segundo plano aunque cierre esta ventana. "
                        "Para salir: icono junto al reloj > Salir de Atalaya.")

@@ -23,9 +23,9 @@ ICON_ICO = ASSETS_DIR / "icon.ico"
 
 # Static splash while the panel starts (no collected data in it)
 SPLASH = """<!doctype html><html><head><meta charset="utf-8"><title>Atalaya</title><style>
-html,body{height:100%;margin:0;background:#0B1220;color:#E2E8F0;font-family:Segoe UI,sans-serif}
+html,body{height:100%;margin:0;background:#13171F;color:#E6E9EC;font-family:Segoe UI,sans-serif}
 body{display:flex;align-items:center;justify-content:center;flex-direction:column;gap:14px}
-.ring{width:42px;height:42px;border:4px solid #22304A;border-top-color:#38BDF8;border-radius:50%;animation:s 1s linear infinite}
+.ring{width:42px;height:42px;border:4px solid #2A313C;border-top-color:#6BC043;border-radius:50%;animation:s 1s linear infinite}
 @keyframes s{to{transform:rotate(360deg)}} h1{font-weight:600;font-size:22px;margin:0} p{margin:0;opacity:.7}
 </style></head><body><div class="ring"></div><h1>Atalaya</h1><p>Arrancando el panel local…</p></body></html>"""
 
@@ -117,7 +117,7 @@ class AppWindow:
         self.webview.settings["OPEN_EXTERNAL_LINKS_IN_BROWSER"] = True  # e.g. the Ollama download page
         self.window = self.webview.create_window(
             APP_NAME, html=SPLASH, width=1400, height=900, min_size=(1000, 650), hidden=start_hidden,
-            text_select=True, zoomable=True, background_color="#0B1220",
+            text_select=True, zoomable=True, background_color="#13171F",
         )
         self.window.events.closing += self._on_closing
         self.window.events.shown += lambda *args: set_window_icon()
