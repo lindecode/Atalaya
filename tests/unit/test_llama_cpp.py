@@ -7,6 +7,7 @@ from types import SimpleNamespace
 
 from infrastructure.llama_cpp.client import LlamaCppClient, _message_dict
 from infrastructure.llama_cpp.provider import LlamaCppAnalyzer, LlamaCppEmbeddingProvider
+from infrastructure.llama_cpp.runtime import server_command
 from infrastructure.llm_provider import provider_name
 from settings import Settings
 
@@ -37,8 +38,17 @@ def test_chat_translates_openai_tool_calls_and_structured_output():
     assert response.message.tool_calls[0].id == "c1"
     assert response.message.tool_calls[0].function.name == "get_alerts"
     sent = json.loads(opener.request.data)
-    assert sent["response_format"]["json_schema"]["strict"] is True
+    assert sent["response_format"] == {"type": "json_schema", "schema": {"type": "object"}}
     assert sent["temperature"] == 0.1 and sent["stream"] is False
+
+
+def test_client_sends_bearer_key_only_when_configured():
+    opener = Opener({"status": "ok"})
+    client = LlamaCppClient("http://127.0.0.1:11435", api_key="secret-local-key")
+    client.opener = opener
+
+    assert client.health()
+    assert opener.request.headers["Authorization"] == "Bearer secret-local-key"
 
 
 def test_assistant_and_tool_messages_are_openai_compatible():
@@ -84,3 +94,19 @@ def test_llama_cpp_embeddings_are_normalized_to_floats(tmp_path):
     provider = LlamaCppEmbeddingProvider(replace(Settings(), llama_cpp_model_path=tmp_path / "e.gguf"), client=client)
 
     assert provider.embed(["a", "b"]) == [[1.0, 2.0], [3.0, 4.0]]
+
+
+def test_chat_and_embedding_servers_have_separate_hardened_commands(tmp_path):
+    settings = replace(Settings(), database_path=tmp_path / "data" / "atalaya.db",
+                       llama_cpp_executable=tmp_path / "llama-server.exe",
+                       llama_cpp_model_path=tmp_path / "chat.gguf",
+                       llama_cpp_embedding_model_path=tmp_path / "embed.gguf")
+    chat = server_command(settings, "chat")
+    embedding = server_command(settings, "embedding")
+
+    assert "--embedding" not in chat and "--jinja" in chat
+    assert "--embedding" in embedding and "--jinja" not in embedding
+    assert "11435" in chat and "11436" in embedding
+    assert "--api-key-file" in chat and "--no-webui" in chat
+    assert str(settings.llama_cpp_model_path) in chat
+    assert str(settings.llama_cpp_embedding_model_path) in embedding

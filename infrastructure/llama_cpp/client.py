@@ -9,15 +9,18 @@ from urllib.request import ProxyHandler, Request, build_opener
 class LlamaCppClient:
     """Small OpenAI-compatible client for a loopback-only llama-server."""
 
-    def __init__(self, host: str, timeout: float = 60.0):
+    def __init__(self, host: str, timeout: float = 60.0, api_key: str | None = None):
         self.host = host.rstrip("/")
         self.timeout = timeout
+        self.api_key = api_key
         self.opener = build_opener(ProxyHandler({}))
 
     def _request(self, path: str, payload: dict | None = None) -> dict:
         body = None if payload is None else json.dumps(payload, ensure_ascii=False).encode("utf-8")
-        request = Request(self.host + path, data=body,
-                          headers={"Accept": "application/json", "Content-Type": "application/json"},
+        headers = {"Accept": "application/json", "Content-Type": "application/json"}
+        if self.api_key:
+            headers["Authorization"] = f"Bearer {self.api_key}"
+        request = Request(self.host + path, data=body, headers=headers,
                           method="GET" if payload is None else "POST")
         try:
             with self.opener.open(request, timeout=self.timeout) as response:
@@ -46,8 +49,9 @@ class LlamaCppClient:
             payload["tools"] = tools
             payload["tool_choice"] = "auto"
         if format:
-            payload["response_format"] = {"type": "json_schema", "json_schema": {
-                "name": "atalaya_analysis", "strict": True, "schema": format}}
+            # llama-server accepts the schema directly (not OpenAI's nested
+            # json_schema.name/strict wrapper).
+            payload["response_format"] = {"type": "json_schema", "schema": format}
         for source, target in (("temperature", "temperature"), ("top_p", "top_p"),
                                ("top_k", "top_k"), ("seed", "seed")):
             if options and source in options:

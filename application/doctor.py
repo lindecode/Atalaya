@@ -103,8 +103,22 @@ class DoctorService:
             return [Check("llama-cpp", "LLM local", "llama.cpp integrado", "warn",
                           f"Configurado pero no responde: {exc}", "Reinicie Atalaya y revise logs\\llama-server.log")]
         size = model.stat().st_size / 1e9
-        return [Check("llama-cpp", "LLM local", "llama.cpp integrado", "ok",
-                      f"En marcha · {model.name} · {size:.1f} GB · {len(installed)} modelo(s)")]
+        checks = [Check("llama-cpp", "LLM local", "llama.cpp integrado", "ok",
+                        f"En marcha · {model.name} · {size:.1f} GB · {len(installed)} modelo(s)")]
+        embedding = self.settings.llama_cpp_embedding_model_path
+        if not embedding.is_file():
+            checks.append(Check("llama-cpp-embedding", "LLM local", "Embeddings llama.cpp", "info",
+                                "Sin modelo dedicado: RAG usa búsqueda léxica",
+                                "Configure ATALAYA_LLAMA_CPP_EMBEDDING_MODEL para búsqueda semántica"))
+        else:
+            from infrastructure.llama_cpp.client import LlamaCppClient
+            from infrastructure.llama_cpp.credentials import load_or_create_key
+            ready = LlamaCppClient(self.settings.validated_llama_cpp_embedding_host(), 2,
+                                   load_or_create_key(self.settings, "embedding")).health()
+            checks.append(Check("llama-cpp-embedding", "LLM local", "Embeddings llama.cpp",
+                                "ok" if ready else "warn", f"{embedding.name} · {'en marcha' if ready else 'detenido'}",
+                                "Reinicie Atalaya" if not ready else ""))
+        return checks
 
     # --- Python y dependencias ------------------------------------------------------------------
     def _python(self) -> list[Check]:

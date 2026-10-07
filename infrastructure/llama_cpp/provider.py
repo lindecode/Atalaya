@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from infrastructure.llama_cpp.client import LlamaCppClient
+from infrastructure.llama_cpp.credentials import load_or_create_key
 from infrastructure.ollama.analyzer import OllamaAnalyzer
 
 
@@ -14,17 +15,25 @@ class LlamaCppAnalyzer(OllamaAnalyzer):
         self.model = _model_name(settings.llama_cpp_model_path)
 
     def _client(self):
-        return LlamaCppClient(self.settings.validated_llama_cpp_host(), self.settings.llm_timeout_seconds)
+        return LlamaCppClient(self.settings.validated_llama_cpp_host(), self.settings.llm_timeout_seconds,
+                              load_or_create_key(self.settings, "chat"))
 
 
 class LlamaCppEmbeddingProvider:
     def __init__(self, settings, model: str | None = None, client=None):
-        self.model = model or _model_name(settings.llama_cpp_model_path)
-        self.client = client or LlamaCppClient(settings.validated_llama_cpp_host(), settings.llm_timeout_seconds)
+        self.settings = settings
+        self.model = model or _model_name(settings.llama_cpp_embedding_model_path)
+        self.client = client
 
     def embed(self, texts):
         if not texts:
             return []
+        if self.client is None:
+            from infrastructure.llama_cpp.runtime import ensure_running
+            ensure_running(self.settings, role="embedding")
+            self.client = LlamaCppClient(self.settings.validated_llama_cpp_embedding_host(),
+                                         self.settings.llm_timeout_seconds,
+                                         load_or_create_key(self.settings, "embedding"))
         response = self.client.embed(model=self.model, input=list(texts))
         if not response.embeddings or len(response.embeddings) != len(texts):
             raise ValueError("llama-server devolvió embeddings incompletos")
@@ -36,7 +45,8 @@ class LlamaCppModelCatalog:
         self.settings = settings
 
     def list_models(self):
-        client = LlamaCppClient(self.settings.validated_llama_cpp_host(), 10)
+        client = LlamaCppClient(self.settings.validated_llama_cpp_host(), 10,
+                                load_or_create_key(self.settings, "chat"))
         models = client.list_models()
         size = self.settings.llama_cpp_model_path.stat().st_size if self.settings.llama_cpp_model_path.exists() else 0
         return [{"name": _model_name(self.settings.llama_cpp_model_path),
