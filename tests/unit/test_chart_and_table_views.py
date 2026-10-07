@@ -45,3 +45,11 @@ def test_reputation_reasons_and_generic_tables():
                     "file_reputation")[0]
     assert shown["Veredicto"] == "Probablemente seguro" and shown["Motivos"] == "Firma válida · Sin detecciones"
     assert visible({"a": 1, "dedup_key": "x", "run_id": 3}) == {"a": 1}
+
+
+def test_alert_evidence_uses_the_view_of_its_source_table():
+    from interfaces.gui.table_views import evidence_view
+
+    assert evidence_view([{"entity_type": "connection"}, {"entity_type": "connection"}]) == "connections"
+    assert evidence_view([{"entity_type": "connection"}, {"entity_type": "file_event"}]) is None
+    assert evidence_view([]) is None

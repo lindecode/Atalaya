@@ -10,6 +10,19 @@ from settings import Settings
 ALLOWED_TABLES = {"connections", "auth_events", "file_events", "file_reputation", "firewall_events", "persistence_items", "alerts", "llm_analyses", "runs", "ssh_observations", "process_snapshots", "process_lifecycle"}
 
 ROWS_LIMIT = 5000  # most recent rows per table and window that the GUI loads
+ENTITY_LIMIT = 200
+# table -> (window column or None for inventories, searchable columns); names are code, never user input
+ENTITY_SOURCES = {
+    "alerts": ("ts", ("title", "evidence")),
+    "connections": ("ts", ("raddr", "laddr", "process_name", "process_path", "process_user")),
+    "firewall_events": ("ts", ("src_ip", "dst_ip", "dst_port")),
+    "auth_events": ("ts", ("source_ip", "source_host", "target_user", "process_name")),
+    "file_events": ("ts", ("path", "dest_path", "sha256", "process_name")),
+    "ssh_observations": ("ts", ("remote_address", "local_address", "process_name", "process_user", "command_summary")),
+    "process_lifecycle": (None, ("name", "path", "process_user")),
+    "persistence_items": (None, ("name", "location", "command")),
+    "file_reputation": (None, ("sha256", "path")),
+}
 
 
 class SQLiteQueryRepository:
@@ -153,6 +166,34 @@ class SQLiteQueryRepository:
             rows = db.execute("SELECT entity_type, entity_id, snapshot_json FROM alert_evidence WHERE alert_id=? LIMIT 500", (alert_id,))
             return [{"entity_type": row[0], "entity_id": row[1], **json.loads(row[2])} for row in rows]
 
+
+    def alert(self, alert_id: int):
+        with connect(self.settings.database_path, readonly=True) as db:
+            row = db.execute("SELECT * FROM alerts WHERE id=?", (int(alert_id),)).fetchone()
+            return dict(row) if row else None
+
+    def entity_search(self, term: str, since: str, limit: int = ENTITY_LIMIT) -> dict[str, list[dict]]:
+        """Every table that mentions an IP, process, path, hash or user (substring, case-insensitive).
+
+        Column names are fixed here; the term only travels as a bound LIKE pattern with its wildcards escaped.
+        Inventories (reputation, persistence, process lifecycle) are searched regardless of the window.
+        """
+        needle = " ".join(str(term).replace("\x00", " ").split())[:200]
+        if len(needle) < 2:
+            raise ValueError("Escriba al menos 2 caracteres")
+        pattern = "%" + needle.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+        limit = min(max(int(limit), 1), ENTITY_LIMIT)
+        results = {}
+        with connect(self.settings.database_path, readonly=True) as db:
+            for name, (time_column, columns) in ENTITY_SOURCES.items():
+                where = " OR ".join(f"CAST({column} AS TEXT) LIKE ? ESCAPE '\\'" for column in columns)
+                sql, params = f"SELECT * FROM {name} WHERE ({where})", [pattern] * len(columns)
+                if time_column:
+                    sql += f" AND {time_column}>=?"; params.append(since)
+                sql += f" ORDER BY {time_column or 'rowid'} DESC LIMIT ?"; params.append(limit)
+                results[name] = [{key: value for key, value in dict(row).items() if key != "raw_xml"}
+                                 for row in db.execute(sql, params)]
+        return results
 
 def since_hours(hours: int) -> str:
     """Start of the window, rounded down to the minute so repeated reads within a minute share a cache key."""

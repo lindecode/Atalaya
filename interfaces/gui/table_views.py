@@ -68,10 +68,45 @@ VIEWS: dict[str, tuple[Column, ...]] = {
         Column("process_user", "Usuario"), Column("command_summary", "Comando"), Column("tunnel_types", "Túneles"),
         Column("agent_forwarding", "Reenvío de agente", "bool"), Column("service_status", "Estado del servicio"),
         Column("service_start_type", "Inicio del servicio"), Column("pid", "PID", "int")),
+    "connections": (
+        Column("ts", "Fecha", "date"), Column("direction", "Sentido", labels=DIRECTIONS), Column("process_name", "Proceso"),
+        Column("raddr", "IP remota"), Column("rport", "Puerto remoto", "int"), Column("laddr", "IP local"),
+        Column("lport", "Puerto local", "int"), Column("state", "Estado"), Column("proto", "Protocolo"),
+        Column("pid", "PID", "int"), Column("process_path", "Ruta"), Column("process_user", "Usuario"),
+        Column("source", "Fuente")),
+    "process_lifecycle": (
+        Column("name", "Proceso"), Column("pid", "PID", "int"), Column("active", "Activo", "bool"),
+        Column("first_seen", "Visto por primera vez", "date"), Column("last_seen", "Última vez", "date"),
+        Column("ended_at", "Fin inferido", "date"), Column("peak_private_bytes", "Pico de memoria privada", "bytes"),
+        Column("path", "Ruta"), Column("process_user", "Usuario")),
+    "process_snapshots": (
+        Column("ts", "Fecha", "date"), Column("name", "Proceso"), Column("pid", "PID", "int"),
+        Column("private_bytes", "Memoria privada", "bytes"), Column("rss_bytes", "RSS", "bytes"),
+        Column("memory_percent", "% RAM", "percent"), Column("parent_name", "Padre"), Column("path", "Ruta"),
+        Column("process_user", "Usuario")),
+    "alerts": (
+        Column("id", "#", "int"), Column("ts", "Fecha", "date"), Column("severity", "Severidad",
+                                                                       labels={"low": "Baja", "medium": "Media",
+                                                                               "high": "Alta", "critical": "Crítica"}),
+        Column("rule_id", "Regla"), Column("title", "Título"), Column("evidence", "Evidencia"),
+        Column("status", "Estado", labels={"new": "Nueva", "analyzed": "Analizada", "confirmed": "Confirmada",
+                                           "dismissed": "Descartada"})),
     "runs": (
         Column("id", "#", "int"), Column("kind", "Tipo"), Column("started_at", "Inicio", "date"),
         Column("finished_at", "Fin", "date"), Column("status", "Estado"), Column("is_admin", "Administrador", "bool")),
 }
+
+
+# alert_evidence.entity_type -> the view of the table it was copied from
+ENTITY_VIEWS = {"connection": "connections", "auth_event": "auth_events", "file_event": "file_events",
+                "firewall_event": "firewall_events", "persistence_item": "persistence_items",
+                "process_snapshot": "process_snapshots"}
+
+
+def evidence_view(rows) -> str | None:
+    """The view for an alert's evidence rows when they all come from the same table."""
+    kinds = {row.get("entity_type") for row in rows}
+    return ENTITY_VIEWS.get(kinds.pop()) if len(kinds) == 1 else None
 
 
 def _value(column: Column, value: Any) -> Any:
@@ -101,7 +136,7 @@ def column_config(columns: Iterable[Column]) -> dict[str, Any]:
 
     makers: dict[str, Callable[[Column], Any]] = {
         "date": lambda c: st.column_config.DatetimeColumn(c.label, format=COLUMN_FORMAT, help=c.help),
-        "int": lambda c: st.column_config.NumberColumn(c.label, format="plain", help=c.help),
+        "int": lambda c: st.column_config.NumberColumn(c.label, format="%d", help=c.help),
         "bytes": lambda c: st.column_config.NumberColumn(c.label, format="bytes", help=c.help),
         "percent": lambda c: st.column_config.ProgressColumn(c.label, format="%.1f%%", min_value=0, max_value=100,
                                                              help=c.help),

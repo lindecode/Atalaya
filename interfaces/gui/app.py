@@ -18,6 +18,7 @@ navigation = st.navigation({
         st.Page("pages/1_Resumen.py", title="Actividad", icon=":material/monitoring:"),
     ],
     "Evidencia": [
+        st.Page("pages/13_Buscar.py", title="Buscar", icon=":material/search:", url_path="buscar"),
         st.Page("pages/4_Accesos.py", title="Accesos", icon=":material/key:"),
         st.Page("pages/5_Archivos.py", title="Archivos", icon=":material/folder_open:"),
         st.Page("pages/6_Persistencia.py", title="Persistencia", icon=":material/autorenew:"),
@@ -30,5 +31,5 @@ navigation = st.navigation({
         st.Page("pages/8_Informes.py", title="Informes", icon=":material/description:"),
         st.Page("pages/10_Estado.py", title="Estado", icon=":material/settings:"),
     ],
-})
+}, expanded=True)
 navigation.run()

@@ -93,6 +93,43 @@ def empty(message: str):
     st.info(message)
 
 
+MARKDOWN_SPECIAL = set("\\`*_{}[]()#+-.!|~<>")
+SEARCH_PAGE = "pages/13_Buscar.py"
+# Row fields worth pivoting on (raw names and the Spanish labels of table_views)
+ENTITY_FIELDS = {"raddr", "laddr", "src_ip", "dst_ip", "source_ip", "source_host", "remote_address", "process_name",
+                 "process_path", "path", "dest_path", "sha256", "target_user", "process_user", "name", "remote",
+                 "remoto", "proceso", "ruta", "IP de origen", "IP de destino", "Cuenta", "Proceso", "Ruta", "SHA-256",
+                 "Remoto", "Usuario"}
+
+
+def plain_label(text: object) -> str:
+    """Labels render Markdown (links, even images that would load a URL): escape collected text before using it."""
+    return "".join("\\" + char if char in MARKDOWN_SPECIAL else char for char in str(text))
+
+
+def page_link(page: str, label: str, icon: str, query_params: dict | None = None):
+    """Link to another page; when a page runs on its own (tests, direct run) there is no navigation to link to."""
+    try:
+        st.page_link(page, label=label, icon=icon, query_params=query_params)
+    except Exception:
+        st.caption(f"→ {label}")
+
+
+def search_links(values, key: str, limit: int = 4):
+    """'Buscar «…»' links to the entity search for the distinct, meaningful values given."""
+    seen = []
+    for value in values:
+        text = "" if value is None else str(value).strip()
+        if 2 <= len(text) <= 200 and text not in seen and text not in {"-", "?", "None"}:
+            seen.append(text)
+    if not seen:
+        return
+    columns = st.columns(min(len(seen[:limit]), limit))
+    for column, text in zip(columns, seen[:limit]):
+        with column:
+            page_link(SEARCH_PAGE, f"Buscar «{plain_label(text[:40])}»", ":material/search:", query_params={"q": text})
+
+
 def csv_name(key: str, windowed: bool = True) -> str:
     """conexiones_24-horas_20261007-1055.csv: says which window and when it was exported."""
     window = str(st.session_state.get("window") or "").replace(" ", "-") if windowed else ""
@@ -142,8 +179,11 @@ def table(rows, *, key: str, columns: dict | None = None, view: str | None = Non
     if detail and selected and selected[0] < len(matches):
         with st.container(border=True):
             st.markdown("**Detalle de la fila seleccionada**")
-            st.dataframe(pd.DataFrame(_record(raw[matches[selected[0]]])), hide_index=True, width="stretch",
-                         key=f"record-{key}")
+            record = raw[matches[selected[0]]]
+            st.dataframe(pd.DataFrame(_record(record)), hide_index=True, width="stretch", key=f"record-{key}")
+            shown_row = shown[matches[selected[0]]]
+            search_links([value for name, value in list(record.items()) + list(shown_row.items())
+                          if name in ENTITY_FIELDS], key=f"links-{key}")
     st.download_button("Descargar CSV", frame.to_csv(index=False).encode("utf-8"), csv_name(key, windowed), "text/csv",
                        key=f"download-{key}", icon=":material/download:",
                        help="Exporta las filas visibles, con el filtro de búsqueda aplicado.")

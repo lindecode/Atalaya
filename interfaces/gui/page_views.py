@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import datetime
 
 import pandas as pd
@@ -8,14 +9,15 @@ import streamlit as st
 
 from domain.rules.catalog import ALL_RULES
 from infrastructure.clock import SystemClock
-from infrastructure.sqlite.queries import ROWS_LIMIT
+from infrastructure.sqlite.queries import ENTITY_LIMIT, ROWS_LIMIT
 from interfaces.gui import network
 from interfaces.gui.common import context, refresh_data
-from interfaces.gui.components import (SEVERITY_COLORS, SEVERITY_NAMES, chart, empty, hero, legend, risk_banner,
-                                       severity_label, table)
+from interfaces.gui.components import (SEVERITY_COLORS, SEVERITY_ICONS, SEVERITY_NAMES, chart, empty, hero, legend,
+                                       page_link, plain_label, risk_banner, search_links, severity_label, table)
 from interfaces.gui.chart_data import hourly_frame
-from interfaces.gui.table_formatting import local_series
-from interfaces.gui.table_views import EVENT_NAMES
+from interfaces.gui.rule_help import OPEN_STATUSES, RULES, STATUS_NAMES
+from interfaces.gui.table_formatting import COLUMN_FORMAT, format_local_datetime, local_series, to_local_datetime
+from interfaces.gui.table_views import EVENT_NAMES, VIEWS, evidence_view
 
 
 FLOW_LEGEND = [("Entrante", network.COLORS["inbound"]), ("Saliente", network.COLORS["outbound"]),
@@ -29,12 +31,7 @@ def _local(ts: str | None) -> str:
     return datetime.fromisoformat(ts).astimezone().strftime("%d/%m %H:%M")
 
 
-def _link(page: str, label: str, icon: str):
-    """Link to another page; when a page runs on its own (tests, direct run) there is no navigation to link to."""
-    try:
-        st.page_link(page, label=label, icon=icon)
-    except Exception:
-        st.caption(f"→ {label}")
+_link = page_link
 
 
 MEMORY_COLUMNS = {
@@ -118,7 +115,8 @@ def overview():
             figure.update_xaxes(showticklabels=False, showgrid=False)
             chart(_style(figure, 50 + 42 * len(frame)).update_layout(showlegend=False), key="overview-severity")
             for alert in query.open_alerts(6):
-                st.text(f"{severity_label(alert['severity'])}  #{alert['id']} {alert['rule_id']} · {alert['title']}")
+                _link("pages/2_Alertas.py", f"{_severity_name(alert['severity'])} · \\#{alert['id']} {alert['rule_id']} · "
+                      f"{_plain(alert['title'])}", ":material/chevron_right:", query_params={"id": alert["id"]})
             _link("pages/2_Alertas.py", "Revisar alertas", ":material/notification_important:")
         else:
             st.success("No hay alertas abiertas.")
@@ -287,48 +285,151 @@ def _bulk_learn(repository):
             st.success(f"Aprobados {sum(counts.values())} elementos {counts}; {dismissed} alertas descartadas.")
 
 
+def _alert_summary(evidence) -> str:
+    """The rule's evidence summary as one line (collected values: shown in a dataframe cell, never as markup)."""
+    try:
+        data = json.loads(evidence) if isinstance(evidence, str) else evidence
+    except ValueError:
+        return str(evidence)[:200]
+    if isinstance(data, dict):
+        return " · ".join(f"{key}: {value}" for key, value in data.items())[:200]
+    return str(data)[:200]
+
+
+def _severity_name(level: str) -> str:
+    return f"{SEVERITY_ICONS.get(level, '⚪')} {SEVERITY_NAMES.get(level, level)}"
+
+
+def _set_status(repository, alert_ids, status: str, note: str | None):
+    now = SystemClock().now_iso()
+    for alert_id in alert_ids:
+        repository.update_alert_status(alert_id, status, note or None, now)
+    refresh_data()
+
+
+def _alert_detail(repository, query, row: dict):
+    """Everything about one alert: what the rule means, its evidence, the LLM's view and the triage actions."""
+    with st.container(border=True):
+        st.markdown(f"#### {_severity_name(row['severity'])} · {row['rule_id']} · alerta #{row['id']}")
+        st.text(f"{row['title']}  ·  {STATUS_NAMES.get(row['status'], row['status'])}  ·  "
+                f"{format_local_datetime(row['ts'])}")
+        if row.get("status_note"):
+            st.text(f"Nota: {row['status_note']}")
+        rule = RULES.get(row["rule_id"])
+        if rule:
+            left, right = st.columns(2)
+            left.markdown("**Qué detecta**")
+            left.write(rule.detects)
+            right.markdown("**Qué revisar**")
+            right.write(rule.check)
+        try:
+            summary = json.loads(row["evidence"]) if isinstance(row["evidence"], str) else row["evidence"]
+        except ValueError:
+            summary = {"evidencia": row["evidence"]}
+        if isinstance(summary, dict) and summary:
+            st.markdown("**Resumen de la evidencia**")
+            st.dataframe(pd.DataFrame([{"campo": key, "valor": "" if value is None else str(value)}
+                                       for key, value in summary.items()]), hide_index=True, width="stretch",
+                         key=f"summary-{row['id']}")
+            search_links(summary.values(), key=f"alert-{row['id']}")
+        st.markdown("**Eventos que la originaron**")
+        evidence = query.alert_evidence(row["id"])
+        table(evidence, key=f"evidence-{row['id']}", view=evidence_view(evidence), windowed=False)
+        for incident in query.llm_incidents_for(row["id"]):
+            st.markdown(f"**Análisis del LLM** ({_plain(incident['model'])}) · severidad LLM: `{incident['severity']}` · "
+                        f"posible falso positivo: `{incident['false_positive_likelihood']}`")
+            # LLM text is shaped by collected data: show it as plain text, never as Markdown/HTML
+            st.text(incident["narrative"])
+            if incident.get("benign_explanations"):
+                st.text("Explicaciones benignas: " + "; ".join(incident["benign_explanations"]))
+            if incident.get("recommended_actions"):
+                st.text("Recomendaciones: " + "; ".join(incident["recommended_actions"]))
+        note = st.text_input("Nota", key=f"note-{row['id']}")
+        a, b, c = st.columns(3)
+        if a.button("Confirmar", key=f"confirm-{row['id']}", icon=":material/check_circle:"):
+            _set_status(repository, [row["id"]], "confirmed", note); st.rerun()
+        if b.button("Descartar", key=f"dismiss-{row['id']}", icon=":material/cancel:"):
+            _set_status(repository, [row["id"]], "dismissed", note); st.rerun()
+        if row["rule_id"] in BASELINE_RULES and c.button("Aprobar como normal", key=f"approve-{row['id']}",
+                                                         icon=":material/verified:"):
+            repository.approve_alert(row["id"], SystemClock().now_iso()); refresh_data(); st.rerun()
+
+
+def _bulk_actions(repository, selected: list[dict]):
+    with st.container(border=True):
+        st.markdown(f"**{len(selected)} alertas seleccionadas**")
+        note = st.text_input("Nota para todas", key="bulk-note")
+        a, b, c = st.columns(3)
+        ids = [row["id"] for row in selected]
+        if a.button("Confirmar seleccionadas", key="bulk-confirm", icon=":material/check_circle:"):
+            _set_status(repository, ids, "confirmed", note); st.rerun()
+        if b.button("Descartar seleccionadas", key="bulk-dismiss", icon=":material/cancel:"):
+            _set_status(repository, ids, "dismissed", note); st.rerun()
+        approvable = [row["id"] for row in selected if row["rule_id"] in BASELINE_RULES]
+        if approvable and c.button(f"Aprobar como normal ({len(approvable)})", key="bulk-approve",
+                                   icon=":material/verified:", help="Solo las de reglas con baseline: "
+                                   + ", ".join(sorted(BASELINE_RULES))):
+            now = SystemClock().now_iso()
+            for alert_id in approvable:
+                try:
+                    repository.approve_alert(alert_id, now)
+                except (KeyError, ValueError):
+                    continue  # already covered by an earlier approval in this batch
+            refresh_data(); st.rerun()
+
+
 def alerts():
     _, repository, query, since = context()
     hero("🚨 Alertas", "Lo que detectaron las reglas, con su evidencia y la explicación del LLM.")
     _bulk_learn(repository)
     rows = query.rows("alerts", since)
     _truncation_note(rows)
-    if not rows: return empty(f"No hay alertas. Pulse Analizar para aplicar las reglas R01–R{len(ALL_RULES):02d}.")
-    open_rows = [row for row in rows if row["status"] in {"new", "analyzed"}]
+    requested = st.query_params.get("id")
+    if not rows and not requested:
+        return empty(f"No hay alertas. Pulse Analizar para aplicar las reglas R01–R{len(ALL_RULES):02d}.")
+    open_rows = [row for row in rows if row["status"] in OPEN_STATUSES]
     labels = {"critical": "Críticas abiertas", "high": "Altas abiertas", "medium": "Medias abiertas", "low": "Bajas abiertas"}
     for column, (level, label) in zip(st.columns(4), labels.items()):
         column.metric(label, sum(row["severity"] == level for row in open_rows))
     a, b, c = st.columns(3)
-    statuses = a.multiselect("Estado", ["new", "analyzed", "confirmed", "dismissed"], default=["new", "analyzed"])
-    severities = b.multiselect("Severidad", ["low", "medium", "high", "critical"])
-    rules = c.multiselect("Regla", sorted({row["rule_id"] for row in rows}))
+    statuses = a.multiselect("Estado", list(STATUS_NAMES), default=list(OPEN_STATUSES), format_func=STATUS_NAMES.get,
+                             key="alert-status", placeholder="Todos")
+    severities = b.multiselect("Severidad", ["critical", "high", "medium", "low"], format_func=_severity_name,
+                               key="alert-severity", placeholder="Todas")
+    rules = c.multiselect("Regla", sorted({row["rule_id"] for row in rows}), key="alert-rule", placeholder="Todas",
+                          format_func=lambda rule: f"{rule} · {RULES[rule].detects[:45]}…" if rule in RULES else rule)
     rows = [row for row in rows if (not statuses or row["status"] in statuses)
             and (not severities or row["severity"] in severities) and (not rules or row["rule_id"] in rules)]
     rank = {"critical": 0, "high": 1, "medium": 2, "low": 3}
     rows.sort(key=lambda row: (rank.get(row["severity"], 4), row["ts"]))
     if len(rows) > MAX_ALERTS_SHOWN:
         st.caption(f"Mostrando {MAX_ALERTS_SHOWN} de {len(rows)} alertas; use los filtros para acotar.")
-    for row in rows[:MAX_ALERTS_SHOWN]:
-        with st.expander(f"{severity_label(row['severity'])} · {row['rule_id']} · {row['title']} · #{row['id']} · {row['status']}"):
-            st.code(row["evidence"], language="json")
-            table(query.alert_evidence(row["id"]), key=f"evidence-{row['id']}")
-            for incident in query.llm_incidents_for(row["id"]):
-                st.markdown(f"**Análisis del LLM** ({incident['model']}) · severidad LLM: `{incident['severity']}` · "
-                            f"posible falso positivo: `{incident['false_positive_likelihood']}`")
-                # LLM text is shaped by collected data: show it as plain text, never as Markdown/HTML
-                st.text(incident["narrative"])
-                if incident.get("benign_explanations"):
-                    st.text("Explicaciones benignas: " + "; ".join(incident["benign_explanations"]))
-                if incident.get("recommended_actions"):
-                    st.text("Recomendaciones: " + "; ".join(incident["recommended_actions"]))
-            note = st.text_input("Nota", key=f"note-{row['id']}")
-            a, b, c = st.columns(3)
-            if a.button("Confirmar", key=f"confirm-{row['id']}", icon=":material/check_circle:"):
-                repository.update_alert_status(row["id"], "confirmed", note or None, SystemClock().now_iso()); refresh_data(); st.rerun()
-            if b.button("Descartar", key=f"dismiss-{row['id']}", icon=":material/cancel:"):
-                repository.update_alert_status(row["id"], "dismissed", note or None, SystemClock().now_iso()); refresh_data(); st.rerun()
-            if row["rule_id"] in BASELINE_RULES and c.button("Aprobar como normal", key=f"approve-{row['id']}", icon=":material/verified:"):
-                repository.approve_alert(row["id"], SystemClock().now_iso()); refresh_data(); st.rerun()
+    rows = rows[:MAX_ALERTS_SHOWN]
+
+    selected: list[dict] = []
+    if rows:
+        frame = pd.DataFrame([{"#": row["id"], "Severidad": _severity_name(row["severity"]), "Regla": row["rule_id"],
+                               "Título": row["title"], "Resumen": _alert_summary(row["evidence"]),
+                               "Estado": STATUS_NAMES.get(row["status"], row["status"]),
+                               "Fecha": to_local_datetime(row["ts"])} for row in rows])
+        event = st.dataframe(frame, hide_index=True, width="stretch", key="alerts-table", on_select="rerun",
+                             selection_mode="multi-row",
+                             column_config={"#": st.column_config.NumberColumn(format="%d", width="small"),
+                                            "Fecha": st.column_config.DatetimeColumn(format=COLUMN_FORMAT)})
+        st.caption("Seleccione una alerta para ver su detalle, o varias para actuar sobre todas a la vez.")
+        selected = [rows[index] for index in (event.selection.rows if event else []) if index < len(rows)]
+    else:
+        empty("Ninguna alerta coincide con los filtros.")
+    if len(selected) > 1:
+        _bulk_actions(repository, selected)
+        return
+    target = selected[0] if selected else None
+    if target is None and requested and str(requested).isdigit():
+        target = query.alert(int(requested))  # a link from the Panel or a search, even outside these filters
+    if target is None and rows:
+        target = rows[0]
+    if target:
+        _alert_detail(repository, query, target)
 
 
 # --- Evidencia -------------------------------------------------------------------------------------
@@ -456,12 +557,7 @@ def reports():
     st.download_button("Descargar", content.encode("utf-8"), chosen.name, "text/markdown", icon=":material/download:")
 
 
-MARKDOWN_SPECIAL = set("\\`*_{}[]()#+-.!|~<>")
-
-
-def _plain(text: str) -> str:
-    """Button labels render Markdown (links, even images that would load a URL): escape it."""
-    return "".join("\\" + char if char in MARKDOWN_SPECIAL else char for char in text)
+_plain = plain_label
 
 
 def _rag_panel():
@@ -783,3 +879,48 @@ def _pull_with_progress(doctor, model: str):
     bar.progress(1.0, text=f"{model} descargado")
     st.cache_data.clear()
     st.rerun()
+
+
+# --- Buscar ----------------------------------------------------------------------------------------
+
+SEARCH_LABELS = {"alerts": "Alertas", "connections": "Conexiones", "firewall_events": "Firewall", "auth_events": "Accesos",
+                 "file_events": "Archivos", "ssh_observations": "SSH", "process_lifecycle": "Procesos",
+                 "persistence_items": "Persistencia", "file_reputation": "Reputación"}
+
+
+def search():
+    _, _, query, since = context()
+    hero("🔎 Buscar", "Todo lo registrado sobre una IP, un proceso, una ruta, un hash o un usuario, en un solo lugar.")
+    term = st.text_input("Buscar", value=st.query_params.get("q", ""), label_visibility="collapsed",
+                         icon=":material/search:", placeholder="203.0.113.7 · powershell.exe · C:\\Users\\… · SHA-256 · usuario")
+    st.caption("Busca coincidencias parciales, sin distinguir mayúsculas. Los eventos se limitan a la ventana temporal; "
+               "procesos, persistencia y reputación son inventarios y se buscan completos.")
+    term = term.strip()
+    # Keep the URL shareable, but only touch it when the term changes (rewriting it on load confuses the router)
+    if not term:
+        if "q" in st.query_params:
+            del st.query_params["q"]
+        return
+    if st.query_params.get("q") != term:
+        st.query_params["q"] = term
+    try:
+        results = query.entity_search(term, since)
+    except ValueError as exc:
+        return st.warning(str(exc))
+    found = [(name, rows) for name, rows in results.items() if rows]
+    if not found:
+        return empty("Nada coincide en la ventana seleccionada. Pruebe con parte del valor o una ventana más larga.")
+    columns = st.columns(min(len(found), 5))
+    for index, (name, rows) in enumerate(found):
+        columns[index % len(columns)].metric(SEARCH_LABELS[name], f"{len(rows)}{'+' if len(rows) >= ENTITY_LIMIT else ''}")
+    for tab, (name, rows) in zip(st.tabs([f"{SEARCH_LABELS[name]} ({len(rows)})" for name, rows in found]), found):
+        with tab:
+            if len(rows) >= ENTITY_LIMIT:
+                st.caption(f"Se muestran las {ENTITY_LIMIT} coincidencias más recientes.")
+            if name == "alerts":
+                for row in rows[:10]:
+                    _link("pages/2_Alertas.py", f"{_severity_name(row['severity'])} · alerta \\#{row['id']} · "
+                          f"{row['rule_id']} · {_plain(row['title'])}", ":material/open_in_new:",
+                          query_params={"id": row["id"]})
+            table(rows, key=f"search-{name}", view=name if name in VIEWS else None,
+                  windowed=name not in {"process_lifecycle", "persistence_items", "file_reputation"})
