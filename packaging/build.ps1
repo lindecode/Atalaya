@@ -7,7 +7,13 @@
 param(
     [switch]$SinInstalador,   # solo carpeta + ZIP portable (no necesita Inno Setup)
     [switch]$SinZip,
-    [switch]$SinPrueba        # omite la prueba de humo del paquete
+    [switch]$SinPrueba,       # omite la prueba de humo del paquete
+    [string]$LlamaCppZip,     # ZIP oficial precompilado de llama.cpp (opcional)
+    [string]$LlamaCppSha256,
+    [string]$LlamaCppLicense,
+    [string]$ModeloGguf,      # modelo con licencia redistribuible (opcional)
+    [string]$ModeloSha256,
+    [string]$ModeloLicense
 )
 $ErrorActionPreference = 'Stop'
 $Packaging = $PSScriptRoot
@@ -69,6 +75,36 @@ $pth = Get-ChildItem $Runtime -Filter 'python*._pth' | Select-Object -First 1
 $zipName = (Get-ChildItem $Runtime -Filter 'python*.zip' | Select-Object -First 1).Name
 Set-Content -Path $pth.FullName -Encoding ascii -Value @($zipName, '.', 'Lib\site-packages', '..', 'import site')
 Write-Host "  SHA-256 verificado; $($pth.Name) configurado"
+
+if ($LlamaCppZip -or $ModeloGguf) {
+    if (-not ($LlamaCppZip -and $LlamaCppSha256 -and $LlamaCppLicense -and $ModeloGguf -and $ModeloSha256 -and $ModeloLicense)) {
+        throw 'Para integrar llama.cpp indique ZIP, modelo, hashes y las dos licencias'
+    }
+    Write-Paso 'Runtime llama.cpp integrado'
+    foreach ($item in @(@($LlamaCppZip, $LlamaCppSha256, 'llama.cpp'), @($ModeloGguf, $ModeloSha256, 'modelo GGUF'))) {
+        if (-not (Test-Path -LiteralPath $item[0] -PathType Leaf)) { throw "No existe $($item[2]): $($item[0])" }
+        $actual = (Get-FileHash -LiteralPath $item[0] -Algorithm SHA256).Hash.ToLower()
+        if ($actual -ne $item[1].ToLower()) { throw "SHA-256 incorrecto para $($item[2])" }
+    }
+    foreach ($license in @($LlamaCppLicense, $ModeloLicense)) {
+        if (-not (Test-Path -LiteralPath $license -PathType Leaf)) { throw "No existe la licencia: $license" }
+    }
+    $llamaTemp = Join-Path $Build 'llama-cpp-extract'
+    Expand-Archive -LiteralPath $LlamaCppZip -DestinationPath $llamaTemp
+    $server = Get-ChildItem $llamaTemp -Recurse -File -Filter 'llama-server.exe' | Select-Object -First 1
+    if (-not $server) { throw 'El ZIP verificado no contiene llama-server.exe' }
+    $llamaTarget = Join-Path $Runtime 'llama.cpp'
+    New-Item -ItemType Directory -Force -Path $llamaTarget | Out-Null
+    Copy-Item -Path (Join-Path $server.DirectoryName '*') -Destination $llamaTarget -Recurse -Force
+    $modelTarget = Join-Path $Stage 'models'
+    New-Item -ItemType Directory -Force -Path $modelTarget | Out-Null
+    Copy-Item -LiteralPath $ModeloGguf -Destination (Join-Path $modelTarget 'atalaya.gguf')
+    $licenseTarget = Join-Path $Stage 'THIRD_PARTY_LICENSES'
+    New-Item -ItemType Directory -Force -Path $licenseTarget | Out-Null
+    Copy-Item -LiteralPath $LlamaCppLicense -Destination (Join-Path $licenseTarget 'llama.cpp.txt')
+    Copy-Item -LiteralPath $ModeloLicense -Destination (Join-Path $licenseTarget 'model.txt')
+    Write-Host '  llama-server.exe y modelo verificados e incluidos'
+}
 
 Write-Paso "Dependencias (requirements.lock.txt)"
 $sitePackages = Join-Path $Runtime 'Lib\site-packages'
