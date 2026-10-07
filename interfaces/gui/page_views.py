@@ -165,7 +165,7 @@ def connections():
             legend(FLOW_LEGEND)
             top = st.slider("IPs remotas por sentido", 4, 30, 12, key="net-top")
             flow = network.build_flow(flows, max_remotes=top, suspicious_ports=settings.suspicious_ports)
-            chart(network.flow_figure(flow, height=max(460, min(1100, 26 * len(flow.labels)))), key="net-flow")
+            chart(network.flow_figure(flow, height=max(460, 22 * len(flow.labels))), key="net-flow")
             st.caption("El grosor de cada banda es el número de conexiones. Las IP que no entran en el top se agrupan en «Otros». "
                        "Pase el ratón por una banda para ver puertos y servicios.")
         else:

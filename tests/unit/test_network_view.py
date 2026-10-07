@@ -69,6 +69,10 @@ def test_timeline_counts_per_collection():
 
 def test_figures_build_without_errors():
     rows = [conn("outbound", "8.8.8.8"), conn("inbound", "203.0.113.7"), conn("listen", None, laddr="0.0.0.0")]
-    assert network.flow_figure(network.build_flow(network.active_flows(rows))).data
+    flow = network.build_flow(network.active_flows(rows))
+    figure = network.flow_figure(flow, height=2000)
+    assert figure.data
+    assert figure.layout.height == 760
+    assert min(flow.x) >= 0.06 and max(flow.x) <= 0.94
     assert network.exposure_figure(network.exposure(rows)).data
     assert network.destinations_figure(rows).data

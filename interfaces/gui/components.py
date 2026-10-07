@@ -22,6 +22,7 @@ _STYLE = """
 [data-testid="stMetricLabel"] p {font-size: 0.76rem; opacity: 0.75; text-transform: uppercase; letter-spacing: .03em;}
 [data-testid="stMetricValue"] {font-variant-numeric: tabular-nums;}
 [data-testid="stExpander"] details {border-radius: 12px;}
+[data-testid="stPlotlyChart"] {max-width: 100%; overflow: hidden;}
 .nl-hero {
   position: relative; overflow: hidden; border-radius: 16px; padding: 18px 22px 18px 26px; margin-bottom: 14px;
   background: linear-gradient(115deg, var(--nl-brand-soft), rgba(107, 192, 67, .03) 60%, transparent);
@@ -114,7 +115,8 @@ def severity_label(value: str) -> str:
 
 
 def chart(figure, key: str | None = None):
-    st.plotly_chart(figure, width="stretch", key=key, config={"displaylogo": False})
+    st.plotly_chart(figure, width="stretch", key=key,
+                    config={"displaylogo": False, "responsive": True})
 
 
 @st.dialog("Acerca de Atalaya")

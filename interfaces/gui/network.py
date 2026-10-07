@@ -159,7 +159,9 @@ def build_flow(rows: list[dict], max_remotes: int = 12, suspicious_ports=()) -> 
                 remote_label = safe(remote)
                 color = COLORS["suspicious"] if link["suspicious"] else COLORS.get(link["scope"], COLORS["other"])
                 hover = f"{safe(remote)} · {SCOPE_LABELS.get(link['scope'], link['scope'])}"
-            x = 0.01 if direction == "inbound" else 0.99
+            # Keep edge labels inside Plotly's drawing domain. Values too close
+            # to 0/1 let IPv6 addresses overflow the Streamlit container.
+            x = 0.06 if direction == "inbound" else 0.94
             remote_node = node((direction, remote), remote_label, color, x, hover)
             proc_node = node(("process", proc), safe(proc, 40), COLORS["process"], 0.5, safe(proc, 120))
             ports = ", ".join(f"{service(port)}" + (f" ({port})" if port and port in SERVICES else "")
@@ -178,6 +180,7 @@ def build_flow(rows: list[dict], max_remotes: int = 12, suspicious_ports=()) -> 
 
 
 def flow_figure(flow: Flow, height: int = 560) -> go.Figure:
+    height = max(420, min(height, 760))
     figure = go.Figure(go.Sankey(
         arrangement="snap",
         node=dict(label=flow.labels, color=flow.colors, x=flow.x, pad=14, thickness=16,
@@ -185,12 +188,13 @@ def flow_figure(flow: Flow, height: int = 560) -> go.Figure:
         link=dict(source=flow.source, target=flow.target, value=flow.value, color=flow.link_colors,
                   customdata=flow.link_hovers, hovertemplate="%{customdata}<extra></extra>"),
     ))
-    figure.update_layout(height=height, margin=dict(l=8, r=8, t=36, b=8), font=dict(size=12),
+    figure.update_layout(height=height, autosize=True, margin=dict(l=28, r=28, t=44, b=12), font=dict(size=11),
                          paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
-    for x, text, color in ((0.0, "◀ ORIGEN (entrantes)", COLORS["inbound"]), (0.5, "PROCESOS DE ESTE EQUIPO", COLORS["process"]),
-                           (1.0, "DESTINO (salientes) ▶", COLORS["outbound"])):
+    for x, text, color in ((0.02, "◀ ORIGEN (entrantes)", COLORS["inbound"]), (0.5, "PROCESOS DE ESTE EQUIPO", COLORS["process"]),
+                           (0.98, "DESTINO (salientes) ▶", COLORS["outbound"])):
         figure.add_annotation(x=x, y=1.06, xref="paper", yref="paper", text=f"<b>{text}</b>", showarrow=False,
-                              font=dict(color=color, size=12), xanchor={0.0: "left", 0.5: "center", 1.0: "right"}[x])
+                              font=dict(color=color, size=11),
+                              xanchor="left" if x < 0.1 else "right" if x > 0.9 else "center")
     return figure
 
 
@@ -243,4 +247,3 @@ def timeline_rows(rows: list[dict], include_loopback: bool = False) -> list[dict
     names = {"inbound": "Entrantes", "outbound": "Salientes"}
     return [{"ts": stamp[run], "sentido": names[direction], "conexiones": count}
             for (run, direction), count in sorted(buckets.items(), key=lambda item: stamp[item[0][0]])]
-
