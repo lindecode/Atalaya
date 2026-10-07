@@ -113,7 +113,8 @@ class DoctorService:
         else:
             from infrastructure.llama_cpp.client import LlamaCppClient
             from infrastructure.llama_cpp.credentials import load_or_create_key
-            ready = LlamaCppClient(self.settings.validated_llama_cpp_embedding_host(), 2,
+            from infrastructure.llama_cpp.endpoints import runtime_host
+            ready = LlamaCppClient(runtime_host(self.settings, "embedding"), 2,
                                    load_or_create_key(self.settings, "embedding")).health()
             checks.append(Check("llama-cpp-embedding", "LLM local", "Embeddings llama.cpp",
                                 "ok" if ready else "warn", f"{embedding.name} · {'en marcha' if ready else 'detenido'}",

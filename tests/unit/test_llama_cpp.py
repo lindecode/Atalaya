@@ -7,6 +7,8 @@ from types import SimpleNamespace
 
 from infrastructure.llama_cpp.client import LlamaCppClient, _message_dict
 from infrastructure.llama_cpp.provider import LlamaCppAnalyzer, LlamaCppEmbeddingProvider
+from infrastructure.llama_cpp.endpoints import forget_host, select_available_host
+from infrastructure.llama_cpp.integrity import verify_packaged_components
 from infrastructure.llama_cpp.runtime import server_command
 from infrastructure.llm_provider import provider_name
 from settings import Settings
@@ -110,3 +112,36 @@ def test_chat_and_embedding_servers_have_separate_hardened_commands(tmp_path):
     assert "--api-key-file" in chat and "--no-webui" in chat
     assert str(settings.llama_cpp_model_path) in chat
     assert str(settings.llama_cpp_embedding_model_path) in embedding
+
+
+def test_select_available_host_falls_back_when_preferred_port_is_busy(tmp_path):
+    import socket
+    with socket.socket() as listener:
+        listener.bind(("127.0.0.1", 0)); listener.listen()
+        port = listener.getsockname()[1]
+        settings = replace(Settings(), llama_cpp_host=f"http://127.0.0.1:{port}")
+        selected = select_available_host(settings, "chat")
+    try:
+        assert selected.startswith("http://127.0.0.1:")
+        assert selected != settings.llama_cpp_host
+    finally:
+        forget_host("chat")
+
+
+def test_packaged_component_manifest_rejects_modified_model(tmp_path):
+    import hashlib
+    import pytest
+    root = tmp_path / "app"
+    executable = root / "runtime" / "llama.cpp" / "llama-server.exe"
+    model = root / "models" / "atalaya.gguf"
+    executable.parent.mkdir(parents=True); model.parent.mkdir(parents=True)
+    executable.write_bytes(b"server"); model.write_bytes(b"model")
+    files = {"runtime/llama.cpp/llama-server.exe": hashlib.sha256(b"server").hexdigest(),
+             "models/atalaya.gguf": hashlib.sha256(b"model").hexdigest()}
+    (root / "COMPONENTS.sha256.json").write_text(json.dumps({"schema": 1, "files": files}))
+    settings = replace(Settings(), project_dir=root, llama_cpp_executable=executable, llama_cpp_model_path=model)
+
+    verify_packaged_components(settings, "chat")
+    model.write_bytes(b"changed")
+    with pytest.raises(RuntimeError, match="integridad"):
+        verify_packaged_components(settings, "chat")

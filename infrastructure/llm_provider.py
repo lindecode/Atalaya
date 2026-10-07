@@ -18,13 +18,14 @@ def build_components(settings):
         from infrastructure.llama_cpp.runtime import ensure_running
         from infrastructure.llama_cpp.client import LlamaCppClient
         from infrastructure.llama_cpp.credentials import load_or_create_key
+        from infrastructure.llama_cpp.endpoints import runtime_host
         from infrastructure.llama_cpp.provider import LlamaCppAnalyzer, LlamaCppEmbeddingProvider, LlamaCppModelCatalog
         ensure_running(settings)
         model = settings.llama_cpp_model_path.stem
         effective = replace(settings, ollama_model=model,
                             ollama_embedding_model=settings.llama_cpp_embedding_model_path.stem)
         return effective, LlamaCppAnalyzer(effective), LlamaCppClient(
-            effective.validated_llama_cpp_host(), effective.llm_timeout_seconds,
+            runtime_host(effective, "chat"), effective.llm_timeout_seconds,
             load_or_create_key(effective, "chat")), LlamaCppEmbeddingProvider, LlamaCppModelCatalog
     from infrastructure.ollama.analyzer import OllamaAnalyzer
     from infrastructure.ollama.client import build_chat_client

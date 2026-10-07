@@ -7,13 +7,16 @@ from urllib.parse import urlparse
 
 from infrastructure.llama_cpp.client import LlamaCppClient
 from infrastructure.llama_cpp.credentials import key_path, load_or_create_key
+from infrastructure.llama_cpp.endpoints import configured_host, forget_host, runtime_host, select_available_host
+from infrastructure.llama_cpp.integrity import verify_packaged_components
+from infrastructure.windows_job import terminate_with_parent
 
 
 def _role_config(settings, role: str):
     if role == "chat":
-        return settings.validated_llama_cpp_host(), settings.llama_cpp_model_path
+        return runtime_host(settings, role), settings.llama_cpp_model_path
     if role == "embedding":
-        return settings.validated_llama_cpp_embedding_host(), settings.llama_cpp_embedding_model_path
+        return runtime_host(settings, role), settings.llama_cpp_embedding_model_path
     raise ValueError("Rol de llama.cpp inválido")
 
 
@@ -58,24 +61,32 @@ def expected_server(settings, role: str = "chat") -> bool:
 
 def start_if_needed(settings, popen=subprocess.Popen, role: str = "chat"):
     """Start a bundled llama-server only when explicitly selected/configured."""
-    host, _ = _role_config(settings, role)
+    host = configured_host(settings, role)
     api_key = load_or_create_key(settings, role)
     client = LlamaCppClient(host, 1, api_key)
     if client.health() and expected_server(settings, role):
         return None
     if client.health():
-        raise RuntimeError("El puerto de llama.cpp responde, pero no pertenece al runtime configurado de Atalaya")
+        host = select_available_host(settings, role)
+    else:
+        # Record the preferred endpoint so every client uses the same source of truth.
+        from infrastructure.llama_cpp.endpoints import remember_host
+        remember_host(role, host)
     if not configured(settings, role):
         raise RuntimeError(f"Falta llama-server.exe o el modelo GGUF de {role}")
+    verify_packaged_components(settings, role)
     command = server_command(settings, role)
     logs = settings.database_path.parent.parent / "logs"
     logs.mkdir(parents=True, exist_ok=True)
     output = open(logs / f"llama-server-{role}.log", "ab")
     try:
-        return popen(command, cwd=Path(settings.llama_cpp_executable).parent, stdout=output,
-                     stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
-                     creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        child = popen(command, cwd=Path(settings.llama_cpp_executable).parent, stdout=output,
+                      stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
+                      creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        terminate_with_parent(child)
+        return child
     except Exception:
+        forget_host(role)
         output.close()
         raise
 
@@ -86,6 +97,9 @@ def ensure_running(settings, timeout: float = 45.0, role: str = "chat") -> None:
     if client.health() and expected_server(settings, role):
         return
     start_if_needed(settings, role=role)
+    # start_if_needed may have selected a fallback port.
+    host, _ = _role_config(settings, role)
+    client = LlamaCppClient(host, 1, load_or_create_key(settings, role))
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
         if client.health() and expected_server(settings, role):
