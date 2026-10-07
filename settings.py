@@ -7,6 +7,11 @@ from urllib.parse import urlparse
 
 
 PROJECT_DIR = Path(__file__).resolve().parent
+
+
+def _default_llama_model() -> Path:
+    bundled = PROJECT_DIR / "models" / "atalaya.gguf"
+    return bundled if bundled.is_file() else data_home() / "models" / "atalaya.gguf"
 LEGACY_FIREWALL_DIRS = ("Atalaya", "network-llm")  # %ProgramData% subfolders used by configurar-permisos, newest first
 
 
@@ -75,6 +80,13 @@ class Settings:
     ollama_host: str = field(default_factory=lambda: os.environ.get("OLLAMA_HOST", "http://localhost:11434"))
     ollama_model: str = "qwen3.5:4b"
     ollama_embedding_model: str = field(default_factory=lambda: os.environ.get("OLLAMA_EMBEDDING_MODEL", "embeddinggemma:latest"))
+    llm_provider: str = field(default_factory=lambda: os.environ.get("ATALAYA_LLM_PROVIDER", "auto").casefold())
+    llama_cpp_host: str = field(default_factory=lambda: os.environ.get("ATALAYA_LLAMA_CPP_HOST", "http://127.0.0.1:11435"))
+    llama_cpp_model_path: Path = field(default_factory=lambda: Path(os.environ.get(
+        "ATALAYA_LLAMA_CPP_MODEL", _default_llama_model())))
+    llama_cpp_executable: Path = field(default_factory=lambda: Path(os.environ.get(
+        "ATALAYA_LLAMA_CPP_SERVER", PROJECT_DIR / "runtime" / "llama.cpp" / "llama-server.exe")))
+    llama_cpp_context_size: int = 8192
     llm_timeout_seconds: float = 60.0
     llm_max_alerts: int = 40      # per analyze run; the rest stay 'new' for the next run
     llm_batch_size: int = 8
@@ -103,3 +115,13 @@ class Settings:
         if parsed.username or parsed.password or parsed.query or parsed.fragment:
             raise ValueError("OLLAMA_HOST no admite credenciales, query ni fragmento")
         return self.ollama_host.rstrip("/")
+
+    def validated_llama_cpp_host(self) -> str:
+        if self.llm_provider not in {"auto", "ollama", "llama_cpp"}:
+            raise ValueError("ATALAYA_LLM_PROVIDER debe ser auto, ollama o llama_cpp")
+        parsed = urlparse(self.llama_cpp_host)
+        if parsed.scheme != "http" or parsed.hostname not in {"localhost", "127.0.0.1", "::1"}:
+            raise ValueError("ATALAYA_LLAMA_CPP_HOST debe usar HTTP y apuntar a loopback")
+        if parsed.username or parsed.password or parsed.query or parsed.fragment or parsed.path not in {"", "/"}:
+            raise ValueError("ATALAYA_LLAMA_CPP_HOST no admite credenciales, ruta, query ni fragmento")
+        return self.llama_cpp_host.rstrip("/")

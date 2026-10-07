@@ -52,9 +52,11 @@ class OllamaAnalyzer:
         self.settings = settings
         self.model = settings.ollama_model
 
-    def analyze(self, alerts):
+    def _client(self):
         from ollama import Client
+        return Client(host=self.settings.validated_ollama_host(), timeout=self.settings.llm_timeout_seconds)
 
+    def analyze(self, alerts):
         safe_alerts = []
         valid_ids = set()
         severities = {}
@@ -72,7 +74,7 @@ class OllamaAnalyzer:
             safe_alerts.append(item)
         data = _escape_data_delimiters(json.dumps(safe_alerts, ensure_ascii=False, default=str))
         prompt = f"<datos>\n{data}\n</datos>"
-        client = Client(host=self.settings.validated_ollama_host(), timeout=self.settings.llm_timeout_seconds)
+        client = self._client()
         response = chat(
             client,
             model=self.model,

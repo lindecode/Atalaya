@@ -62,5 +62,6 @@ class ChatService:
                 except (ValueError, TypeError, KeyError) as exc:
                     content = json.dumps({"error": f"{type(exc).__name__}: {exc}"}, ensure_ascii=False)
                     trace.append({"name": function.name, "arguments": function.arguments, "ids": [], "error": str(exc)})
-                messages.append({"role": "tool", "tool_name": function.name, "content": content})
+                messages.append({"role": "tool", "tool_name": function.name,
+                                 "tool_call_id": getattr(call, "id", None) or function.name, "content": content})
         raise RuntimeError("Demasiadas rondas de herramientas")

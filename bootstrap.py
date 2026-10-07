@@ -21,6 +21,7 @@ from infrastructure.ollama.analyzer import OllamaAnalyzer
 from infrastructure.ollama.client import build_chat_client, pull_model
 from infrastructure.ollama.models import OllamaModelCatalog
 from infrastructure.ollama.embeddings import OllamaEmbeddingProvider
+from infrastructure.llm_provider import build_components, provider_name
 from infrastructure.sqlite.repositories import SQLiteRepository
 from infrastructure.sqlite.chat_history import SQLiteChatHistory
 from infrastructure.sqlite.chat_tools import SQLiteQueryTools
@@ -87,7 +88,14 @@ def build_status_service(settings: Settings | None = None) -> StatusService:
 
 def build_model_service(settings: Settings | None = None) -> ModelService:
     effective = settings or Settings()
-    return ModelService(build_repository(effective), OllamaModelCatalog(effective), SystemClock(), effective)
+    selected = provider_name(effective)
+    if selected == "llama_cpp":
+        from infrastructure.llama_cpp.provider import LlamaCppModelCatalog
+        effective = replace(effective, ollama_model=effective.llama_cpp_model_path.stem)
+        catalog = LlamaCppModelCatalog(effective)
+    else:
+        catalog = OllamaModelCatalog(effective)
+    return ModelService(build_repository(effective), catalog, SystemClock(), effective)
 
 
 def _with_model(settings: Settings | None, model: str | None, role: str = "chat") -> Settings:
@@ -98,7 +106,8 @@ def _with_model(settings: Settings | None, model: str | None, role: str = "chat"
 
 def build_analyze_service(settings: Settings | None = None, model: str | None = None) -> AnalyzeService:
     effective = _with_model(settings, model)
-    return AnalyzeService(build_repository(effective), OllamaAnalyzer(effective), SystemClock(),
+    effective, analyzer, _, _, _ = build_components(effective)
+    return AnalyzeService(build_repository(effective), analyzer, SystemClock(),
                           WindowsSystemInfo(), effective)
 
 
@@ -115,14 +124,16 @@ def build_watch_service(settings: Settings | None = None) -> WatchService:
 
 def build_chat_service(settings: Settings | None = None, model: str | None = None) -> ChatService:
     effective = _with_model(settings, model)
+    effective, _, client, _, _ = build_components(effective)
     rag = build_rag_service(effective)
-    return ChatService(effective, SecureToolRouter(SQLiteQueryTools(effective), rag), build_chat_client(effective))
+    return ChatService(effective, SecureToolRouter(SQLiteQueryTools(effective), rag), client)
 
 
 def build_doctor_service(settings: Settings | None = None) -> DoctorService:
     effective = settings or Settings()
+    puller = None if provider_name(effective) == "llama_cpp" else lambda name: pull_model(effective, name)
     return DoctorService(effective, build_model_service(effective), webview2_version=webview2_version,
-                         model_puller=lambda name: pull_model(effective, name))
+                         model_puller=puller)
 
 
 def build_chat_history(settings: Settings | None = None) -> SQLiteChatHistory:
@@ -133,8 +144,9 @@ def build_chat_history(settings: Settings | None = None) -> SQLiteChatHistory:
 
 def build_recorded_chat_service(settings: Settings | None = None, model: str | None = None) -> RecordedChatService:
     effective = _with_model(settings, model, "analysis")
+    effective, _, _, embedder_class, _ = build_components(effective)
     history = build_chat_history(effective)
-    memory = ConversationMemoryService(history, OllamaEmbeddingProvider(effective))
+    memory = ConversationMemoryService(history, embedder_class(effective))
     return RecordedChatService(build_chat_service(effective, effective.ollama_model), history,
                                SystemClock(), effective.ollama_model, memory)
 
@@ -142,7 +154,10 @@ def build_recorded_chat_service(settings: Settings | None = None, model: str | N
 def build_rag_service(settings: Settings | None = None, embedding_model: str | None = None,
                       lexical_only: bool = False) -> RagService:
     effective = settings or Settings()
-    embedder = None if lexical_only else OllamaEmbeddingProvider(effective, embedding_model)
+    if lexical_only:
+        return RagService(SQLiteKnowledgeStore(effective), SystemClock(), effective, None)
+    effective, _, _, embedder_class, _ = build_components(effective)
+    embedder = embedder_class(effective, embedding_model)
     return RagService(SQLiteKnowledgeStore(effective), SystemClock(), effective, embedder)
 
 

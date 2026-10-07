@@ -101,6 +101,11 @@ class ProcessManager:
         except Exception:
             child.kill()
 
+    def adopt(self, name: str, child) -> None:
+        """Track a securely constructed external child so Quit stops it too."""
+        if child is not None:
+            self.children[name] = child
+
     def stop_all(self) -> None:
         for name in list(self.children):
             self.stop(name)
@@ -224,7 +229,16 @@ class TrayController:
         self.processes.stop_all()
 
 
-def start_ollama_if_needed() -> None:
+def start_llm_if_needed(settings: Settings | None = None):
+    settings = settings or Settings()
+    from infrastructure.llm_provider import provider_name
+    if provider_name(settings) == "llama_cpp":
+        from infrastructure.llama_cpp.runtime import start_if_needed
+        try:
+            return start_if_needed(settings)
+        except RuntimeError:
+            log.exception("llama.cpp did not start")
+        return None
     if ollama_ready():
         return
     from application.doctor import find_ollama
@@ -235,6 +249,7 @@ def start_ollama_if_needed() -> None:
     command = [str(app)] if app.exists() else [exe, "serve"]
     subprocess.Popen(command, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL)
+    return None
 
 
 def tray_image(alert: bool = False):
@@ -314,7 +329,7 @@ def run_tray(open_browser: bool = True, monitor: bool = False, force_browser: bo
 
     def background(_icon) -> None:
         _icon.visible = True
-        start_ollama_if_needed()
+        controller.processes.adopt("llama_cpp", start_llm_if_needed(settings))
         controller.ensure_gui()
         if monitor:
             controller.processes.start("watch", "watch")
