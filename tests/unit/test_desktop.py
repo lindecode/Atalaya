@@ -49,7 +49,7 @@ def app_window(start_hidden=False):
 def test_window_is_configured_for_an_app_not_a_browser():
     window, webview, _ = app_window()
     kwargs = webview.window.kwargs
-    assert kwargs["title"] == "Atalaya" and "Arrancando" in kwargs["html"] and kwargs["text_select"]
+    assert kwargs["title"] == "Atalaya by LindeCode" and "Arrancando" in kwargs["html"] and kwargs["text_select"]
     assert webview.settings["ALLOW_DOWNLOADS"] and webview.settings["OPEN_EXTERNAL_LINKS_IN_BROWSER"]
     window.run()
     assert webview.started == {"gui": "edgechromium", "private_mode": False, "storage_path": "C:/data/webview"}

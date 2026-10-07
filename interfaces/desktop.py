@@ -13,7 +13,7 @@ import threading
 from typing import Callable
 
 from infrastructure.windows.webview2 import webview2_version
-from shared.about import APP_NAME, ASSETS_DIR
+from shared.about import APP_NAME, ASSETS_DIR, DISPLAY_NAME
 
 log = logging.getLogger("atalaya.desktop")
 
@@ -22,12 +22,12 @@ APP_USER_MODEL_ID = "LindeCode.Atalaya"
 ICON_ICO = ASSETS_DIR / "icon.ico"
 
 # Static splash while the panel starts (no collected data in it)
-SPLASH = """<!doctype html><html><head><meta charset="utf-8"><title>Atalaya</title><style>
+SPLASH = """<!doctype html><html><head><meta charset="utf-8"><title>Atalaya by LindeCode</title><style>
 html,body{height:100%;margin:0;background:#13171F;color:#E6E9EC;font-family:Segoe UI,sans-serif}
 body{display:flex;align-items:center;justify-content:center;flex-direction:column;gap:14px}
 .ring{width:42px;height:42px;border:4px solid #2A313C;border-top-color:#6BC043;border-radius:50%;animation:s 1s linear infinite}
-@keyframes s{to{transform:rotate(360deg)}} h1{font-weight:600;font-size:22px;margin:0} p{margin:0;opacity:.7}
-</style></head><body><div class="ring"></div><h1>Atalaya</h1><p>Arrancando el panel local…</p></body></html>"""
+@keyframes s{to{transform:rotate(360deg)}} h1{font-weight:600;font-size:22px;margin:0} h1 small{font-size:12px;color:#6BC043} p{margin:0;opacity:.7}
+</style></head><body><div class="ring"></div><h1>Atalaya <small>by LindeCode</small></h1><p>Arrancando el panel local…</p></body></html>"""
 
 
 def available() -> bool:
@@ -47,7 +47,7 @@ def set_app_user_model_id() -> None:
             log.exception("AppUserModelID")
 
 
-def set_window_icon(title: str = APP_NAME) -> None:
+def set_window_icon(title: str = DISPLAY_NAME) -> None:
     """WM_SETICON on the window found by title (thread-safe, unlike touching the WinForms form)."""
     if sys.platform != "win32" or not ICON_ICO.exists():
         return
@@ -116,7 +116,7 @@ class AppWindow:
         self.webview.settings["ALLOW_DOWNLOADS"] = True                 # CSV and report downloads
         self.webview.settings["OPEN_EXTERNAL_LINKS_IN_BROWSER"] = True  # e.g. the Ollama download page
         self.window = self.webview.create_window(
-            APP_NAME, html=SPLASH, width=1400, height=900, min_size=(1000, 650), hidden=start_hidden,
+            DISPLAY_NAME, html=SPLASH, width=1400, height=900, min_size=(1000, 650), hidden=start_hidden,
             text_select=True, zoomable=True, background_color="#13171F",
         )
         self.window.events.closing += self._on_closing

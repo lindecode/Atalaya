@@ -205,3 +205,5 @@ Atalaya Community se distribuye bajo **Mozilla Public License 2.0
 condiciones. La licencia del código no concede derechos sobre las marcas Atalaya
 o LindeCode. Consulte [LICENSE](LICENSE), [NOTICE](NOTICE) y
 [TRADEMARKS.md](TRADEMARKS.md).
+
+Atalaya es desarrollado por [LindeCode](https://lindecode.cloud).

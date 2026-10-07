@@ -120,7 +120,7 @@ def chart(figure, key: str | None = None):
 
 @st.dialog("Acerca de Atalaya")
 def about_dialog():
-    from shared.about import APP_NAME, APP_VERSION, AUTHOR, AUTHOR_LOGO_PATH, COPYRIGHT, REPOSITORY_URL
+    from shared.about import APP_NAME, APP_VERSION, AUTHOR, AUTHOR_LOGO_PATH, COMPANY_URL, COPYRIGHT, REPOSITORY_URL
 
     _, middle, _ = st.columns([1, 2, 1])
     if AUTHOR_LOGO_PATH.exists():
@@ -129,4 +129,5 @@ def about_dialog():
                 f'<p>Desarrollado por</p><b>{AUTHOR}</b></div>', unsafe_allow_html=True)
     # A link the user opens by hand: the application itself never connects to GitHub
     st.link_button("Repositorio en GitHub", REPOSITORY_URL, icon=":material/open_in_new:", width="stretch")
+    st.link_button("Sitio web de LindeCode", COMPANY_URL, icon=":material/language:", width="stretch")
     st.caption(COPYRIGHT)
