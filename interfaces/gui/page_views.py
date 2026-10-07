@@ -13,15 +13,14 @@ from interfaces.gui import network
 from interfaces.gui.common import context, refresh_data
 from interfaces.gui.components import (SEVERITY_COLORS, SEVERITY_NAMES, chart, empty, hero, legend, risk_banner,
                                        severity_label, table)
+from interfaces.gui.chart_data import hourly_frame
 from interfaces.gui.table_formatting import local_series
+from interfaces.gui.table_views import EVENT_NAMES
 
 
 FLOW_LEGEND = [("Entrante", network.COLORS["inbound"]), ("Saliente", network.COLORS["outbound"]),
                ("Proceso local", network.COLORS["process"]), ("IP de Internet", network.COLORS["public"]),
                ("IP de red local/VPN", network.COLORS["private"]), ("Sospechosa", network.COLORS["suspicious"])]
-EVENT_NAMES = {4624: "Inicio de sesión", 4625: "Inicio fallido", 4648: "Credenciales explícitas", 4672: "Privilegios especiales",
-               4698: "Tarea programada creada", 4720: "Usuario creado", 4732: "Añadido a grupo", 1102: "Log de auditoría borrado",
-               1149: "Conexión RDP"}
 
 
 def _local(ts: str | None) -> str:
@@ -38,6 +37,13 @@ def _link(page: str, label: str, icon: str):
         st.caption(f"→ {label}")
 
 
+MEMORY_COLUMNS = {
+    "memoria MB": st.column_config.NumberColumn(format="%.1f"), "privada MB": st.column_config.NumberColumn(format="%.1f"),
+    "RSS MB": st.column_config.NumberColumn(format="%.1f"), "pico privado MB": st.column_config.NumberColumn(format="%.1f"),
+    "% RAM": st.column_config.ProgressColumn(format="%.1f%%", min_value=0, max_value=100),
+}
+
+
 def _truncation_note(rows, limit: int = ROWS_LIMIT):
     """query.rows() stops at `limit`: say so, since the metrics and tables below are computed from those rows."""
     if len(rows) >= limit:
@@ -45,9 +51,22 @@ def _truncation_note(rows, limit: int = ROWS_LIMIT):
                    "calculan sobre ellas. Elija una ventana temporal más corta para verlo todo.", icon=":material/info:")
 
 
+HOUR_MS = 3_600_000
+
+
 def _style(figure, height: int = 320):
+    """Shared chart look: transparent background, legend below, compact hover."""
     figure.update_layout(height=height, margin=dict(l=8, r=8, t=10, b=8), paper_bgcolor="rgba(0,0,0,0)",
-                         plot_bgcolor="rgba(0,0,0,0)", legend=dict(orientation="h", y=-0.18, title=None))
+                         plot_bgcolor="rgba(0,0,0,0)", legend=dict(orientation="h", y=-0.18, title=None),
+                         hoverlabel=dict(namelength=-1), bargap=0.15)
+    return figure
+
+
+def _time_axis(figure, hourly_bars: bool = False):
+    """Local-time axis as dd/mm HH:MM; hourly bars span their hour instead of a millisecond-wide sliver."""
+    figure.update_xaxes(tickformat="%d/%m<br>%H:%M", hoverformat="%d/%m/%Y %H:%M", title=None)
+    if hourly_bars:
+        figure.update_traces(width=HOUR_MS * 0.85, selector=dict(type="bar"))
     return figure
 
 
@@ -89,11 +108,15 @@ def overview():
     with right:
         st.subheader("Alertas abiertas", divider="gray")
         if severities:
-            frame = pd.DataFrame([{"nivel": SEVERITY_NAMES[s], "total": severities[s]} for s in SEVERITY_COLORS if severities.get(s)])
-            figure = px.pie(frame, names="nivel", values="total", hole=0.62, color="nivel",
-                            color_discrete_map={SEVERITY_NAMES[s]: c for s, c in SEVERITY_COLORS.items()})
-            figure.update_traces(textinfo="value", sort=False)
-            chart(_style(figure, 230), key="overview-severity")
+            # A few categories compared by size: labelled bars read faster than a donut
+            frame = pd.DataFrame([{"nivel": SEVERITY_NAMES[s], "total": severities[s]}
+                                  for s in ("low", "medium", "high", "critical") if severities.get(s)])
+            figure = px.bar(frame, x="total", y="nivel", orientation="h", color="nivel", text="total",
+                            color_discrete_map={SEVERITY_NAMES[s]: c for s, c in SEVERITY_COLORS.items()},
+                            labels={"nivel": "", "total": ""})
+            figure.update_traces(textposition="outside", cliponaxis=False, hovertemplate="%{y}: %{x}<extra></extra>")
+            figure.update_xaxes(showticklabels=False, showgrid=False)
+            chart(_style(figure, 50 + 42 * len(frame)).update_layout(showlegend=False), key="overview-severity")
             for alert in query.open_alerts(6):
                 st.text(f"{severity_label(alert['severity'])}  #{alert['id']} {alert['rule_id']} · {alert['title']}")
             _link("pages/2_Alertas.py", "Revisar alertas", ":material/notification_important:")
@@ -117,10 +140,17 @@ def summary():
     timeline = query.timeline(since)
     st.subheader("Eventos por hora", divider="gray")
     if timeline:
-        frame = pd.DataFrame(timeline)
-        frame["bucket"] = local_series(frame["bucket"])
-        chart(_style(px.bar(frame, x="bucket", y="count", color="type", barmode="stack",
-                            labels={"bucket": "", "count": "eventos", "type": ""}), 360), key="activity-timeline")
+        # One row per event type with its own scale: hundreds of connections would otherwise flatten the alerts
+        frame = hourly_frame(timeline, since, time_key="bucket", value_key="count", series_key="type")
+        figure = px.bar(frame, x="bucket", y="count", color="type", facet_row="type",
+                        labels={"bucket": "", "count": "", "type": ""})
+        figure.update_yaxes(matches=None, title=None)
+        figure.for_each_annotation(lambda note: note.update(text=note.text.split("=")[-1].capitalize(), textangle=0,
+                                                            x=0, xanchor="left", y=note.y + 0.02, yanchor="bottom"))
+        figure.update_traces(hovertemplate="%{x|%d/%m %H:%M} · %{y} eventos<extra>%{fullData.name}</extra>")
+        types = frame["type"].nunique()
+        chart(_time_axis(_style(figure, 70 + 120 * types), hourly_bars=True).update_layout(showlegend=False),
+              key="activity-timeline")
     else:
         empty("Recolecte datos para ver la línea de tiempo.")
     analysis = query.latest_analysis()
@@ -211,7 +241,7 @@ def connections():
             figure = px.area(frame, x="ts", y="conexiones", color="sentido", markers=True,
                              color_discrete_map={"Entrantes": network.COLORS["inbound"], "Salientes": network.COLORS["outbound"]},
                              labels={"ts": "", "conexiones": "conexiones abiertas", "sentido": ""})
-            chart(_style(figure, 360), key="net-timeline")
+            chart(_time_axis(_style(figure, 360)), key="net-timeline")
             st.caption("Cada punto es una recolección. Un salto brusco de salientes merece una mirada al mapa de flujo.")
         else:
             empty("Hace falta más de una recolección en la ventana para ver la evolución.")
@@ -221,7 +251,7 @@ def connections():
                    "servicio": network.service(row.get("rport") if row["direction"] == "outbound" else row.get("lport")),
                    "alcance": network.SCOPE_LABELS.get(network.scope(row["raddr"]), "?"), "local": f"{row.get('laddr')}:{row.get('lport')}",
                    "estado": row.get("state"), "sospechosa": "⚠" if network.is_suspicious(row, settings.suspicious_ports) else "",
-                   "ruta": row.get("process_path"), "hora": _local(row.get("ts"))} for row in flows]
+                   "ruta": row.get("process_path"), "hora": row.get("ts")} for row in flows]
         table(detail, key="connections")
     with st.expander("Sesiones y agentes SSH", icon=":material/terminal:"):
         ssh_rows = query.rows("ssh_observations", since, 1000)
@@ -232,7 +262,7 @@ def connections():
             a.metric("Sesiones observadas", len(sessions))
             b.metric("Túneles", sum(bool(row.get("tunnel_types")) for row in sessions))
             c.metric("Reenvío de agente", sum(row.get("agent_forwarding") == 1 for row in sessions))
-            table(services + sessions, key="ssh_observations")
+            table(services + sessions, key="ssh_observations", view="ssh_observations")
         else:
             st.caption("Sin observaciones SSH. Pulse Recolectar para consultar sesiones, sshd y ssh-agent.")
 
@@ -307,12 +337,12 @@ def _hourly_chart(query, table_name: str, since: str, by: str | None, names: dic
     points = query.hourly(table_name, since, by)
     if not points:
         return
-    frame = pd.DataFrame(points)
-    frame["hora"] = local_series(frame["hora"])
+    frame = hourly_frame(points, since, time_key="hora", value_key="total", series_key="serie" if by else None)
     if by:
         frame["serie"] = frame["serie"].map(lambda value: (names or {}).get(int(value) if value.isdigit() else value, value))
     figure = px.bar(frame, x="hora", y="total", color="serie" if by else None, labels={"hora": "", "total": "eventos", "serie": ""})
-    chart(_style(figure, 300), key=f"hourly-{key}")
+    figure.update_traces(hovertemplate="%{x|%d/%m %H:%M} · %{y} eventos<extra>%{fullData.name}</extra>")
+    chart(_time_axis(_style(figure, 300), hourly_bars=True), key=f"hourly-{key}")
 
 
 def _top_chart(query, table_name: str, column: str, since: str, title: str, names: dict | None = None, key: str = ""):
@@ -322,7 +352,9 @@ def _top_chart(query, table_name: str, column: str, since: str, title: str, name
         return st.caption("Sin datos.")
     frame = pd.DataFrame(items)
     frame["valor"] = frame["valor"].map(lambda value: network.safe((names or {}).get(value, value), 40))
-    figure = px.bar(frame.iloc[::-1], x="total", y="valor", orientation="h", labels={"valor": "", "total": ""})
+    figure = px.bar(frame.iloc[::-1], x="total", y="valor", orientation="h", text="total", labels={"valor": "", "total": ""})
+    figure.update_traces(textposition="outside", cliponaxis=False, hovertemplate="%{y}: %{x}<extra></extra>")
+    figure.update_xaxes(showticklabels=False, showgrid=False)
     chart(_style(figure, 300), key=f"top-{key}")
 
 
@@ -345,8 +377,7 @@ def access():
     with left: _top_chart(query, "auth_events", "source_ip", since, "Orígenes más frecuentes", key="auth-ip")
     with right: _top_chart(query, "auth_events", "target_user", since, "Cuentas más usadas", key="auth-user")
     with st.expander("Detalle", icon=":material/table:"):
-        table([{k: v for k, v in row.items() if k != "raw_xml"} | {"evento": EVENT_NAMES.get(row["event_id"], row["event_id"])}
-               for row in rows], key="auth_events")
+        table(rows, key="auth_events", view="auth_events")
 
 
 def files():
@@ -367,10 +398,10 @@ def files():
         with left: _top_chart(query, "file_events", "extension", since, "Extensiones", key="files-ext")
         with right: _top_chart(query, "file_events", "action", since, "Acciones", key="files-action")
         with st.expander("Detalle", icon=":material/table:"):
-            table(rows, key="file_events")
+            table(rows, key="file_events", view="file_events")
     st.subheader("Reputación de ejecutables")
     reputations = query.rows("file_reputation", None, 100)
-    table(reputations, key="file_reputation")
+    table(reputations, key="file_reputation", view="file_reputation", windowed=False)
     st.caption("Sólo se consulta el SHA-256; nunca se carga el ejecutable. Ejecute "
                "`main.py reputation inspect RUTA --online` para enriquecer un archivo.")
 
@@ -387,7 +418,7 @@ def persistence():
         column.metric(f"{label} (nuevos)", sum(row["kind"] == kind for row in rows))
     _top_chart(query, "persistence_items", "kind", since, "Elementos vistos por primera vez, por tipo", names, key="persistence")
     with st.expander("Detalle", icon=":material/table:"):
-        table(rows, key="persistence_items")
+        table(rows, key="persistence_items", view="persistence_items")
 
 
 def firewall():
@@ -408,7 +439,7 @@ def firewall():
     with right: _top_chart(query, "firewall_events", "dst_port", since, "Puertos más buscados",
                            {port: f"{port} · {name}" for port, name in network.SERVICES.items()}, key="fw-port")
     with st.expander("Detalle", icon=":material/table:"):
-        table(rows, key="firewall_events")
+        table(rows, key="firewall_events", view="firewall_events")
 
 
 # --- Herramientas ----------------------------------------------------------------------------------
@@ -551,13 +582,13 @@ def state():
         icons = {"ok": "✅", "partial": "🟡", "skipped": "⏭️", "error": "❌"}
         table([{"fuente": name, "estado": f"{icons.get(info.get('status'), '')} {info.get('status')}",
                 "nuevos": info.get("inserted"), "avisos": " · ".join(info.get("warnings", []))[:300]}
-               for name, info in detail.items()], key="collectors")
+               for name, info in detail.items()], key="collectors", windowed=False, detail=False)
     st.subheader("Filas por tabla", divider="gray")
     frame = pd.DataFrame([{"tabla": name, "filas": count} for name, count in status["tables"].items()])
     chart(_style(px.bar(frame.sort_values("filas"), x="filas", y="tabla", orientation="h", labels={"tabla": "", "filas": ""}), 380),
           key="state-tables")
     st.subheader("Ejecuciones", divider="gray")
-    table(query.rows("runs", None, 100), key="runs")
+    table(query.rows("runs", None, 100), key="runs", view="runs", windowed=False)
     st.subheader("Modelos por función", divider="gray")
     from bootstrap import build_model_service
     model_service = build_model_service(settings)
@@ -701,12 +732,13 @@ def processes():
         with st.expander("Procesos en rutas que requieren revisión", icon=":material/warning:"):
             table([{"proceso": row.get("name"), "pid": row.get("pid"), "padre": row.get("parent_name"),
                     "memoria MB": row["memoria_mb"], "ruta": row.get("path")}
-                   for row in suspicious], key="processes-suspicious")
+                   for row in suspicious], key="processes-suspicious", windowed=False, columns=MEMORY_COLUMNS)
 
     top = pd.DataFrame(current[:20])
     figure = px.bar(top.sort_values("memoria_mb"), x="memoria_mb", y="name", orientation="h",
                     hover_data=["pid", "rss_mb", "memory_percent", "path"],
-                    labels={"memoria_mb": "Memoria privada (MB)", "name": ""})
+                    text="memoria_mb", labels={"memoria_mb": "Memoria privada (MB)", "name": ""})
+    figure.update_traces(texttemplate="%{x:,.0f} MB", textposition="outside", cliponaxis=False)
     chart(_style(figure, 520), key="process-memory-top")
 
     search = st.text_input("Filtrar por nombre, ruta o usuario", key="process-filter").casefold().strip()
@@ -715,7 +747,7 @@ def processes():
     table([{"proceso": row.get("name"), "pid": row.get("pid"), "privada MB": row["memoria_mb"],
             "RSS MB": row["rss_mb"], "% RAM": row.get("memory_percent"), "estado": row.get("status"),
             "usuario": row.get("process_user"), "padre": row.get("parent_name"), "ruta": row.get("path")}
-           for row in filtered], key="processes-current")
+           for row in filtered], key="processes-current", windowed=False, columns=MEMORY_COLUMNS)
 
     st.subheader("Historial", divider="gray")
     choices = {f"{row.get('name') or '?'} · PID {row['pid']} · {row['process_key'][:8]}": row["process_key"]
@@ -727,8 +759,8 @@ def processes():
         frame["hora"] = local_series(frame["ts"])
         frame["privada MB"] = frame["private_bytes"].fillna(frame["rss_bytes"]) / 1024 ** 2
         frame["RSS MB"] = frame["rss_bytes"] / 1024 ** 2
-        chart(_style(px.line(frame, x="hora", y=["privada MB", "RSS MB"],
-                             labels={"value": "MB", "variable": "Métrica", "hora": ""}), 340),
+        chart(_time_axis(_style(px.line(frame, x="hora", y=["privada MB", "RSS MB"],
+                                        labels={"value": "MB", "variable": "Métrica", "hora": ""}), 340)),
               key="process-memory-history")
 
     st.subheader("Finalizados recientemente", divider="gray")
@@ -736,7 +768,7 @@ def processes():
     table([{"proceso": row.get("name"), "pid": row.get("pid"), "inicio observado": row.get("first_seen"),
             "última observación": row.get("last_seen"), "fin inferido": row.get("ended_at"),
             "pico privado MB": round((row.get("peak_private_bytes") or 0) / 1024 ** 2, 1), "ruta": row.get("path")}
-           for row in ended], key="processes-ended")
+           for row in ended], key="processes-ended", windowed=False, columns=MEMORY_COLUMNS)
 
 
 def _pull_with_progress(doctor, model: str):

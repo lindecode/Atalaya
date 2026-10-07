@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+from datetime import datetime
+
 import pandas as pd
 import streamlit as st
 
-from interfaces.gui.table_formatting import COLUMN_FORMAT, filter_table_rows, format_table_rows
+from interfaces.gui.table_formatting import (COLUMN_FORMAT, DISPLAY_FORMAT, filter_table_rows, format_table_rows,
+                                             is_date_column, to_local_datetime)
+from interfaces.gui.table_views import VIEWS, column_config, present, visible
 
 
 SEVERITY_ICONS = {"low": "⚪", "medium": "🟡", "high": "🟠", "critical": "🔴"}
@@ -89,26 +93,60 @@ def empty(message: str):
     st.info(message)
 
 
-def table(rows, *, key: str, columns: dict | None = None):
+def csv_name(key: str, windowed: bool = True) -> str:
+    """conexiones_24-horas_20261007-1055.csv: says which window and when it was exported."""
+    window = str(st.session_state.get("window") or "").replace(" ", "-") if windowed else ""
+    stamp = datetime.now().strftime("%Y%m%d-%H%M")
+    return "_".join(part for part in (key, window, stamp) if part) + ".csv"
+
+
+def _record(row: dict) -> list[dict]:
+    """Every stored field of one row, as text, for the detail panel (collected data: shown as data, never markup)."""
+    fields = []
+    for name, value in row.items():
+        local = to_local_datetime(value) if is_date_column(name) else value
+        text = local.strftime(DISPLAY_FORMAT) if isinstance(local, datetime) else ("" if value is None else str(value))
+        fields.append({"campo": name, "valor": text[:4000] + ("…" if len(text) > 4000 else "")})
+    return fields
+
+
+def table(rows, *, key: str, columns: dict | None = None, view: str | None = None, windowed: bool = True,
+          detail: bool = True):
+    """Searchable, sortable table. `view` names a table_views layout; selecting a row shows every stored field."""
     if not rows:
         empty("No hay datos para la ventana seleccionada.")
         return
-    formatted, date_columns = format_table_rows(rows)
-    available = list(pd.DataFrame(formatted).columns)
-    with st.expander("Buscar en esta tabla", icon=":material/search:"):
-        selected = st.multiselect("Columnas", available, default=available, key=f"search-columns-{key}")
-        search = st.text_input("Texto", key=f"search-text-{key}", placeholder="Nombre, IP, ruta, estado...")
-    filtered = filter_table_rows(formatted, search, selected)
-    frame = pd.DataFrame(filtered, columns=available)
+    raw = [dict(row) for row in rows]
+    if view:
+        shown, config = present(raw, view), column_config(VIEWS[view]) | (columns or {})
+        has_dates = any(column.kind == "date" for column in VIEWS[view])
+    else:
+        shown, date_columns = format_table_rows(visible(row) for row in raw)
+        # Real datetimes (not text) so clicking a date column sorts chronologically
+        config = {name: st.column_config.DatetimeColumn(format=COLUMN_FORMAT) for name in date_columns} | (columns or {})
+        has_dates = bool(date_columns)
+    available = list(pd.DataFrame(shown).columns)
+    search = st.text_input("Buscar en la tabla", key=f"search-text-{key}", placeholder="Nombre, IP, ruta, estado…",
+                           label_visibility="collapsed", icon=":material/search:")
+    matches = [index for index, row in enumerate(shown) if filter_table_rows([row], search, available)]
+    frame = pd.DataFrame([shown[index] for index in matches], columns=available)
     if search:
-        st.caption(f"{len(filtered)} de {len(formatted)} fila(s) coinciden con la búsqueda.")
-    if date_columns:
-        st.caption("Las fechas se muestran como DD/MM/AAAA HH:MM:SS en la hora local del equipo.")
-    # Real datetimes (not text) so clicking a date column sorts chronologically
-    config = {name: st.column_config.DatetimeColumn(format=COLUMN_FORMAT) for name in date_columns} | (columns or {})
-    st.dataframe(frame, width="stretch", hide_index=True, column_config=config)
-    st.download_button("Descargar CSV", frame.to_csv(index=False).encode("utf-8"), f"{key}.csv", "text/csv",
-                       key=f"download-{key}", icon=":material/download:")
+        st.caption(f"{len(matches)} de {len(shown)} fila(s) coinciden con la búsqueda.")
+    event = st.dataframe(frame, width="stretch", hide_index=True, column_config=config, key=f"table-{key}",
+                         on_select="rerun" if detail else "ignore", selection_mode="single-row")
+    caption = " ".join(text for text, show in (("Fechas en hora local del equipo.", has_dates),
+                                               ("Seleccione una fila para ver todos sus campos.", detail)) if show)
+    if caption:
+        st.caption(caption)
+    selected = list(getattr(getattr(event, "selection", None), "rows", None) or [])
+    if detail and selected and selected[0] < len(matches):
+        with st.container(border=True):
+            st.markdown("**Detalle de la fila seleccionada**")
+            st.dataframe(pd.DataFrame(_record(raw[matches[selected[0]]])), hide_index=True, width="stretch",
+                         key=f"record-{key}")
+    st.download_button("Descargar CSV", frame.to_csv(index=False).encode("utf-8"), csv_name(key, windowed), "text/csv",
+                       key=f"download-{key}", icon=":material/download:",
+                       help="Exporta las filas visibles, con el filtro de búsqueda aplicado.")
 
 
 def severity_label(value: str) -> str:
