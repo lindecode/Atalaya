@@ -248,7 +248,8 @@ Para operar sin embeddings u observar una degradación controlada:
 ```
 
 La indexación predeterminada toma los `.md` de `README/`, los `README*.md` de la
-raíz y `agente.md`; si un documento se mueve o se borra, la siguiente
+raíz; `agente.md` (el plan de desarrollo original) queda fuera salvo que se indexe
+de forma explícita. Si un documento se mueve o se borra, la siguiente
 indexación completa lo retira del índice. Las rutas adicionales deben ser Markdown, estar dentro de
 `Atalaya` y no ser enlaces simbólicos. Revise cualquier documento antes de
 añadirlo: el índice lo considerará conocimiento confiable.

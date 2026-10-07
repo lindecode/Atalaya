@@ -28,11 +28,13 @@ class RagService:
         return path
 
     def default_sources(self) -> list[Path]:
-        """Project documentation wherever it lives: README/*.md, root README*.md and agente.md."""
+        """Project documentation wherever it lives: README/*.md and root README*.md.
+
+        agente.md is left out on purpose: it is the original development plan, outdated in places, and the
+        chat would cite it as trusted knowledge. It can still be indexed explicitly with `rag index agente.md`.
+        """
         root = self.settings.project_dir
         found = sorted((root / "README").glob("*.md")) + sorted(root.glob("README*.md"))
-        if (root / "agente.md").is_file():
-            found.append(root / "agente.md")
         return [path for path in found if path.is_file()]
 
     def index(self, paths: list[Path] | None = None):

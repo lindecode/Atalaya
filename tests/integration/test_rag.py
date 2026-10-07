@@ -65,7 +65,7 @@ def test_default_index_follows_moved_docs_and_drops_stale_sources(tmp_path):
     (tmp_path / "agente.md").write_text("# Plan\n\nFases.", encoding="utf-8")
     result = service.index()
 
-    assert result["sources"] == 2
+    assert result["sources"] == 1  # agente.md is the development plan, not indexed by default
     assert result["removed_sources"] == ["README.md"]
     assert {item.source_uri for item in service.search("evento 1149 RDP", 5)} == {"README/README.md"}
 
