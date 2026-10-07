@@ -29,6 +29,7 @@ PAGES = [
     "interfaces/gui/pages/11_Primeros_pasos.py",
     "interfaces/gui/pages/12_Procesos.py",
     "interfaces/gui/pages/13_Buscar.py",
+    "interfaces/gui/pages/14_En_vivo.py",
 ]
 ROOT = Path(__file__).resolve().parents[2]
 

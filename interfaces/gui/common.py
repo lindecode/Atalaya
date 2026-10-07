@@ -26,6 +26,9 @@ class CachedQueries:
         attribute = getattr(self._query, name)
         if not callable(attribute) or name.startswith("_"):
             return attribute
+        # Live views have their own small, indexed queries and must not inherit the one-minute cache.
+        if name.startswith("live_"):
+            return attribute
         database = str(self._query.settings.database_path)
         return lambda *args, **kwargs: _cached_query(self._query, database, name, args, tuple(sorted(kwargs.items())))
 

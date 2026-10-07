@@ -104,6 +104,86 @@ class SQLiteQueryRepository:
             rows = db.execute("SELECT severity, COUNT(*) FROM alerts WHERE status IN ('new','analyzed') GROUP BY severity")
             return {row[0]: int(row[1]) for row in rows}
 
+    def live_status(self) -> dict:
+        """Small current-state snapshot for the operations screen; never loads historical tables."""
+        with connect(self.settings.database_path, readonly=True) as db:
+            alert_rows = db.execute(
+                "SELECT severity, COUNT(*) FROM alerts WHERE status IN ('new','analyzed') GROUP BY severity"
+            ).fetchall()
+            process_run = db.execute("SELECT MAX(run_id) FROM process_snapshots").fetchone()[0]
+            if process_run is None:
+                process_count = memory_bytes = 0
+                process_ts = None
+            else:
+                process_count, memory_bytes, process_ts = db.execute(
+                    "SELECT COUNT(*), COALESCE(SUM(COALESCE(private_bytes,rss_bytes)),0), MAX(ts) "
+                    "FROM process_snapshots WHERE run_id=?", (process_run,),
+                ).fetchone()
+            connection_run = db.execute(
+                "SELECT MAX(run_id) FROM connections WHERE source='psutil'"
+            ).fetchone()[0]
+            if connection_run is None:
+                connections = listeners = 0
+                connection_ts = None
+            else:
+                connections, listeners, connection_ts = db.execute(
+                    "SELECT SUM(CASE WHEN state NOT IN ('LISTEN','TIME_WAIT','CLOSE_WAIT') THEN 1 ELSE 0 END), "
+                    "SUM(CASE WHEN state='LISTEN' THEN 1 ELSE 0 END), MAX(ts) FROM connections WHERE run_id=?",
+                    (connection_run,),
+                ).fetchone()
+            last_run = db.execute(
+                "SELECT id,kind,started_at,finished_at,status,heartbeat_at FROM runs ORDER BY id DESC LIMIT 1"
+            ).fetchone()
+        return {
+            "alerts": {row[0]: int(row[1]) for row in alert_rows},
+            "processes": int(process_count or 0), "memory_bytes": int(memory_bytes or 0),
+            "connections": int(connections or 0), "listeners": int(listeners or 0),
+            "process_ts": process_ts, "connection_ts": connection_ts,
+            "last_run": dict(last_run) if last_run else None,
+        }
+
+    def live_freshness(self) -> list[dict]:
+        """Latest timestamp per evidence source, using indexed MAX queries."""
+        sources = (
+            ("Procesos", "process_snapshots", "ts"), ("Conexiones", "connections", "ts"),
+            ("Accesos", "auth_events", "ts"), ("Archivos", "file_events", "ts"),
+            ("Firewall", "firewall_events", "ts"), ("SSH", "ssh_observations", "ts"),
+            ("Alertas", "alerts", "ts"),
+        )
+        with connect(self.settings.database_path, readonly=True) as db:
+            return [{"fuente": label, "ultima_observacion": db.execute(
+                f"SELECT MAX({column}) FROM {table}").fetchone()[0]} for label, table, column in sources]
+
+    def live_events(self, since: str, limit: int = 200) -> list[dict]:
+        """Recent heterogeneous evidence as a bounded timeline; values remain data, never executable markup."""
+        limit = min(max(int(limit), 1), 500)
+        sql = """
+        SELECT * FROM (
+          SELECT ts, 'alerta' tipo, severity nivel, title resumen, rule_id origen, id entidad_id FROM alerts WHERE ts>=?
+          UNION ALL
+          SELECT ts, 'conexión', CASE WHEN direction='inbound' THEN 'medium' ELSE 'info' END,
+                 COALESCE(process_name,'?') || ' → ' || COALESCE(raddr,laddr,'?') || ':' || COALESCE(rport,lport,'?'),
+                 COALESCE(direction,source), id FROM connections
+                 WHERE ts>=? AND state NOT IN ('TIME_WAIT','CLOSE_WAIT')
+          UNION ALL
+          SELECT ts, 'acceso', CASE WHEN event_id IN (4625,4771) THEN 'medium' ELSE 'info' END,
+                 COALESCE(target_user,'?') || ' desde ' || COALESCE(source_ip,source_host,'local'),
+                 CAST(event_id AS TEXT), id FROM auth_events WHERE ts>=?
+          UNION ALL
+          SELECT ts, 'archivo', 'info', action || ': ' || path, source, id FROM file_events WHERE ts>=?
+          UNION ALL
+          SELECT ts, 'firewall', CASE WHEN lower(action) IN ('drop','block') THEN 'medium' ELSE 'info' END,
+                 COALESCE(src_ip,'?') || ' → ' || COALESCE(dst_ip,'?') || ':' || COALESCE(dst_port,'?'),
+                 COALESCE(action,'?'), id FROM firewall_events WHERE ts>=?
+          UNION ALL
+          SELECT ts, 'ssh', CASE WHEN direction='inbound' THEN 'medium' ELSE 'info' END,
+                 COALESCE(process_name,'ssh') || ' → ' || COALESCE(remote_address,'local'), kind, id
+                 FROM ssh_observations WHERE ts>=?
+        ) ORDER BY ts DESC LIMIT ?
+        """
+        with connect(self.settings.database_path, readonly=True) as db:
+            return [dict(row) for row in db.execute(sql, (since, since, since, since, since, since, limit))]
+
     def open_alerts(self, limit: int = 8):
         with connect(self.settings.database_path, readonly=True) as db:
             return [dict(row) for row in db.execute(

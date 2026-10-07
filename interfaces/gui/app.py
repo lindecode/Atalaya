@@ -12,6 +12,7 @@ st.set_page_config(page_title=DISPLAY_NAME, page_icon=str(ICON_PATH) if ICON_PAT
 navigation = st.navigation({
     "Vigilancia": [
         st.Page("pages/0_Panel.py", title="Panel", icon=":material/dashboard:", default=True),
+        st.Page("pages/14_En_vivo.py", title="En vivo", icon=":material/pulse_alert:", url_path="en-vivo"),
         st.Page("pages/3_Conexiones.py", title="Conexiones", icon=":material/hub:"),
         st.Page("pages/12_Procesos.py", title="Procesos y RAM", icon=":material/memory:"),
         st.Page("pages/2_Alertas.py", title="Alertas", icon=":material/notification_important:"),

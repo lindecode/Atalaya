@@ -126,6 +126,72 @@ def overview():
                 st.text(analysis["result_json"]["summary"])
 
 
+# --- Operaciones en vivo -------------------------------------------------------------------------
+
+def _age_label(value: str | None) -> tuple[str, str]:
+    if not value:
+        return "Sin datos", "inactive"
+    observed = datetime.fromisoformat(value)
+    if observed.tzinfo is None:
+        observed = observed.replace(tzinfo=datetime.now().astimezone().tzinfo)
+    seconds = max(0, int((datetime.now().astimezone() - observed.astimezone()).total_seconds()))
+    if seconds < 60:
+        text = f"hace {seconds} s"
+    elif seconds < 3600:
+        text = f"hace {seconds // 60} min"
+    else:
+        text = f"hace {seconds // 3600} h"
+    return text, "fresh" if seconds <= 120 else "delayed" if seconds <= 900 else "stale"
+
+
+def live_operations():
+    _, _, query, since = context()
+    hero("📡 Operaciones en vivo", "Estado actual y eventos recientes. El LLM no se ejecuta durante la actualización.")
+    controls = st.columns([2, 2, 5])
+    enabled = controls[0].toggle("Actualización automática", value=True, key="live-enabled")
+    seconds = controls[1].selectbox("Intervalo", [2, 5, 10, 30], index=1, key="live-seconds",
+                                    disabled=not enabled, format_func=lambda value: f"{value} segundos")
+    controls[2].caption("Las consultas están limitadas y leen solo el estado actual y los 200 eventos más recientes.")
+
+    @st.fragment(run_every=f"{seconds}s" if enabled else None)
+    def current_state():
+        status = query.live_status()
+        alerts = status["alerts"]
+        severe = alerts.get("critical", 0) + alerts.get("high", 0)
+        process_age, _ = _age_label(status["process_ts"])
+        connection_age, _ = _age_label(status["connection_ts"])
+        a, b, c, d, e = st.columns(5)
+        a.metric("Alertas críticas/altas", severe)
+        b.metric("Procesos", status["processes"], help=f"Última observación: {process_age}")
+        c.metric("RAM observada", f"{status['memory_bytes'] / (1024 ** 3):.1f} GB")
+        d.metric("Conexiones actuales", status["connections"], help=f"Última observación: {connection_age}")
+        e.metric("Puertos en escucha", status["listeners"])
+
+        st.subheader("Frescura de fuentes", divider="gray")
+        freshness = []
+        for source in query.live_freshness():
+            age, state = _age_label(source["ultima_observacion"])
+            freshness.append({"Fuente": source["fuente"], "Estado": state, "Actualizada": age,
+                              "Fecha": format_local_datetime(source["ultima_observacion"])})
+        st.dataframe(pd.DataFrame(freshness), hide_index=True, width="stretch", key="live-freshness",
+                     column_config={"Estado": st.column_config.TextColumn(help="fresh ≤2 min; delayed ≤15 min; stale >15 min")})
+
+        st.subheader("Flujo reciente", divider="gray")
+        events = query.live_events(since, 200)
+        if not events:
+            empty("Todavía no hay eventos en la ventana seleccionada.")
+        else:
+            frame = pd.DataFrame(events)
+            frame["ts"] = local_series(frame["ts"])
+            frame = frame.rename(columns={"ts": "Fecha", "tipo": "Tipo", "nivel": "Nivel",
+                                          "resumen": "Resumen", "origen": "Origen", "entidad_id": "ID"})
+            st.dataframe(frame, hide_index=True, width="stretch", key="live-events",
+                         column_config={"Fecha": st.column_config.DatetimeColumn(format=COLUMN_FORMAT)})
+            st.caption(f"Mostrando {len(events)} eventos recientes · fechas en hora local del equipo.")
+
+    current_state()
+
+
 # --- Actividad (antes Resumen) ---------------------------------------------------------------------
 
 def summary():
