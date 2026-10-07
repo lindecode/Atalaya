@@ -26,8 +26,8 @@ SPLASH = """<!doctype html><html><head><meta charset="utf-8"><title>Atalaya by L
 html,body{height:100%;margin:0;background:#13171F;color:#E6E9EC;font-family:Segoe UI,sans-serif}
 body{display:flex;align-items:center;justify-content:center;flex-direction:column;gap:14px}
 .ring{width:42px;height:42px;border:4px solid #2A313C;border-top-color:#6BC043;border-radius:50%;animation:s 1s linear infinite}
-@keyframes s{to{transform:rotate(360deg)}} h1{font-weight:600;font-size:22px;margin:0} h1 small{font-size:12px;color:#6BC043} p{margin:0;opacity:.7}
-</style></head><body><div class="ring"></div><h1>Atalaya <small>by LindeCode</small></h1><p>Arrancando el panel local…</p></body></html>"""
+@keyframes s{to{transform:rotate(360deg)}} h1{font-weight:600;font-size:22px;margin:0} p{margin:0;opacity:.7}
+</style></head><body><div class="ring"></div><h1>Atalaya</h1><p>Arrancando el panel local…</p></body></html>"""
 
 
 def available() -> bool:
