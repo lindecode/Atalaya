@@ -46,6 +46,10 @@ def baseline_key(rule_id: str, row: dict[str, Any]) -> tuple[str, str] | None:
         return ("logon_source", str(ip)) if ip and ip not in INVALID_IPS else None
     if rule_id == "R05":
         return ("listen_port", f"{row.get('process_name') or '?'}|{row.get('lport')}")
+    if rule_id == "R06" and row.get("process_path"):
+        return ("process_net_path", str(row["process_path"]).replace("/", "\\").casefold())
+    if rule_id == "R07" and row.get("rport") is not None:
+        return ("remote_port", f"{row.get('process_name') or '?'}|{row.get('rport')}")
     if rule_id == "R10" and row.get("kind"):
         return ("persistence", f"{row['kind']}|{row.get('location') or ''}|{row.get('name') or ''}")
     return None

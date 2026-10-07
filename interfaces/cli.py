@@ -88,7 +88,7 @@ def _parser() -> argparse.ArgumentParser:
         sub = alert.add_parser(action)
         sub.add_argument("id", type=int)
         sub.add_argument("--note")
-    alert.add_parser("approve", help="Aprueba como normal la entidad de la alerta (R03, R04, R05, R10)").add_argument("id", type=int)
+    alert.add_parser("approve", help="Aprueba como normal la entidad de la alerta (R03, R04, R05, R06, R07, R10)").add_argument("id", type=int)
     baseline = commands.add_parser("baseline", help="Administra la baseline").add_subparsers(dest="baseline_action", required=True)
     approve = baseline.add_parser("approve")
     approve.add_argument("kind")

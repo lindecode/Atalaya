@@ -204,7 +204,7 @@ flowchart TB
 ```mermaid
 flowchart LR
     subgraph IDX["rag index (Markdown del proyecto)"]
-        md["README/*.md · README*.md · agente.md<br/>(solo .md dentro del proyecto, ≤ 2 MB,<br/>sin enlaces simbólicos)"]
+        md["README/*.md · README*.md<br/>(solo .md dentro del proyecto, ≤ 2 MB,<br/>sin enlaces simbólicos)"]
         md --> chunk["MarkdownChunker<br/>por encabezados · 2800 car.<br/>solape 300"]
         chunk --> emb["OllamaEmbeddingProvider<br/>embeddinggemma (caché por hash)"]
         chunk --> fts[("knowledge_fts<br/>FTS5 · bm25")]
@@ -367,7 +367,7 @@ erDiagram
 ```
 
 - **`alert_evidence`** guarda una copia de cada fila que disparó la alerta (`snapshot_json`). Así la alerta conserva su evidencia aunque `purge` borre los datos originales.
-- **`baseline`** guarda lo que se considera normal (`listen_port`, `logon_source`, `persistence`, `process_net`, `remote_ip`). Las reglas R03, R04, R05 y R10 solo consultan las entradas con `approved=1`.
+- **`baseline`** guarda lo que se considera normal (`listen_port`, `logon_source`, `persistence`, `process_net`, `process_net_path`, `remote_port`, `remote_ip`). Las reglas R03, R04, R05, R06, R07 y R10 solo consultan las entradas con `approved=1`.
 - **Ciclo de vida de una alerta:** `new` → `analyzed` (la vio el LLM) → `confirmed` o `dismissed` (lo decide el usuario). `purge` nunca borra las `confirmed`.
 
 ---

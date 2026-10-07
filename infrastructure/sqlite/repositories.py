@@ -21,7 +21,7 @@ TABLES = (
     "knowledge_chunks", "rag_audit", "file_reputation", "ssh_observations", "conversation_chunks", "analysis_cache",
     "process_snapshots", "process_lifecycle",
 )
-BASELINE_RULES = ("R03", "R04", "R05", "R10")
+BASELINE_RULES = ("R03", "R04", "R05", "R06", "R07", "R10")
 
 
 class SQLiteRepository:

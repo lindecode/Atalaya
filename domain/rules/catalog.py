@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ipaddress
 from collections import defaultdict
+from datetime import timedelta
 from pathlib import PureWindowsPath
 from typing import Callable
 
@@ -41,7 +42,7 @@ def r02(view, cfg):
         if not burst:
             continue
         end = dt(burst[-1]["ts"])
-        successes = [r for r in view.auth_events if r["event_id"] == 4624 and r.get("source_ip") == ip and end <= dt(r["ts"]) <= end + __import__("datetime").timedelta(minutes=30)]
+        successes = [r for r in view.auth_events if r["event_id"] == 4624 and r.get("source_ip") == ip and end <= dt(r["ts"]) <= end + timedelta(minutes=30)]
         if successes:
             rows = burst + successes[:1]
             alerts.append(candidate("R02", "critical", "Fuerza bruta seguida de acceso", ip, rows, "auth_event", {"source_ip": ip, "failures": len(burst)}, rows[-1]["ts"]))
@@ -82,15 +83,22 @@ def r05(view, cfg):
     return alerts
 
 
+def _day(ts: str) -> str:
+    return dt(ts).strftime("%Y%m%d")
+
+
 def r06(view, cfg):
     suspicious = ("\\temp\\", "\\downloads\\", "\\appdata\\local\\temp\\", "\\public\\", "\\$recycle.bin\\")
-    return [candidate("R06", "high", "Ejecutable en ruta sospechosa con red", str(r.get("process_path")), [r], "connection", {"remote": r.get("raddr")}, r["ts"])
-            for r in view.connections if r.get("raddr") and any(part in (str(r.get("process_path") or "").replace("/", "\\").casefold()) for part in suspicious)]
+    # One alert per executable and day, not per hour: a long-lived connection would otherwise repeat it all day
+    return [candidate("R06", "high", "Ejecutable en ruta sospechosa con red", str(r.get("process_path")), [r], "connection", {"remote": r.get("raddr")}, r["ts"], _day(r["ts"]))
+            for r in view.connections if r.get("raddr") and any(part in (str(r.get("process_path") or "").replace("/", "\\").casefold()) for part in suspicious)
+            and baseline_key("R06", r) not in view.baseline]
 
 
 def r07(view, cfg):
-    return [candidate("R07", "medium", "Puerto remoto sospechoso", str(r.get("raddr")), [r], "connection", {"port": r.get("rport")}, r["ts"])
-            for r in view.connections if r.get("direction") == "outbound" and r.get("rport") in cfg.suspicious_ports]
+    return [candidate("R07", "medium", "Puerto remoto sospechoso", str(r.get("raddr")), [r], "connection", {"port": r.get("rport")}, r["ts"], _day(r["ts"]))
+            for r in view.connections if r.get("direction") == "outbound" and r.get("rport") in cfg.suspicious_ports
+            and baseline_key("R07", r) not in view.baseline]
 
 
 def _windows_prefix(path) -> str:

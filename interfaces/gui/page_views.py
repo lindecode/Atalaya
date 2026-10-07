@@ -230,7 +230,7 @@ def connections():
 # --- Alertas ---------------------------------------------------------------------------------------
 
 MAX_ALERTS_SHOWN = 100
-BASELINE_RULES = {"R03", "R04", "R05", "R10"}
+BASELINE_RULES = {"R03", "R04", "R05", "R06", "R07", "R10"}
 
 
 def _bulk_learn(repository):

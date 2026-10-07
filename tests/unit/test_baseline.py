@@ -86,3 +86,30 @@ def test_listen_port_alerts_once_not_every_hour():
     ))
     alerts = catalog.r05(view, None)
     assert len(alerts) == 1 and alerts[0].window_key == "first"
+
+
+def test_suspicious_remote_port_can_be_approved_and_stops_alerting(tmp_path):
+    settings, repository = _repository(tmp_path, baseline_runs=0)
+    run_id = repository.start_run("collect", ts(), False)
+    outbound = NetworkConnection(ts(), "psutil", "tcp", "outbound", "10.0.0.5", 50000, "203.0.113.9", 4444,
+                                 "ESTABLISHED", 1, "tool.exe", r"C:\Tools\tool.exe", None)
+    repository.save_collection(run_id, CollectionResult("c", "connections", (outbound,), "ok"), ts())
+    AnalyzeService(repository, OfflineAnalyzer(), Clock(), System(), settings).execute()
+    alert = next(a for a in repository.get_alerts() if a["rule_id"] == "R07")
+
+    assert repository.approve_alert(alert["id"], ts()) == ("remote_port", "tool.exe|4444")
+    assert next(a for a in repository.get_alerts() if a["id"] == alert["id"])["status"] == "dismissed"
+    assert catalog.r07(repository.load_evidence(ts(-60)), settings) == []
+
+
+def test_r06_and_r07_alert_once_per_day_not_every_hour():
+    row = {"direction": "outbound", "raddr": "203.0.113.9", "rport": 4444, "process_name": "x.exe",
+           "process_path": r"C:\Users\me\Downloads\x.exe"}
+    view = EvidenceView(connections=({"id": 1, "ts": "2026-10-01T08:00:00+00:00", **row},
+                                     {"id": 2, "ts": "2026-10-01T15:00:00+00:00", **row}))
+    for rule in (catalog.r06, catalog.r07):
+        assert len({alert.window_key for alert in rule(view, Settings())}) == 1
+    approved = EvidenceView(connections=view.connections,
+                            baseline=frozenset({("process_net_path", r"c:\users\me\downloads\x.exe"),
+                                                ("remote_port", "x.exe|4444")}))
+    assert catalog.r06(approved, Settings()) == [] and catalog.r07(approved, Settings()) == []

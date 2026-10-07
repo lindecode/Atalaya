@@ -81,7 +81,7 @@ sospechosas, ransomware, escaneos, borrado de logs…) alertan siempre.
 ```powershell
 # Aprobar de golpe todo lo observado hasta ahora y descartar las alertas que cubre
 .\.venv\Scripts\python.exe main.py baseline learn
-# Aprobar como normal la entidad de una alerta concreta (R03, R04, R05, R10)
+# Aprobar como normal la entidad de una alerta concreta (R03, R04, R05, R06, R07, R10)
 .\.venv\Scripts\python.exe main.py alert approve 42
 ```
 
