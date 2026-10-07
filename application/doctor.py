@@ -12,7 +12,7 @@ import sqlite3
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Literal
+from typing import Callable, Iterator, Literal
 
 Status = Literal["ok", "warn", "fail", "info"]
 
@@ -76,14 +76,12 @@ class DoctorService:
                  total_ram_gb: Callable[[], float | None] = _total_ram_gb,
                  module_available: Callable[[str], bool] = lambda name: importlib.util.find_spec(name) is not None,
                  disk_free_gb: Callable[[Path], float] = lambda path: shutil.disk_usage(path).free / 1024 ** 3,
-                 webview2_version: Callable[[], str | None] | None = None):
+                 webview2_version: Callable[[], str | None] = lambda: None,
+                 model_puller: Callable[[str], Iterator[tuple[str, int, int]]] | None = None):
         self.settings, self.models = settings, model_service
         self.find_ollama, self.security_readable, self.sysmon_installed = find_ollama, security_readable, sysmon_installed
         self.total_ram_gb, self.module_available, self.disk_free_gb = total_ram_gb, module_available, disk_free_gb
-        if webview2_version is None:
-            from infrastructure.windows.webview2 import webview2_version as detect
-            webview2_version = detect
-        self.webview2_version = webview2_version
+        self.webview2_version, self.model_puller = webview2_version, model_puller
 
     def run(self) -> list[Check]:
         return self._python() + self._data() + self._operation() + self._ollama() + self._sources()
@@ -218,7 +216,6 @@ class DoctorService:
 
     def pull_model(self, name: str):
         """Downloads a model through the local Ollama; yields (status, completed, total)."""
-        from ollama import Client
-        client = Client(host=self.settings.validated_ollama_host())
-        for progress in client.pull(name, stream=True):
-            yield progress.status or "", progress.completed or 0, progress.total or 0
+        if self.model_puller is None:
+            raise RuntimeError("Descarga de modelos no disponible en este contexto")
+        yield from self.model_puller(name)

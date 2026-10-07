@@ -67,3 +67,33 @@ def test_deep_cycle_backs_up_before_retention(tmp_path):
     result = cycle.execute("deep")
     assert [operation for operation, _ in repository.maintenance] == ["backup", "purge"]
     assert result["maintenance"]["backup"].endswith(".db")
+
+
+def _cycle(tmp_path, pid_alive):
+    repository = Repository(); AutomationConfigService(repository, Clock()).save(AutomationConfig(backup_daily=False))
+    settings = replace(Settings(), database_path=tmp_path / "atalaya.db")
+    cycle = CycleService(repository, Clock(), settings, AutomationConfigService(repository, Clock()),
+                         lambda profile: Executable({"inserted": 0}), lambda configured: Executable({}), pid_alive)
+    return cycle, settings.database_path.with_suffix(".cycle.lock")
+
+
+def test_cycle_reclaims_lock_left_by_a_dead_process(tmp_path):
+    cycle, lock = _cycle(tmp_path, pid_alive=lambda pid: False)
+    lock.write_text("424242", encoding="ascii")
+    assert cycle.execute("quick")["profile"] == "quick"
+    assert not lock.exists()
+
+
+def test_cycle_respects_lock_of_a_running_process(tmp_path):
+    cycle, lock = _cycle(tmp_path, pid_alive=lambda pid: pid == 424242)
+    lock.write_text("424242", encoding="ascii")
+    with pytest.raises(RuntimeError, match="Ya hay un ciclo"):
+        cycle.execute("quick")
+    assert lock.read_text(encoding="ascii") == "424242"
+
+
+def test_cycle_does_not_steal_an_unreadable_lock(tmp_path):
+    cycle, lock = _cycle(tmp_path, pid_alive=lambda pid: False)
+    lock.write_text("", encoding="ascii")  # created, PID not written yet
+    with pytest.raises(RuntimeError, match="Ya hay un ciclo"):
+        cycle.execute("quick")

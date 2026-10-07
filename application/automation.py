@@ -5,6 +5,7 @@ import os
 from dataclasses import asdict, dataclass, replace
 from datetime import datetime, timedelta
 from pathlib import Path
+from typing import Callable
 
 
 PREFERENCE_KEY = "automation_config_v1"
@@ -53,15 +54,17 @@ class AutomationConfigService:
 
 
 class CycleService:
-    def __init__(self, repository, clock, settings, config_service, collect_factory, analyze_factory):
+    def __init__(self, repository, clock, settings, config_service, collect_factory, analyze_factory,
+                 pid_alive: Callable[[int], bool] = lambda pid: True):
         self.repository, self.clock, self.settings = repository, clock, settings
         self.config_service = config_service
         self.collect_factory, self.analyze_factory = collect_factory, analyze_factory
+        self.pid_alive = pid_alive
 
     def execute(self, profile: str | None = None, force_analysis=False, use_llm: bool | None = None):
         config = self.config_service.load()
         selected = profile or self._scheduled_profile(config)
-        lock = _CycleLock(self.settings.database_path.with_suffix(".cycle.lock"))
+        lock = _CycleLock(self.settings.database_path.with_suffix(".cycle.lock"), self.pid_alive)
         with lock:
             collected = self.collect_factory(selected).execute()
             should_analyze = config.automatic_analysis and (force_analysis or int(collected["inserted"]) > 0)
@@ -101,15 +104,41 @@ class CycleService:
 
 
 class _CycleLock:
-    def __init__(self, path: Path): self.path, self.fd = path, None
+    """Exclusive lock file holding the owner's PID; a lock left by a dead process (crash, power loss) is reclaimed."""
+
+    def __init__(self, path: Path, pid_alive: Callable[[int], bool] = lambda pid: True):
+        self.path, self.pid_alive, self.fd = path, pid_alive, None
+
     def __enter__(self):
         self.path.parent.mkdir(parents=True, exist_ok=True)
         try:
-            self.fd = os.open(self.path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-            os.write(self.fd, str(os.getpid()).encode("ascii"))
-        except FileExistsError as exc:
-            raise RuntimeError("Ya hay un ciclo automático en ejecución") from exc
+            self._acquire()
+        except FileExistsError:
+            if not self._reclaim_stale():
+                raise RuntimeError("Ya hay un ciclo automático en ejecución") from None
+            try:
+                self._acquire()
+            except FileExistsError as exc:  # another cycle reclaimed it first
+                raise RuntimeError("Ya hay un ciclo automático en ejecución") from exc
         return self
+
+    def _acquire(self):
+        self.fd = os.open(self.path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        os.write(self.fd, str(os.getpid()).encode("ascii"))
+
+    def _reclaim_stale(self) -> bool:
+        try:
+            owner = int(self.path.read_text(encoding="ascii").strip())
+        except FileNotFoundError:
+            return True  # released between our attempt and the read
+        except (OSError, ValueError):
+            return False  # unreadable or half-written: leave it for doctor and the user
+        if owner == os.getpid() or self.pid_alive(owner):
+            return False
+        try: self.path.unlink()
+        except FileNotFoundError: pass
+        return True
+
     def __exit__(self, *_):
         if self.fd is not None: os.close(self.fd)
         try: self.path.unlink()

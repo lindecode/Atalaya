@@ -20,6 +20,17 @@ def _event(action: str, path: str, dest_path: str | None = None) -> FileEvent:
     return FileEvent(now, "watchdog", action, path, dest_path, extension.casefold() or None, size, dedup_key=key)
 
 
+def build_observer(paths, output_queue):
+    """watchdog Observer feeding FileEvents into `output_queue`; returns (observer, folders watched)."""
+    from watchdog.observers import Observer
+    handler, observer, watched = QueueingEventHandler(output_queue), Observer(), 0
+    for path in paths:
+        if path.exists():
+            observer.schedule(handler, str(path), recursive=True)
+            watched += 1
+    return observer, watched
+
+
 class QueueingEventHandler:
     def __init__(self, output_queue):
         from watchdog.events import FileSystemEventHandler

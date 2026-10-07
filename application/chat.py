@@ -27,13 +27,11 @@ TOOL_SCHEMAS = [
 
 
 class ChatService:
-    def __init__(self, settings, tools, client=None, harness=None):
+    def __init__(self, settings, tools, client, harness=None):
+        """`client` exposes chat(**kwargs) like ollama.Client; bootstrap injects one with the `think` fallback."""
         self.settings = settings
         self.tools = tools
         self.harness = harness or SecureChatHarness()
-        if client is None:
-            from ollama import Client
-            client = Client(host=settings.validated_ollama_host(), timeout=settings.llm_timeout_seconds)
         self.client = client
 
     def ask(self, question: str, context: str | None = None):
@@ -47,7 +45,7 @@ class ChatService:
         messages.append({"role": "user", "content": self.harness.sanitize_question(question)})
         trace = []
         for _ in range(5):
-            response = _chat(self.client, model=self.settings.ollama_model, messages=messages, tools=TOOL_SCHEMAS, think=False)
+            response = self.client.chat(model=self.settings.ollama_model, messages=messages, tools=TOOL_SCHEMAS, think=False)
             message = response.message
             calls = getattr(message, "tool_calls", None) or []
             if not calls:
@@ -66,13 +64,3 @@ class ChatService:
                     trace.append({"name": function.name, "arguments": function.arguments, "ids": [], "error": str(exc)})
                 messages.append({"role": "tool", "tool_name": function.name, "content": content})
         raise RuntimeError("Demasiadas rondas de herramientas")
-
-
-def _chat(client, **kwargs):
-    try:
-        return client.chat(**kwargs)
-    except Exception as exc:
-        if "think" in kwargs and "thinking" in str(exc).casefold():
-            kwargs.pop("think")
-            return client.chat(**kwargs)
-        raise

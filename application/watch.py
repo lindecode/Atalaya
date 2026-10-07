@@ -9,12 +9,14 @@ from domain.rules.catalog import r08, r09
 
 
 class WatchService:
-    def __init__(self, repository, clock, system_info, notifier, settings):
+    def __init__(self, repository, clock, system_info, notifier, settings, observer_factory=None):
+        """`observer_factory(paths, queue)` returns (observer, folders watched); bootstrap injects watchdog's."""
         self.repository = repository
         self.clock = clock
         self.system_info = system_info
         self.notifier = notifier
         self.settings = settings
+        self.observer_factory = observer_factory
 
     def _flush(self, run_id: int, events: list) -> tuple[int, int]:
         if not events: return 0, 0
@@ -30,19 +32,12 @@ class WatchService:
         return inserted, len(alert_ids)
 
     def execute(self) -> dict[str, int]:
-        from watchdog.observers import Observer
-        from infrastructure.windows.file_watcher import QueueingEventHandler
-
+        if self.observer_factory is None:
+            raise RuntimeError("WatchService necesita un observer_factory")
         self.repository.initialize()
         run_id = self.repository.start_run("watch", self.clock.now_iso(), self.system_info.is_admin())
         events = queue.Queue()
-        handler = QueueingEventHandler(events)
-        observer = Observer()
-        watched = 0
-        for path in self.settings.watch_dirs:
-            if path.exists():
-                observer.schedule(handler, str(path), recursive=True)
-                watched += 1
+        observer, watched = self.observer_factory(self.settings.watch_dirs, events)
         if not watched:
             self.repository.finish_run(run_id, self.clock.now_iso(), "error", {"watchdog": {"status": "error", "warnings": ["No hay carpetas disponibles"]}})
             return {"run_id": run_id, "events": 0, "alerts": 0}

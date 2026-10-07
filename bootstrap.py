@@ -18,6 +18,7 @@ from application.automation import AutomationConfigService, CycleService
 from application.tool_router import SecureToolRouter
 from infrastructure.clock import SystemClock
 from infrastructure.ollama.analyzer import OllamaAnalyzer
+from infrastructure.ollama.client import build_chat_client, pull_model
 from infrastructure.ollama.models import OllamaModelCatalog
 from infrastructure.ollama.embeddings import OllamaEmbeddingProvider
 from infrastructure.sqlite.repositories import SQLiteRepository
@@ -27,9 +28,10 @@ from infrastructure.sqlite.knowledge_store import SQLiteKnowledgeStore
 from infrastructure.sqlite.reputation_store import SQLiteReputationStore
 from infrastructure.reputation.virustotal import VirusTotalHashProvider
 from infrastructure.windows.authenticode import PowerShellAuthenticodeAnalyzer
-from infrastructure.windows.common import WindowsSystemInfo
+from infrastructure.windows.common import WindowsSystemInfo, pid_alive
 from infrastructure.windows.connections import PsutilConnectionCollector
 from infrastructure.windows.event_log import RDP_CHANNEL, SECURITY_CHANNEL, WindowsEventLogCollector
+from infrastructure.windows.file_watcher import build_observer
 from infrastructure.windows.files import RecentFileCollector
 from infrastructure.windows.firewall import FirewallLogCollector
 from infrastructure.windows.persistence import WindowsPersistenceCollector
@@ -37,6 +39,7 @@ from infrastructure.windows.processes import PsutilProcessCollector
 from infrastructure.windows.notifier import WindowsNotifier
 from infrastructure.windows.sysmon import SysmonCollector
 from infrastructure.windows.ssh import SSHObservationCollector
+from infrastructure.windows.webview2 import webview2_version
 from settings import Settings
 
 
@@ -106,18 +109,20 @@ def build_report_service(settings: Settings | None = None) -> ReportService:
 
 def build_watch_service(settings: Settings | None = None) -> WatchService:
     effective = settings or Settings()
-    return WatchService(build_repository(effective), SystemClock(), WindowsSystemInfo(), WindowsNotifier(), effective)
+    return WatchService(build_repository(effective), SystemClock(), WindowsSystemInfo(), WindowsNotifier(), effective,
+                        build_observer)
 
 
 def build_chat_service(settings: Settings | None = None, model: str | None = None) -> ChatService:
     effective = _with_model(settings, model)
     rag = build_rag_service(effective)
-    return ChatService(effective, SecureToolRouter(SQLiteQueryTools(effective), rag))
+    return ChatService(effective, SecureToolRouter(SQLiteQueryTools(effective), rag), build_chat_client(effective))
 
 
 def build_doctor_service(settings: Settings | None = None) -> DoctorService:
     effective = settings or Settings()
-    return DoctorService(effective, build_model_service(effective))
+    return DoctorService(effective, build_model_service(effective), webview2_version=webview2_version,
+                         model_puller=lambda name: pull_model(effective, name))
 
 
 def build_chat_history(settings: Settings | None = None) -> SQLiteChatHistory:
@@ -159,4 +164,4 @@ def build_cycle_service(settings: Settings | None = None) -> CycleService:
     repository = build_repository(effective)
     return CycleService(repository, SystemClock(), effective, AutomationConfigService(repository, SystemClock()),
                         lambda profile: build_collect_service(effective, profile),
-                        lambda configured: build_analyze_service(configured))
+                        lambda configured: build_analyze_service(configured), pid_alive)

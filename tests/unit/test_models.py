@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 import pytest
 
 from application.models import ModelService
-from infrastructure.ollama.client import chat
+from infrastructure.ollama.client import ThinkFallbackClient, chat
 from infrastructure.sqlite.repositories import SQLiteRepository
 from settings import Settings
 
@@ -46,3 +46,12 @@ def test_think_flag_is_dropped_for_models_without_thinking():
     client = Client()
     assert chat(client, model="granite4.1:3b", think=False) == "ok"
     assert "think" not in client.calls[-1]
+
+
+def test_injected_chat_client_applies_the_think_fallback():
+    class Client:
+        def chat(self, **kwargs):
+            if "think" in kwargs:
+                raise RuntimeError("model does not support thinking")
+            return kwargs
+    assert ThinkFallbackClient(Client()).chat(model="granite4.1:3b", think=False) == {"model": "granite4.1:3b"}

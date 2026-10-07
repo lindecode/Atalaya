@@ -17,6 +17,12 @@ def is_admin() -> bool:
         return False
 
 
+def pid_alive(pid: int) -> bool:
+    """Whether a process with this PID exists; used to reclaim lock files left by a crashed cycle."""
+    import psutil
+    return psutil.pid_exists(pid)
+
+
 class WindowsSystemInfo:
     def is_admin(self) -> bool:
         return is_admin()
