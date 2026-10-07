@@ -114,7 +114,9 @@ lateral.
 .\.venv\Scripts\python.exe main.py gui
 ```
 
-Abra `http://127.0.0.1:8501`. Streamlit escucha exclusivamente en loopback,
+El lanzador abre la dirección correcta automáticamente. Prefiere
+`http://127.0.0.1:8501`, pero puede elegir el siguiente puerto local libre.
+Streamlit escucha exclusivamente en loopback,
 desactiva telemetría y no usa HTML inseguro para representar evidencia. Las
 tablas pueden filtrarse, ordenarse y descargarse localmente como CSV.
 

@@ -23,7 +23,7 @@ Lanzadores de doble clic para instalar, abrir y mantener la herramienta sin escr
 
 | Archivo | Qué hace |
 |---|---|
-| `iniciar.bat` | Arranca Ollama si hace falta, abre el panel (ventana minimizada) y el navegador en `http://127.0.0.1:8501`. Si ya estaba abierto, solo abre el navegador |
+| `iniciar.bat` | Arranca Ollama si hace falta y abre el panel local. Prefiere `127.0.0.1:8501`; si está ocupado, elige otro puerto libre y valida que el proceso sea Atalaya |
 | `recolectar.bat` | Ciclo completo: recolectar, analizar (reglas y LLM) e informe en `reports\` |
 | `vigilar.bat` | Monitor de archivos en vivo (ransomware y cambios masivos). Ctrl+C para parar |
 | `detener.bat` | Detiene el panel y el monitor. Ollama sigue en marcha, porque puede usarlo otra aplicación |

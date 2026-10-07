@@ -283,15 +283,17 @@ En otra terminal:
 & $Python $Main gui
 ```
 
-Abra `http://127.0.0.1:8501`. Verifique la escucha:
+Abra el panel desde Atalaya. El puerto preferido es 8501, pero puede cambiar si
+ya está ocupado. `start\diagnostico.bat` muestra la dirección validada. Para una
+instancia que use 8501, verifique la escucha:
 
 ```powershell
 Invoke-WebRequest -UseBasicParsing http://127.0.0.1:8501/_stcore/health
 netstat -ano | Select-String ':8501'
 ```
 
-La línea `LISTENING` debe mostrar `127.0.0.1:8501`, nunca `0.0.0.0:8501` ni la
-IP LAN. Desde otro equipo de la red, la conexión a `http://IP-LAN:8501` debe
+La línea `LISTENING` debe mostrar `127.0.0.1:<puerto>`, nunca `0.0.0.0:<puerto>` ni la
+IP LAN. Desde otro equipo de la red, la conexión a `http://IP-LAN:<puerto>` debe
 fallar.
 
 Para verificar que el navegador no realiza peticiones externas:
