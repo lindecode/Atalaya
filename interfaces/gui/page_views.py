@@ -6,11 +6,14 @@ import pandas as pd
 import plotly.express as px
 import streamlit as st
 
+from domain.rules.catalog import ALL_RULES
 from infrastructure.clock import SystemClock
+from infrastructure.sqlite.queries import ROWS_LIMIT
 from interfaces.gui import network
-from interfaces.gui.common import context
+from interfaces.gui.common import context, refresh_data
 from interfaces.gui.components import (SEVERITY_COLORS, SEVERITY_NAMES, chart, empty, hero, legend, risk_banner,
                                        severity_label, table)
+from interfaces.gui.table_formatting import local_series
 
 
 FLOW_LEGEND = [("Entrante", network.COLORS["inbound"]), ("Saliente", network.COLORS["outbound"]),
@@ -33,6 +36,13 @@ def _link(page: str, label: str, icon: str):
         st.page_link(page, label=label, icon=icon)
     except Exception:
         st.caption(f"→ {label}")
+
+
+def _truncation_note(rows, limit: int = ROWS_LIMIT):
+    """query.rows() stops at `limit`: say so, since the metrics and tables below are computed from those rows."""
+    if len(rows) >= limit:
+        st.warning(f"Se muestran las {limit:,} filas más recientes de la ventana; las cifras de esta página se "
+                   "calculan sobre ellas. Elija una ventana temporal más corta para verlo todo.", icon=":material/info:")
 
 
 def _style(figure, height: int = 320):
@@ -108,7 +118,7 @@ def summary():
     st.subheader("Eventos por hora", divider="gray")
     if timeline:
         frame = pd.DataFrame(timeline)
-        frame["bucket"] = pd.to_datetime(frame["bucket"], utc=True).dt.tz_convert(None)
+        frame["bucket"] = local_series(frame["bucket"])
         chart(_style(px.bar(frame, x="bucket", y="count", color="type", barmode="stack",
                             labels={"bucket": "", "count": "eventos", "type": ""}), 360), key="activity-timeline")
     else:
@@ -197,7 +207,7 @@ def connections():
         points = network.timeline_rows(all_rows, include_loopback)
         if len({point["ts"] for point in points}) > 1:
             frame = pd.DataFrame(points)
-            frame["ts"] = pd.to_datetime(frame["ts"], utc=True).dt.tz_convert(None)
+            frame["ts"] = local_series(frame["ts"])
             figure = px.area(frame, x="ts", y="conexiones", color="sentido", markers=True,
                              color_discrete_map={"Entrantes": network.COLORS["inbound"], "Salientes": network.COLORS["outbound"]},
                              labels={"ts": "", "conexiones": "conexiones abiertas", "sentido": ""})
@@ -243,6 +253,7 @@ def _bulk_learn(repository):
             now = SystemClock().now_iso()
             counts = repository.approve_all_observed(now)
             dismissed = repository.dismiss_baselined("Baseline aprendida", now)
+            refresh_data()
             st.success(f"Aprobados {sum(counts.values())} elementos {counts}; {dismissed} alertas descartadas.")
 
 
@@ -251,7 +262,8 @@ def alerts():
     hero("🚨 Alertas", "Lo que detectaron las reglas, con su evidencia y la explicación del LLM.")
     _bulk_learn(repository)
     rows = query.rows("alerts", since)
-    if not rows: return empty("No hay alertas. Pulse Analizar para aplicar R01–R14.")
+    _truncation_note(rows)
+    if not rows: return empty(f"No hay alertas. Pulse Analizar para aplicar las reglas R01–R{len(ALL_RULES):02d}.")
     open_rows = [row for row in rows if row["status"] in {"new", "analyzed"}]
     labels = {"critical": "Críticas abiertas", "high": "Altas abiertas", "medium": "Medias abiertas", "low": "Bajas abiertas"}
     for column, (level, label) in zip(st.columns(4), labels.items()):
@@ -282,11 +294,11 @@ def alerts():
             note = st.text_input("Nota", key=f"note-{row['id']}")
             a, b, c = st.columns(3)
             if a.button("Confirmar", key=f"confirm-{row['id']}", icon=":material/check_circle:"):
-                repository.update_alert_status(row["id"], "confirmed", note or None, SystemClock().now_iso()); st.rerun()
+                repository.update_alert_status(row["id"], "confirmed", note or None, SystemClock().now_iso()); refresh_data(); st.rerun()
             if b.button("Descartar", key=f"dismiss-{row['id']}", icon=":material/cancel:"):
-                repository.update_alert_status(row["id"], "dismissed", note or None, SystemClock().now_iso()); st.rerun()
+                repository.update_alert_status(row["id"], "dismissed", note or None, SystemClock().now_iso()); refresh_data(); st.rerun()
             if row["rule_id"] in BASELINE_RULES and c.button("Aprobar como normal", key=f"approve-{row['id']}", icon=":material/verified:"):
-                repository.approve_alert(row["id"], SystemClock().now_iso()); st.rerun()
+                repository.approve_alert(row["id"], SystemClock().now_iso()); refresh_data(); st.rerun()
 
 
 # --- Evidencia -------------------------------------------------------------------------------------
@@ -296,7 +308,7 @@ def _hourly_chart(query, table_name: str, since: str, by: str | None, names: dic
     if not points:
         return
     frame = pd.DataFrame(points)
-    frame["hora"] = pd.to_datetime(frame["hora"], utc=True).dt.tz_convert(None)
+    frame["hora"] = local_series(frame["hora"])
     if by:
         frame["serie"] = frame["serie"].map(lambda value: (names or {}).get(int(value) if value.isdigit() else value, value))
     figure = px.bar(frame, x="hora", y="total", color="serie" if by else None, labels={"hora": "", "total": "eventos", "serie": ""})
@@ -318,6 +330,7 @@ def access():
     _, _, query, since = context()
     hero("🔑 Accesos", "Inicios de sesión, intentos fallidos, RDP y cambios de cuentas.")
     rows = query.rows("auth_events", since)
+    _truncation_note(rows)
     if not rows:
         empty("Sin eventos de acceso. El registro Security necesita administrador o el grupo «Lectores del registro de eventos» "
               "(start\\configurar-permisos.bat).")
@@ -340,6 +353,7 @@ def files():
     _, _, query, since = context()
     hero("📁 Archivos", "Creaciones, cambios, renombrados y borrados en las carpetas vigiladas.")
     rows = query.rows("file_events", since)
+    _truncation_note(rows)
     if not rows:
         empty("Sin eventos de archivos. Pulse Recolectar o ejecute start\\vigilar.bat.")
     else:
@@ -365,6 +379,7 @@ def persistence():
     _, _, query, since = context()
     hero("🧩 Persistencia", "Lo que arranca solo: claves Run, carpeta Inicio, tareas programadas y servicios.")
     rows = query.rows("persistence_items", since)
+    _truncation_note(rows)
     if not rows:
         return empty("Nada nuevo en la ventana. Pulse Recolectar para inventariar Run, Inicio, tareas y servicios.")
     names = {"run_key": "Claves Run", "startup_folder": "Carpeta Inicio", "scheduled_task": "Tareas", "service": "Servicios"}
@@ -379,6 +394,7 @@ def firewall():
     _, _, query, since = context()
     hero("🧱 Firewall", "Paquetes que el firewall de Windows bloqueó: quién intentó entrar y a qué puertos.")
     rows = query.rows("firewall_events", since)
+    _truncation_note(rows)
     if not rows:
         empty("Sin eventos del firewall. Active el registro de paquetes bloqueados con start\\configurar-permisos.bat.")
         return
@@ -613,6 +629,7 @@ def state():
     if st.button("Purgar", disabled=not confirm, icon=":material/delete_sweep:"):
         from datetime import timedelta, timezone
         st.json(repository.purge((datetime.now(timezone.utc) - timedelta(days=current.retention_days)).isoformat()))
+        refresh_data()
 
 
 # --- Primeros pasos --------------------------------------------------------------------------------
@@ -707,7 +724,7 @@ def processes():
     history = query.process_history(since, choices[selected])
     if history:
         frame = pd.DataFrame(history)
-        frame["hora"] = pd.to_datetime(frame["ts"], utc=True).dt.tz_convert(None)
+        frame["hora"] = local_series(frame["ts"])
         frame["privada MB"] = frame["private_bytes"].fillna(frame["rss_bytes"]) / 1024 ** 2
         frame["RSS MB"] = frame["rss_bytes"] / 1024 ** 2
         chart(_style(px.line(frame, x="hora", y=["privada MB", "RSS MB"],
@@ -716,8 +733,8 @@ def processes():
 
     st.subheader("Finalizados recientemente", divider="gray")
     ended = query.process_lifecycle(False, 250)
-    table([{"proceso": row.get("name"), "pid": row.get("pid"), "inicio observado": _local(row.get("first_seen")),
-            "última observación": _local(row.get("last_seen")), "fin inferido": _local(row.get("ended_at")),
+    table([{"proceso": row.get("name"), "pid": row.get("pid"), "inicio observado": row.get("first_seen"),
+            "última observación": row.get("last_seen"), "fin inferido": row.get("ended_at"),
             "pico privado MB": round((row.get("peak_private_bytes") or 0) / 1024 ** 2, 1), "ruta": row.get("path")}
            for row in ended], key="processes-ended")
 

@@ -326,4 +326,8 @@ MIGRATIONS: tuple[str, ...] = (
     CREATE INDEX idx_process_snapshot_memory ON process_snapshots(private_bytes, rss_bytes);
     CREATE INDEX idx_process_lifecycle_active ON process_lifecycle(active, last_seen);
     """,
+    """
+    CREATE INDEX IF NOT EXISTS idx_fw_ts ON firewall_events(ts);
+    CREATE INDEX IF NOT EXISTS idx_alert_ts ON alerts(ts);
+    """,
 )

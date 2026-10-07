@@ -3,7 +3,7 @@ from __future__ import annotations
 import pandas as pd
 import streamlit as st
 
-from interfaces.gui.table_formatting import filter_table_rows, format_table_rows
+from interfaces.gui.table_formatting import COLUMN_FORMAT, filter_table_rows, format_table_rows
 
 
 SEVERITY_ICONS = {"low": "⚪", "medium": "🟡", "high": "🟠", "critical": "🔴"}
@@ -104,7 +104,9 @@ def table(rows, *, key: str, columns: dict | None = None):
         st.caption(f"{len(filtered)} de {len(formatted)} fila(s) coinciden con la búsqueda.")
     if date_columns:
         st.caption("Las fechas se muestran como DD/MM/AAAA HH:MM:SS en la hora local del equipo.")
-    st.dataframe(frame, width="stretch", hide_index=True, column_config=columns)
+    # Real datetimes (not text) so clicking a date column sorts chronologically
+    config = {name: st.column_config.DatetimeColumn(format=COLUMN_FORMAT) for name in date_columns} | (columns or {})
+    st.dataframe(frame, width="stretch", hide_index=True, column_config=config)
     st.download_button("Descargar CSV", frame.to_csv(index=False).encode("utf-8"), f"{key}.csv", "text/csv",
                        key=f"download-{key}", icon=":material/download:")
 

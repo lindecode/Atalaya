@@ -9,12 +9,14 @@ from settings import Settings
 
 ALLOWED_TABLES = {"connections", "auth_events", "file_events", "file_reputation", "firewall_events", "persistence_items", "alerts", "llm_analyses", "runs", "ssh_observations", "process_snapshots", "process_lifecycle"}
 
+ROWS_LIMIT = 5000  # most recent rows per table and window that the GUI loads
+
 
 class SQLiteQueryRepository:
     def __init__(self, settings: Settings):
         self.settings = settings
 
-    def rows(self, table: str, since: str | None = None, limit: int = 5000):
+    def rows(self, table: str, since: str | None = None, limit: int = ROWS_LIMIT):
         if table not in ALLOWED_TABLES:
             raise ValueError("Tabla no permitida")
         column = ("first_seen" if table in {"persistence_items", "process_lifecycle"} else "started_at" if table == "runs"
@@ -25,7 +27,7 @@ class SQLiteQueryRepository:
             sql += f" WHERE {column}>=?"
             params.append(since)
         sql += f" ORDER BY {column} DESC LIMIT ?"
-        params.append(min(max(int(limit), 1), 5000))
+        params.append(min(max(int(limit), 1), ROWS_LIMIT))
         with connect(self.settings.database_path, readonly=True) as db:
             return [dict(row) for row in db.execute(sql, tuple(params))]
 
@@ -153,4 +155,6 @@ class SQLiteQueryRepository:
 
 
 def since_hours(hours: int) -> str:
-    return (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat()
+    """Start of the window, rounded down to the minute so repeated reads within a minute share a cache key."""
+    now = datetime.now(timezone.utc).replace(second=0, microsecond=0)
+    return (now - timedelta(hours=hours)).isoformat()
