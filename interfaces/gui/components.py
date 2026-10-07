@@ -3,6 +3,8 @@ from __future__ import annotations
 import pandas as pd
 import streamlit as st
 
+from interfaces.gui.table_formatting import filter_table_rows, format_table_rows
+
 
 SEVERITY_ICONS = {"low": "⚪", "medium": "🟡", "high": "🟠", "critical": "🔴"}
 SEVERITY_COLORS = {"low": "#94A3B8", "medium": "#EAB308", "high": "#F97316", "critical": "#EF4444"}
@@ -77,7 +79,17 @@ def table(rows, *, key: str, columns: dict | None = None):
     if not rows:
         empty("No hay datos para la ventana seleccionada.")
         return
-    frame = pd.DataFrame(rows)
+    formatted, date_columns = format_table_rows(rows)
+    available = list(pd.DataFrame(formatted).columns)
+    with st.expander("Buscar en esta tabla", icon=":material/search:"):
+        selected = st.multiselect("Columnas", available, default=available, key=f"search-columns-{key}")
+        search = st.text_input("Texto", key=f"search-text-{key}", placeholder="Nombre, IP, ruta, estado...")
+    filtered = filter_table_rows(formatted, search, selected)
+    frame = pd.DataFrame(filtered, columns=available)
+    if search:
+        st.caption(f"{len(filtered)} de {len(formatted)} fila(s) coinciden con la búsqueda.")
+    if date_columns:
+        st.caption("Las fechas se muestran como DD/MM/AAAA HH:MM:SS en la hora local del equipo.")
     st.dataframe(frame, width="stretch", hide_index=True, column_config=columns)
     st.download_button("Descargar CSV", frame.to_csv(index=False).encode("utf-8"), f"{key}.csv", "text/csv",
                        key=f"download-{key}", icon=":material/download:")

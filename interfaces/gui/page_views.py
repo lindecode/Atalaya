@@ -609,10 +609,10 @@ def state():
         from datetime import timezone
         stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
         st.success(str(repository.backup(repository.settings.backup_dir / f"atalaya_{stamp}.db")))
-    confirm = st.checkbox("Confirmo que deseo aplicar la retención de 30 días")
+    confirm = st.checkbox(f"Confirmo que deseo aplicar la retención configurada de {current.retention_days} días")
     if st.button("Purgar", disabled=not confirm, icon=":material/delete_sweep:"):
         from datetime import timedelta, timezone
-        st.json(repository.purge((datetime.now(timezone.utc) - timedelta(days=30)).isoformat()))
+        st.json(repository.purge((datetime.now(timezone.utc) - timedelta(days=current.retention_days)).isoformat()))
 
 
 # --- Primeros pasos --------------------------------------------------------------------------------
