@@ -13,6 +13,8 @@ $env:ATALAYA_LLM_PROVIDER = "llama_cpp"
 $env:ATALAYA_LLAMA_CPP_SERVER = "C:\ruta\llama.cpp\llama-server.exe"
 $env:ATALAYA_LLAMA_CPP_MODEL = "C:\ruta\modelos\atalaya.gguf"
 $env:ATALAYA_LLAMA_CPP_HOST = "http://127.0.0.1:11435" # opcional
+$env:ATALAYA_LLAMA_CPP_EMBEDDING_MODEL = "C:\ruta\modelos\embedding.gguf" # opcional
+$env:ATALAYA_LLAMA_CPP_EMBEDDING_HOST = "http://127.0.0.1:11436" # opcional
 python main.py doctor
 python main.py gui
 ```
@@ -24,8 +26,12 @@ Valores admitidos para `ATALAYA_LLM_PROVIDER`:
 - `llama_cpp`: exige el ejecutable, el modelo y un servidor validado.
 - `ollama`: utiliza exclusivamente Ollama.
 
-Atalaya inicia `llama-server` en loopback con contexto 8192 y embeddings
-habilitados. Antes de confiar en un servidor comprueba `/health`, el puerto en
+Atalaya usa dos procesos separados: chat/análisis en `11435` y, si existe un
+modelo dedicado, embeddings en `11436`. Solo el segundo recibe `--embedding`;
+esa opción restringe el servidor y no debe usarse en el proceso de chat. Ambos
+usan una clave API aleatoria guardada en la carpeta local de datos y arrancan
+con la interfaz web deshabilitada. Antes de confiar en un servidor comprueba
+`/health`, el puerto en
 escucha, el PID, la ruta del ejecutable y el archivo GGUF de su línea de comando.
 No habilita las herramientas internas ni MCP de llama.cpp: las únicas herramientas
 disponibles siguen pasando por el harness de solo lectura de Atalaya.
@@ -49,12 +55,16 @@ packaging\build.ps1 `
   -LlamaCppLicense C:\licencias\llama.cpp-MIT.txt `
   -ModeloGguf C:\modelos\modelo.gguf `
   -ModeloSha256 <sha256-del-gguf> `
-  -ModeloLicense C:\licencias\modelo.txt
+  -ModeloLicense C:\licencias\modelo.txt `
+  -EmbeddingGguf C:\modelos\embedding.gguf `
+  -EmbeddingSha256 <sha256-del-embedding> `
+  -EmbeddingLicense C:\licencias\embedding.txt
 ```
 
 El ZIP debe contener `llama-server.exe` y sus DLL. El modelo se instala como
 `models\atalaya.gguf`; no se descarga durante la ejecución. El empaquetador
-copia ambas licencias a `THIRD_PARTY_LICENSES`. No
+copia las licencias a `THIRD_PARTY_LICENSES`. El modelo de embeddings es
+opcional; sin él, el RAG mantiene la búsqueda léxica. No
 redistribuya pesos cuya licencia no lo permita.
 
 ## Limitaciones

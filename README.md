@@ -125,6 +125,7 @@ Variables de entorno admitidas:
 | `ATALAYA_LLM_PROVIDER` | `auto`, `ollama` o `llama_cpp` |
 | `ATALAYA_LLAMA_CPP_SERVER` | Ruta a `llama-server.exe` |
 | `ATALAYA_LLAMA_CPP_MODEL` | Ruta al modelo GGUF |
+| `ATALAYA_LLAMA_CPP_EMBEDDING_MODEL` | Ruta al GGUF dedicado de embeddings |
 | `VIRUSTOTAL_API_KEY` | Activa consultas opcionales de reputación |
 
 Ejemplo temporal en PowerShell:

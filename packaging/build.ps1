@@ -13,7 +13,10 @@ param(
     [string]$LlamaCppLicense,
     [string]$ModeloGguf,      # modelo con licencia redistribuible (opcional)
     [string]$ModeloSha256,
-    [string]$ModeloLicense
+    [string]$ModeloLicense,
+    [string]$EmbeddingGguf,   # modelo dedicado de embeddings (opcional)
+    [string]$EmbeddingSha256,
+    [string]$EmbeddingLicense
 )
 $ErrorActionPreference = 'Stop'
 $Packaging = $PSScriptRoot
@@ -103,6 +106,17 @@ if ($LlamaCppZip -or $ModeloGguf) {
     New-Item -ItemType Directory -Force -Path $licenseTarget | Out-Null
     Copy-Item -LiteralPath $LlamaCppLicense -Destination (Join-Path $licenseTarget 'llama.cpp.txt')
     Copy-Item -LiteralPath $ModeloLicense -Destination (Join-Path $licenseTarget 'model.txt')
+    if ($EmbeddingGguf -or $EmbeddingSha256 -or $EmbeddingLicense) {
+        if (-not ($EmbeddingGguf -and $EmbeddingSha256 -and $EmbeddingLicense)) {
+            throw 'El modelo de embeddings requiere archivo, SHA-256 y licencia'
+        }
+        if (-not (Test-Path -LiteralPath $EmbeddingGguf -PathType Leaf)) { throw "No existe: $EmbeddingGguf" }
+        if (-not (Test-Path -LiteralPath $EmbeddingLicense -PathType Leaf)) { throw "No existe: $EmbeddingLicense" }
+        $embeddingHash = (Get-FileHash -LiteralPath $EmbeddingGguf -Algorithm SHA256).Hash.ToLower()
+        if ($embeddingHash -ne $EmbeddingSha256.ToLower()) { throw 'SHA-256 incorrecto para el modelo de embeddings' }
+        Copy-Item -LiteralPath $EmbeddingGguf -Destination (Join-Path $modelTarget 'atalaya-embedding.gguf')
+        Copy-Item -LiteralPath $EmbeddingLicense -Destination (Join-Path $licenseTarget 'embedding-model.txt')
+    }
     Write-Host '  llama-server.exe y modelo verificados e incluidos'
 }
 
