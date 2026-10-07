@@ -148,8 +148,11 @@ def _record(row: dict) -> list[dict]:
 
 
 def table(rows, *, key: str, columns: dict | None = None, view: str | None = None, windowed: bool = True,
-          detail: bool = True):
-    """Searchable, sortable table. `view` names a table_views layout; selecting a row shows every stored field."""
+          detail: bool = True, on_pick=None):
+    """Searchable, sortable table. `view` names a table_views layout; selecting a row shows every stored field.
+
+    `on_pick(row)` draws extra context for the selected row inside its detail panel; the row is also returned.
+    """
     if not rows:
         empty("No hay datos para la ventana seleccionada.")
         return
@@ -184,9 +187,14 @@ def table(rows, *, key: str, columns: dict | None = None, view: str | None = Non
             shown_row = shown[matches[selected[0]]]
             search_links([value for name, value in list(record.items()) + list(shown_row.items())
                           if name in ENTITY_FIELDS], key=f"links-{key}")
+            if on_pick:
+                on_pick(record)
+    else:
+        record = None
     st.download_button("Descargar CSV", frame.to_csv(index=False).encode("utf-8"), csv_name(key, windowed), "text/csv",
                        key=f"download-{key}", icon=":material/download:",
                        help="Exporta las filas visibles, con el filtro de búsqueda aplicado.")
+    return record
 
 
 def severity_label(value: str) -> str:

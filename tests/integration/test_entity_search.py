@@ -73,3 +73,19 @@ def test_alert_link_opens_its_detail_even_outside_the_filters(tmp_path, monkeypa
     assert not app.exception
     assert any(f"alerta #{alert_id}" in element.value for element in app.markdown)
     assert any("Qué revisar" in element.value for element in app.markdown)
+
+
+def test_connections_filter_by_ip_shows_its_profile(tmp_path, monkeypatch):
+    import infrastructure.windows.dns_cache as dns_cache
+
+    _seed(tmp_path, monkeypatch)
+    monkeypatch.setattr(dns_cache, "dns_cache_records",
+                        lambda timeout=15: [{"Entry": "c2.example.test", "Data": "203.0.113.7", "Type": 1}])
+    app = AppTest.from_file(ROOT / "interfaces/gui/pages/3_Conexiones.py", default_timeout=30)
+    app.query_params["ip"] = "203.0.113.7"
+    app.run()
+    assert not app.exception
+    assert any("203.0.113.7" in element.value and "####" in element.value for element in app.markdown)
+    assert any("c2.example.test" in element.value for element in app.text)
+    assert {metric.label: metric.value for metric in app.metric}["Alertas"] == "1"
+    assert any("2 de 3 conexiones" in element.value for element in app.caption)  # same run, any age

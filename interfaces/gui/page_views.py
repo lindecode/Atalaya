@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ipaddress
 import json
 from datetime import datetime
 
@@ -166,6 +167,65 @@ def summary():
         empty("Todavía no hay un análisis del LLM. Pulse Analizar en la barra lateral.")
 
 
+@st.cache_data(ttl=120, show_spinner=False)
+def _dns_records() -> list[dict]:
+    from infrastructure.windows.dns_cache import dns_cache_records
+    return dns_cache_records()
+
+
+def _valid_ip(text: str | None) -> str | None:
+    try:
+        return str(ipaddress.ip_address(str(text or "").strip().split("%")[0]))
+    except ValueError:
+        return None
+
+
+def _ip_matches(row: dict, needle: str) -> bool:
+    return any(needle in str(row.get(field) or "") for field in ("raddr", "laddr"))
+
+
+def _ip_profile(query, ip: str, since: str):
+    """What this computer knows about one IP: scope, local DNS names, processes, ports and related evidence."""
+    from infrastructure.windows.dns_cache import names_for
+
+    found = query.entity_search(ip, since)
+    exact = lambda rows, *fields: [row for row in rows if any(str(row.get(field) or "") == ip for field in fields)]
+    conns = exact(found["connections"], "raddr", "laddr")
+    blocked = exact(found["firewall_events"], "src_ip", "dst_ip")
+    logons = exact(found["auth_events"], "source_ip")
+    ssh = exact(found["ssh_observations"], "remote_address", "local_address")
+    alerts = [row for row in found["alerts"] if f'"{ip}"' in str(row.get("evidence") or "") or ip == str(row.get("title"))]
+    names = names_for(ip, _dns_records())
+    with st.container(border=True):
+        # `ip` went through ipaddress.ip_address: only digits, hex, dots and colons reach the Markdown
+        st.markdown(f"#### :material/lan: {ip} · {network.SCOPE_LABELS.get(network.scope(ip), 'Desconocido')}")
+        if names:
+            st.text("Nombres que este equipo resolvió a esta IP: " + ", ".join(names[:8])
+                    + (f" (+{len(names) - 8})" if len(names) > 8 else ""))
+        else:
+            st.caption("Sin nombres en la caché DNS local de Windows (se vacía con el tiempo y al reiniciar). "
+                       "Atalaya no consulta servidores externos.")
+        a, b, c, d, e = st.columns(5)
+        a.metric("Conexiones", len(conns))
+        b.metric("Procesos", len({network.process_label(row) for row in conns}))
+        c.metric("Bloqueos del firewall", len(blocked))
+        d.metric("Inicios de sesión", len(logons))
+        e.metric("Alertas", len(alerts))
+        if conns:
+            ports = sorted({row.get("rport") if row.get("raddr") == ip else row.get("lport") for row in conns} - {None})
+            seen = sorted(str(row["ts"]) for row in conns)
+            st.text("Procesos: " + ", ".join(sorted({network.process_label(row) for row in conns}))[:400])
+            st.text("Puertos y servicios: " + ", ".join(f"{port} ({network.service(port)})" for port in ports[:15]))
+            st.text(f"Primera vez: {format_local_datetime(seen[0])} · última vez: {format_local_datetime(seen[-1])} "
+                    "(en la ventana temporal)")
+        if ssh:
+            st.text(f"SSH: {len(ssh)} observación(es) con esta IP.")
+        for alert in alerts[:5]:
+            _link("pages/2_Alertas.py", f"{_severity_name(alert['severity'])} · alerta \\#{alert['id']} · {alert['rule_id']} · "
+                  f"{_plain(alert['title'])}", ":material/notification_important:", query_params={"id": alert["id"]})
+        _link("pages/13_Buscar.py", f"Ver todo lo registrado sobre {ip}", ":material/search:", query_params={"q": ip})
+
+
 # --- Conexiones ------------------------------------------------------------------------------------
 
 def connections():
@@ -179,9 +239,25 @@ def connections():
                                           help="Conexiones entre programas del propio equipo (127.0.0.1)")
     include_closing = controls[3].toggle("Cerrándose", value=False, key="net-closing",
                                          help="Incluye TIME_WAIT, CLOSE_WAIT y similares")
+    ip_filter = st.text_input("Filtrar por IP", value=st.query_params.get("ip", ""), icon=":material/filter_alt:",
+                              placeholder="Una IP completa (203.0.113.7) o parte de ella (192.168.)",
+                              help="Filtra todas las pestañas por IP remota o local. Con una IP completa se muestra su perfil.")
+    needle = ip_filter.strip()
+    if needle != st.query_params.get("ip", ""):
+        if needle:
+            st.query_params["ip"] = needle
+        elif "ip" in st.query_params:
+            del st.query_params["ip"]
     rows = query.connections(since, latest_only=(mode != "Toda la ventana"))
+    if needle:
+        total = len(rows)
+        rows = [row for row in rows if _ip_matches(row, needle)]
+        st.caption(f"Filtrando por «{_plain(needle)}»: {len(rows)} de {total} conexiones.")
+    if _valid_ip(needle):
+        _ip_profile(query, _valid_ip(needle), since)
     if not rows:
-        return empty("No hay conexiones en la ventana. Pulse Recolectar en la barra lateral.")
+        return empty("No hay conexiones que coincidan. Pruebe con «Toda la ventana» o quite el filtro de IP."
+                     if needle else "No hay conexiones en la ventana. Pulse Recolectar en la barra lateral.")
     flows = network.active_flows(rows, include_loopback, include_closing)
     if direction != "Ambos":
         flows = [row for row in flows if row["direction"] == ("inbound" if direction == "Entrantes" else "outbound")]
@@ -232,6 +308,8 @@ def connections():
             empty("No hay conexiones salientes con estos filtros.")
     with tab_time:
         all_rows = query.connections(since) if mode != "Toda la ventana" else rows
+        if needle:
+            all_rows = [row for row in all_rows if _ip_matches(row, needle)]
         points = network.timeline_rows(all_rows, include_loopback)
         if len({point["ts"] for point in points}) > 1:
             frame = pd.DataFrame(points)
@@ -250,7 +328,9 @@ def connections():
                    "alcance": network.SCOPE_LABELS.get(network.scope(row["raddr"]), "?"), "local": f"{row.get('laddr')}:{row.get('lport')}",
                    "estado": row.get("state"), "sospechosa": "⚠" if network.is_suspicious(row, settings.suspicious_ports) else "",
                    "ruta": row.get("process_path"), "hora": row.get("ts")} for row in flows]
-        table(detail, key="connections")
+        st.caption("Seleccione una conexión para ver el perfil de su IP remota.")
+        table(detail, key="connections",
+              on_pick=lambda row: _valid_ip(row.get("remoto")) and _ip_profile(query, _valid_ip(row["remoto"]), since))
     with st.expander("Sesiones y agentes SSH", icon=":material/terminal:"):
         ssh_rows = query.rows("ssh_observations", since, 1000)
         if ssh_rows:
