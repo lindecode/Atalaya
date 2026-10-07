@@ -9,7 +9,7 @@ import pandas as pd
 DATE_COLUMNS = {
     "ts", "bucket", "hora", "created_at", "updated_at", "checked_at",
     "started_at", "finished_at", "first_seen", "last_seen", "ended_at",
-    "last_missing_at", "inicio_observado", "última_observación", "fin_inferido",
+    "last_missing_at", "inicio_observado", "última_observación", "fin_inferido", "fecha",
 }
 DISPLAY_FORMAT = "%d/%m/%Y %H:%M:%S"
 COLUMN_FORMAT = "DD/MM/YYYY HH:mm:ss"  # the same format for st.column_config.DatetimeColumn

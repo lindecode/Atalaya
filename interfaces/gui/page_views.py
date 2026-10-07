@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import ipaddress
 import json
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
 import pandas as pd
 import plotly.express as px
@@ -18,7 +18,7 @@ from interfaces.gui.components import (SEVERITY_COLORS, SEVERITY_ICONS, SEVERITY
 from interfaces.gui.chart_data import hourly_frame
 from interfaces.gui.rule_help import OPEN_STATUSES, RULES, STATUS_NAMES
 from interfaces.gui.table_formatting import COLUMN_FORMAT, format_local_datetime, local_series, to_local_datetime
-from interfaces.gui.table_views import EVENT_NAMES, VIEWS, evidence_view
+from interfaces.gui.table_views import EVENT_NAMES, FILE_ACTIONS, VIEWS, evidence_view
 
 
 FLOW_LEGEND = [("Entrante", network.COLORS["inbound"]), ("Saliente", network.COLORS["outbound"]),
@@ -179,107 +179,250 @@ def overview():
 
 # --- Operaciones en vivo -------------------------------------------------------------------------
 
-def _age_label(value: str | None) -> tuple[str, str]:
+LIVE_TYPES = {"alerta": "🚨 Alertas", "conexión": "🌐 Conexiones", "acceso": "🔑 Accesos", "archivo": "📁 Archivos",
+              "firewall": "🧱 Firewall", "ssh": "🖥️ SSH"}
+LIVE_LEVELS = {"critical": "🔴 Crítico", "high": "🟠 Alto", "medium": "🟡 Atención", "low": "⚪ Bajo", "info": "· Info"}
+LIVE_ORIGINS = {"outbound": "Saliente", "inbound": "Entrante", "listen": "En escucha", "session": "Sesión",
+                "service": "Servicio", "DROP": "Bloqueado", "ALLOW": "Permitido", "scan": "Escaneo",
+                "watchdog": "Vigilancia en vivo", **FILE_ACTIONS, **{str(key): value for key, value in EVENT_NAMES.items()}}
+LIVE_SPANS = {"Últimos 15 min": 0.25, "Última hora": 1, "Últimas 6 h": 6, "Ventana de la barra lateral": None}
+RUN_KINDS = {"collect": "Recolección", "analyze": "Análisis", "watch": "Vigilancia de archivos", "cycle": "Ciclo"}
+RUN_STATES = {"ok": "✅ Correcta", "partial": "🟡 Parcial", "error": "❌ Error", "running": "🔄 En curso",
+              "skipped": "⏭️ Omitida"}
+COLLECTOR_NAMES = {
+    "psutil_connections": "Conexiones de red", "psutil_processes": "Procesos", "security_events": "Accesos (Security)",
+    "rdp_events": "Escritorio remoto (RDP)", "recent_files": "Archivos recientes", "windows_persistence": "Persistencia",
+    "windows_firewall": "Firewall de Windows", "sysmon_network": "Sysmon · red", "sysmon_files": "Sysmon · archivos",
+    "sysmon_process_registry": "Sysmon · procesos y registro", "ssh_observability": "SSH", "watchdog": "Vigilancia de archivos",
+}
+FRESHNESS = {"ok": ("Al día", "#22C55E"), "late": ("Con retraso", "#EAB308"), "stale": ("Desactualizada", "#EF4444"),
+             "none": ("Sin revisar", "#94A3B8"), "off": ("No disponible", "#94A3B8")}
+# Which collectors check each source; alerts are checked by every analysis
+SOURCE_COLLECTORS = {
+    "Procesos": ("psutil_processes",), "Conexiones": ("psutil_connections", "sysmon_network"),
+    "Accesos": ("security_events", "rdp_events"), "Archivos": ("recent_files", "sysmon_files", "watchdog"),
+    "Firewall": ("windows_firewall",), "SSH": ("ssh_observability",),
+}
+
+
+def _source_checks(runs: list[dict], last_data: dict[str, str | None]) -> list[tuple[str, str, str, str]]:
+    """(source, state, 'revisada …', 'último dato …') per source: quiet sources are fine, unavailable ones say so."""
+    rows = []
+    for source in (*SOURCE_COLLECTORS, "Alertas"):
+        data_age = _age_label(last_data.get(source))[0]
+        data_text = "sin datos aún" if data_age == "Sin datos" else f"último dato {data_age}"
+        if source == "Alertas":
+            run = next((run for run in runs if run["kind"] == "analyze" and run["status"] != "running"), None)
+        else:
+            run = next((run for run in runs if run["status"] != "running"
+                        and any(name in (run.get("collectors") or {}) for name in SOURCE_COLLECTORS[source])), None)
+        if run is None:
+            rows.append((source, "none", "no revisada recientemente", data_text))
+            continue
+        statuses = [run["collectors"][name].get("status") for name in SOURCE_COLLECTORS.get(source, ())
+                    if name in (run.get("collectors") or {})]
+        # Files are only scanned by the standard profile, which runs every N cycles
+        interval = _cycle_config()[1] if source == "Archivos" else None
+        checked, state = _age_label(run.get("finished_at") or run["started_at"], interval)
+        if statuses and not any(status in {"ok", "partial"} for status in statuses):
+            rows.append((source, "off", f"comprobada {checked}", "requiere permisos o no existe"))
+        else:
+            rows.append((source, state, f"revisada {checked}", data_text))
+    return rows
+
+
+def _seconds_since(value: str | None) -> int | None:
     if not value:
-        return "Sin datos", "inactive"
+        return None
     observed = datetime.fromisoformat(value)
     if observed.tzinfo is None:
         observed = observed.replace(tzinfo=datetime.now().astimezone().tzinfo)
-    seconds = max(0, int((datetime.now().astimezone() - observed.astimezone()).total_seconds()))
-    if seconds < 60:
-        text = f"hace {seconds} s"
-    elif seconds < 3600:
-        text = f"hace {seconds // 60} min"
+    return max(0, int((datetime.now().astimezone() - observed.astimezone()).total_seconds()))
+
+
+def _age_label(value: str | None, interval: int | None = None) -> tuple[str, str]:
+    """('hace 3 min', state) with the state measured against how often that thing is expected (default: the cycle)."""
+    seconds = _seconds_since(value)
+    if seconds is None:
+        return "Sin datos", "none"
+    text = (f"hace {seconds} s" if seconds < 60 else f"hace {seconds // 60} min" if seconds < 3600
+            else f"hace {seconds // 3600} h" if seconds < 172_800 else f"hace {seconds // 86_400} días")
+    expected = interval or _cycle_seconds()
+    return text, "ok" if seconds <= 2 * expected else "late" if seconds <= 6 * expected else "stale"
+
+
+@st.cache_data(ttl=60, show_spinner=False)
+def _cycle_config() -> tuple[int, int]:
+    """(seconds between cycles, seconds between standard-profile cycles) from the automation settings."""
+    from bootstrap import build_automation_config_service
+    try:
+        config = build_automation_config_service().load()
+        return int(config.cycle_minutes) * 60, int(config.cycle_minutes * config.standard_every_cycles) * 60
+    except Exception:
+        return 300, 3600
+
+
+def _cycle_seconds() -> int:
+    return _cycle_config()[0]
+
+
+def _live_health(runs: list[dict]):
+    """One sentence that says whether Atalaya is watching, and what to do if it is not."""
+    cycle_min = _cycle_seconds() // 60
+    current = next((run for run in runs if run["status"] == "running"), None)
+    last_collect = next((run for run in runs if run["kind"] == "collect" and run["status"] != "running"), None)
+    if current:
+        beat, state = _age_label(current.get("heartbeat_at") or current["started_at"])
+        if state == "stale":
+            st.error(f"La {RUN_KINDS.get(current['kind'], current['kind']).lower()} #{current['id']} lleva sin dar "
+                     f"señales desde {beat}: puede haberse quedado bloqueada. Revise Estado o reinicie Atalaya.",
+                     icon=":material/error:")
+        else:
+            st.info(f"{RUN_KINDS.get(current['kind'], current['kind'])} en curso (#{current['id']}) · última señal {beat}.",
+                    icon=":material/sync:")
+        return
+    if not last_collect:
+        st.warning("Todavía no hay recolecciones. Pulse «Recolectar» en la barra lateral para tomar la primera foto del "
+                   "equipo.", icon=":material/info:")
+        return
+    age, state = _age_label(last_collect.get("finished_at") or last_collect["started_at"])
+    partial = " Algunas fuentes no estuvieron disponibles (ver detalle abajo)." if last_collect["status"] == "partial" else ""
+    if state == "ok":
+        st.success(f"Atalaya está vigilando: última recolección {age} (el ciclo automático corre cada {cycle_min} min)."
+                   + partial, icon=":material/check_circle:")
+    elif state == "late":
+        st.warning(f"La última recolección fue {age}, más de lo esperado para un ciclo de {cycle_min} min." + partial,
+                   icon=":material/schedule:")
     else:
-        text = f"hace {seconds // 3600} h"
-    return text, "fresh" if seconds <= 120 else "delayed" if seconds <= 900 else "stale"
+        st.error(f"Sin recolecciones recientes: la última fue {age}. El ciclo automático no parece estar activo; "
+                 "lo que ve abajo no es el estado actual. Pulse «Recolectar» en la barra lateral o active el ciclo en "
+                 "Estado → Configuración de análisis automático.", icon=":material/warning:")
+
+
+def _live_event_links(row: dict):
+    """From a selected event to the page that explains it."""
+    kind, summary = row.get("tipo"), str(row.get("resumen") or "")
+    if kind == "alerta":
+        _link("pages/2_Alertas.py", f"Abrir la alerta \\#{row['entidad_id']}", ":material/notification_important:",
+              query_params={"id": row["entidad_id"]})
+    address = summary.split("→")[-1].strip().rsplit(":", 1)[0] if "→" in summary else ""
+    if kind in {"conexión", "ssh"} and _valid_ip(address):
+        _link("pages/3_Conexiones.py", f"Ver la IP {_valid_ip(address)} en Conexiones", ":material/hub:",
+              query_params={"ip": _valid_ip(address)})
+    term = _valid_ip(address) or (summary if kind == "archivo" else summary.split(" desde ")[-1])
+    if term and len(term) >= 2:
+        _link("pages/13_Buscar.py", f"Buscar «{_plain(term[:60])}»", ":material/search:", query_params={"q": term[:200]})
 
 
 def live_operations():
     _, _, query, since = context()
-    hero("📡 Operaciones en vivo", "Estado actual y eventos recientes. El LLM no se ejecuta durante la actualización.")
-    controls = st.columns([2, 2, 5])
-    enabled = controls[0].toggle("Actualización automática", value=True, key="live-enabled")
-    seconds = controls[1].selectbox("Intervalo", [2, 5, 10, 30], index=1, key="live-seconds",
-                                    disabled=not enabled, format_func=lambda value: f"{value} segundos")
-    controls[2].caption("Las consultas están limitadas y leen solo el estado actual y los 200 eventos más recientes.")
-    event_types = st.multiselect("Tipos visibles", ["alerta", "conexión", "acceso", "archivo", "firewall", "ssh"],
-                                 default=["alerta", "conexión", "acceso", "archivo", "firewall", "ssh"],
-                                 key="live-types")
+    hero("📡 En vivo", "¿Atalaya está vigilando ahora mismo? ¿Qué acaba de pasar? Se actualiza sola; no usa el LLM.")
+    controls = st.columns([2, 2, 3], vertical_alignment="bottom")
+    enabled = controls[0].toggle("Actualización automática", value=True, key="live-enabled",
+                                 help="Desactívela para examinar un evento sin que la lista se mueva.")
+    seconds = controls[1].selectbox("Cada", [5, 10, 30, 60], index=1, key="live-seconds", disabled=not enabled,
+                                    format_func=lambda value: f"{value} segundos")
+    span_label = controls[2].selectbox("Periodo", list(LIVE_SPANS), index=1, key="live-span")
+    every = f"{seconds}s" if enabled else None
 
-    @st.fragment(run_every=f"{seconds}s" if enabled else None)
+    @st.fragment(run_every=every)
     def current_state():
+        runs = query.live_runs(15)
+        _live_health(runs)
         status = query.live_status()
         alerts = status["alerts"]
-        severe = alerts.get("critical", 0) + alerts.get("high", 0)
-        process_age, _ = _age_label(status["process_ts"])
-        connection_age, _ = _age_label(status["connection_ts"])
         a, b, c, d, e = st.columns(5)
-        a.metric("Alertas críticas/altas", severe)
-        b.metric("Procesos", status["processes"], help=f"Última observación: {process_age}")
-        c.metric("RAM observada", f"{status['memory_bytes'] / (1024 ** 3):.1f} GB")
-        d.metric("Conexiones actuales", status["connections"], help=f"Última observación: {connection_age}")
-        e.metric("Puertos en escucha", status["listeners"])
+        a.metric("Alertas graves", alerts.get("critical", 0) + alerts.get("high", 0),
+                 help="Alertas nuevas o analizadas de severidad crítica o alta. Revíselas en Alertas.")
+        b.metric("Procesos", status["processes"], help="Procesos activos en la última foto de procesos.")
+        c.metric("Memoria privada", f"{status['memory_bytes'] / (1024 ** 3):.1f} GB",
+                 help="Suma de la memoria privada de todos los procesos en la última foto (incluye memoria paginada, "
+                      "por eso puede superar la RAM física).")
+        d.metric("Conexiones", status["connections"], help="Sin contar puertos en escucha ni conexiones cerrándose.")
+        e.metric("En escucha", status["listeners"], help="Programas que aceptan conexiones. Vea su alcance en Conexiones.")
 
-        runs = query.live_runs(10)
-        last = runs[0] if runs else None
-        st.subheader("Ejecuciones y recolectores", divider="gray")
-        if last:
-            heartbeat, heartbeat_state = _age_label(last.get("heartbeat_at"))
-            running = last["status"] == "running"
-            if running and heartbeat_state == "stale":
-                st.error(f"La ejecución #{last['id']} ({last['kind']}) parece bloqueada: latido {heartbeat}.")
-            elif running:
-                st.info(f"Ejecución #{last['id']} ({last['kind']}) activa · latido {heartbeat}.")
-            elif last["status"] in {"error", "partial"}:
-                st.warning(f"Última ejecución #{last['id']} ({last['kind']}): {last['status']} · terminó {heartbeat}.")
-            else:
-                st.success(f"Última ejecución #{last['id']} ({last['kind']}): {last['status']} · terminó {heartbeat}.")
-            run_rows = [{"ID": run["id"], "Tipo": run["kind"], "Estado": run["status"],
-                         "Inicio": format_local_datetime(run["started_at"]),
-                         "Fin": format_local_datetime(run["finished_at"]),
-                         "Administrador": "Sí" if run["is_admin"] else "No"} for run in runs]
-            with st.expander("Historial y detalle de recolectores"):
-                st.dataframe(pd.DataFrame(run_rows), hide_index=True, width="stretch", key="live-runs")
-                latest_collect = next((run for run in runs if run["kind"] == "collect" and run["collectors"]), None)
-                if latest_collect:
-                    collector_rows = []
-                    for name, detail in latest_collect["collectors"].items():
-                        collector_rows.append({"Recolector": name, "Estado": detail.get("status", "?"),
-                                               "Encontrados": detail.get("found", 0),
-                                               "Insertados": detail.get("inserted", 0),
-                                               "Avisos": "; ".join(map(str, detail.get("warnings", [])))})
-                    st.dataframe(pd.DataFrame(collector_rows), hide_index=True, width="stretch",
-                                 key="live-collectors")
-        else:
-            empty("Todavía no hay ejecuciones registradas.")
+        st.markdown("**Fuentes** · cuándo se revisó cada una por última vez")
+        last_data = {row["fuente"]: row["ultima_observacion"] for row in query.live_freshness()}
+        checks = _source_checks(runs, last_data)
+        for column, (source, state, checked, data) in zip(st.columns(len(checks)), checks):
+            label, color = FRESHNESS[state]
+            # Literal source names and computed ages only: nothing collected reaches this HTML
+            column.markdown(f'<div class="nl-tile" style="--c:{color}"><span>{source}</span><b>{label}</b>'
+                            f'<small>{checked}</small><small>{data}</small></div>', unsafe_allow_html=True)
+        st.caption(f"«Al día»: revisada en los últimos 2 ciclos ({2 * _cycle_seconds() // 60} min); que no haya datos "
+                   "nuevos es normal. «No disponible»: la fuente necesita permisos o no existe en este equipo "
+                   f"(vea Primeros pasos). Archivos se revisa con el perfil standard, cada {_cycle_config()[1] // 60} min.")
 
-        st.subheader("Frescura de fuentes", divider="gray")
-        freshness = []
-        for source in query.live_freshness():
-            age, state = _age_label(source["ultima_observacion"])
-            freshness.append({"Fuente": source["fuente"], "Estado": state, "Actualizada": age,
-                              "Fecha": format_local_datetime(source["ultima_observacion"])})
-        st.dataframe(pd.DataFrame(freshness), hide_index=True, width="stretch", key="live-freshness",
-                     column_config={"Estado": st.column_config.TextColumn(help="fresh ≤2 min; delayed ≤15 min; stale >15 min")})
-
-        st.subheader("Flujo reciente", divider="gray")
-        events = query.live_events(since, 200)
-        if not events:
-            empty("Todavía no hay eventos en la ventana seleccionada.")
-        else:
-            events = [event for event in events if event["tipo"] in event_types]
-            if not events:
-                return empty("No hay eventos de los tipos seleccionados.")
-            frame = pd.DataFrame(events)
-            frame["ts"] = local_series(frame["ts"])
-            frame = frame.rename(columns={"ts": "Fecha", "tipo": "Tipo", "nivel": "Nivel",
-                                          "resumen": "Resumen", "origen": "Origen", "entidad_id": "ID"})
-            st.dataframe(frame, hide_index=True, width="stretch", key="live-events",
-                         column_config={"Fecha": st.column_config.DatetimeColumn(format=COLUMN_FORMAT)})
-            st.caption(f"Mostrando {len(events)} eventos recientes · fechas en hora local del equipo.")
+        pulse = query.live_activity(_span_since(LIVE_SPANS[span_label], since))
+        if pulse:
+            frame = pd.DataFrame(pulse)
+            frame["minuto"] = local_series(frame["minuto"] + ":00+00:00")
+            frame["tipo"] = frame["tipo"].map(LIVE_TYPES)
+            figure = px.bar(frame, x="minuto", y="total", color="tipo", labels={"minuto": "", "total": "", "tipo": ""})
+            figure.update_traces(width=60_000 * 0.8,
+                                 hovertemplate="%{x|%d/%m %H:%M} · %{y} eventos<extra>%{fullData.name}</extra>")
+            start = to_local_datetime(_span_since(LIVE_SPANS[span_label], since))
+            figure.update_xaxes(range=[start, datetime.now()])
+            st.markdown("**Pulso de actividad** · eventos registrados por minuto (cada recolección aparece como un pico)")
+            chart(_time_axis(_style(figure, 220)), key="live-pulse")
 
     current_state()
+
+    st.subheader("Qué acaba de pasar", divider="gray")
+    f1, f2, f3 = st.columns([3, 3, 2], vertical_alignment="bottom")
+    types = f1.multiselect("Tipos", list(LIVE_TYPES), default=[name for name in LIVE_TYPES if name != "archivo"],
+                           format_func=LIVE_TYPES.get, key="live-types", placeholder="Todos",
+                           help="Archivos se oculta por defecto: el escaneo genera miles de eventos.")
+    text = f2.text_input("Buscar", key="live-text", placeholder="IP, proceso, ruta, usuario…", icon=":material/search:")
+    relevant = f3.toggle("Solo lo relevante", key="live-relevant", help="Oculta los eventos de nivel informativo.")
+
+    @st.fragment(run_every=every)
+    def recent_events():
+        events = query.live_events(_span_since(LIVE_SPANS[span_label], since), 300, types or list(LIVE_TYPES),
+                                   text, relevant)
+        if not events:
+            return empty("No hay eventos con estos filtros en el periodo elegido.")
+        rows = [{**event, "Fecha": event["ts"], "Tipo": LIVE_TYPES.get(event["tipo"], event["tipo"]),
+                 "Nivel": LIVE_LEVELS.get(event["nivel"], event["nivel"]),
+                 "Qué pasó": (f"{FILE_ACTIONS.get(event['origen'], event['origen'])}: {event['resumen']}"
+                              if event["tipo"] == "archivo" else event["resumen"]),
+                 "Detalle": LIVE_ORIGINS.get(str(event["origen"]), event["origen"])} for event in events]
+        st.caption(f"{len(rows)} evento(s), del más reciente al más antiguo"
+                   + (" (máximo 300: acote con los filtros)." if len(rows) >= 300 else "."))
+        shown = [{key: row[key] for key in ("Fecha", "Tipo", "Nivel", "Qué pasó", "Detalle")} for row in rows]
+        table(shown, key="live-events", windowed=False, searchable=False,
+              on_pick=lambda picked: _live_event_links(rows[shown.index(picked)] if picked in shown else picked))
+
+    recent_events()
+
+    with st.expander("Historial de ejecuciones y estado de cada recolector", icon=":material/history:"):
+        runs = query.live_runs(15)
+        if not runs:
+            return empty("Todavía no hay ejecuciones registradas.")
+        table([{"#": run["id"], "Tipo": RUN_KINDS.get(run["kind"], run["kind"]),
+                "Estado": RUN_STATES.get(run["status"], run["status"]), "started_at": run["started_at"],
+                "finished_at": run["finished_at"], "Administrador": bool(run["is_admin"])} for run in runs],
+              key="live-runs", windowed=False, searchable=False, detail=False,
+              columns={"started_at": st.column_config.DatetimeColumn("Inicio", format=COLUMN_FORMAT),
+                       "finished_at": st.column_config.DatetimeColumn("Fin", format=COLUMN_FORMAT),
+                       "#": st.column_config.NumberColumn(format="%d")})
+        latest_collect = next((run for run in runs if run["kind"] == "collect" and run["collectors"]), None)
+        if latest_collect:
+            st.markdown(f"**Recolectores en la recolección #{latest_collect['id']}**")
+            table([{"Recolector": COLLECTOR_NAMES.get(name, name),
+                    "Estado": RUN_STATES.get(detail.get("status"), detail.get("status", "?")),
+                    "Encontrados": detail.get("found", 0), "Nuevos": detail.get("inserted", 0),
+                    "Avisos": "; ".join(map(str, detail.get("warnings", [])))[:300]}
+                   for name, detail in latest_collect["collectors"].items()],
+                  key="live-collectors", windowed=False, searchable=False, detail=False)
+
+
+def _span_since(hours: float | None, window_since: str) -> str:
+    """Start of the chosen period; never earlier than the sidebar window."""
+    if hours is None:
+        return window_since
+    start = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat()
+    return max(start, window_since)
 
 
 # --- Actividad (antes Resumen) ---------------------------------------------------------------------

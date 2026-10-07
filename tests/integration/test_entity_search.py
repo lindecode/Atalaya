@@ -89,3 +89,13 @@ def test_connections_filter_by_ip_shows_its_profile(tmp_path, monkeypatch):
     assert any("c2.example.test" in element.value for element in app.text)
     assert {metric.label: metric.value for metric in app.metric}["Alertas"] == "1"
     assert any("2 de 3 conexiones" in element.value for element in app.caption)  # same run, any age
+
+
+def test_live_page_says_whether_atalaya_is_watching(tmp_path, monkeypatch):
+    _seed(tmp_path, monkeypatch)
+    app = AppTest.from_file(ROOT / "interfaces/gui/pages/14_En_vivo.py", default_timeout=30).run()
+    assert not app.exception
+    # The seeded run never finishes, so the banner reports it as in progress
+    assert any(phrase in element.value for phrase in ("en curso", "vigilando", "Todavía no hay recolecciones")
+               for element in [*app.warning, *app.success, *app.error, *app.info])
+    assert any(element.value == "Qué acaba de pasar" for element in app.subheader)

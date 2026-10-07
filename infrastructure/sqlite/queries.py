@@ -11,6 +11,26 @@ ALLOWED_TABLES = {"connections", "auth_events", "file_events", "file_reputation"
 
 ROWS_LIMIT = 5000  # most recent rows per table and window that the GUI loads
 ENTITY_LIMIT = 200
+# Live timeline: one fixed SELECT per event type, each naming its columns (a UNION takes the names of
+# whichever SELECT comes first) and binding `since`
+LIVE_SOURCES = {
+    "alerta": "SELECT ts, 'alerta' tipo, severity nivel, title resumen, rule_id origen, id entidad_id FROM alerts WHERE ts>=?",
+    "conexión": """SELECT ts, 'conexión' tipo, CASE WHEN direction='inbound' THEN 'medium' ELSE 'info' END nivel,
+        COALESCE(process_name,'?') || ' → ' || COALESCE(raddr,laddr,'?') || ':' || COALESCE(rport,lport,'?') resumen,
+        COALESCE(direction,source) origen, id entidad_id FROM connections WHERE ts>=? AND state NOT IN ('TIME_WAIT','CLOSE_WAIT')""",
+    "acceso": """SELECT ts, 'acceso' tipo, CASE WHEN event_id IN (4625,4771,1102) THEN 'medium' ELSE 'info' END nivel,
+        COALESCE(target_user,'?') || ' desde ' || COALESCE(source_ip,source_host,'local') resumen,
+        CAST(event_id AS TEXT) origen, id entidad_id FROM auth_events WHERE ts>=?""",
+    "archivo": "SELECT ts, 'archivo' tipo, 'info' nivel, path resumen, action origen, id entidad_id FROM file_events WHERE ts>=?",
+    "firewall": """SELECT ts, 'firewall' tipo, CASE WHEN lower(action) IN ('drop','block') THEN 'medium' ELSE 'info' END nivel,
+        COALESCE(src_ip,'?') || ' → ' || COALESCE(dst_ip,'?') || ':' || COALESCE(dst_port,'?') resumen,
+        COALESCE(action,'?') origen, id entidad_id FROM firewall_events WHERE ts>=?""",
+    "ssh": """SELECT ts, 'ssh' tipo, CASE WHEN direction='inbound' THEN 'medium' ELSE 'info' END nivel,
+        COALESCE(process_name,'ssh') || ' → ' || COALESCE(remote_address,'local') resumen, kind origen, id entidad_id
+        FROM ssh_observations WHERE ts>=?""",
+}
+LIVE_TABLES = {"alerta": "alerts", "conexión": "connections", "acceso": "auth_events", "archivo": "file_events",
+               "firewall": "firewall_events", "ssh": "ssh_observations"}
 # table -> (window column or None for inventories, searchable columns); names are code, never user input
 ENTITY_SOURCES = {
     "alerts": ("ts", ("title", "evidence")),
@@ -172,35 +192,36 @@ class SQLiteQueryRepository:
             result.append(item)
         return result
 
-    def live_events(self, since: str, limit: int = 200) -> list[dict]:
-        """Recent heterogeneous evidence as a bounded timeline; values remain data, never executable markup."""
-        limit = min(max(int(limit), 1), 500)
-        sql = """
-        SELECT * FROM (
-          SELECT ts, 'alerta' tipo, severity nivel, title resumen, rule_id origen, id entidad_id FROM alerts WHERE ts>=?
-          UNION ALL
-          SELECT ts, 'conexión', CASE WHEN direction='inbound' THEN 'medium' ELSE 'info' END,
-                 COALESCE(process_name,'?') || ' → ' || COALESCE(raddr,laddr,'?') || ':' || COALESCE(rport,lport,'?'),
-                 COALESCE(direction,source), id FROM connections
-                 WHERE ts>=? AND state NOT IN ('TIME_WAIT','CLOSE_WAIT')
-          UNION ALL
-          SELECT ts, 'acceso', CASE WHEN event_id IN (4625,4771) THEN 'medium' ELSE 'info' END,
-                 COALESCE(target_user,'?') || ' desde ' || COALESCE(source_ip,source_host,'local'),
-                 CAST(event_id AS TEXT), id FROM auth_events WHERE ts>=?
-          UNION ALL
-          SELECT ts, 'archivo', 'info', action || ': ' || path, source, id FROM file_events WHERE ts>=?
-          UNION ALL
-          SELECT ts, 'firewall', CASE WHEN lower(action) IN ('drop','block') THEN 'medium' ELSE 'info' END,
-                 COALESCE(src_ip,'?') || ' → ' || COALESCE(dst_ip,'?') || ':' || COALESCE(dst_port,'?'),
-                 COALESCE(action,'?'), id FROM firewall_events WHERE ts>=?
-          UNION ALL
-          SELECT ts, 'ssh', CASE WHEN direction='inbound' THEN 'medium' ELSE 'info' END,
-                 COALESCE(process_name,'ssh') || ' → ' || COALESCE(remote_address,'local'), kind, id
-                 FROM ssh_observations WHERE ts>=?
-        ) ORDER BY ts DESC LIMIT ?
+    def live_events(self, since: str, limit: int = 200, types=None, text: str | None = None,
+                    relevant_only: bool = False) -> list[dict]:
+        """Recent heterogeneous evidence as a bounded timeline; values remain data, never executable markup.
+
+        Type, level and text filters run in SQL, so a busy source (file scans) cannot hide the others.
         """
+        limit = min(max(int(limit), 1), 500)
+        selected = [name for name in LIVE_SOURCES if types is None or name in set(types)]
+        if not selected:
+            return []
+        sql = "SELECT * FROM (" + " UNION ALL ".join(LIVE_SOURCES[name] for name in selected) + ") WHERE 1=1"
+        params: list = [since] * len(selected)
+        if relevant_only:
+            sql += " AND nivel <> 'info'"
+        needle = " ".join(str(text or "").split())[:200]
+        if needle:
+            sql += " AND (resumen LIKE ? ESCAPE '\\' OR origen LIKE ? ESCAPE '\\')"
+            pattern = "%" + needle.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+            params += [pattern, pattern]
+        sql += " ORDER BY ts DESC LIMIT ?"
         with connect(self.settings.database_path, readonly=True) as db:
-            return [dict(row) for row in db.execute(sql, (since, since, since, since, since, since, limit))]
+            return [dict(row) for row in db.execute(sql, (*params, limit))]
+
+    def live_activity(self, since: str) -> list[dict]:
+        """Events per minute and type since `since` (UTC minute buckets) for the pulse chart."""
+        sql = " UNION ALL ".join(
+            f"SELECT substr(ts,1,16) minuto, '{name}' tipo, COUNT(*) total FROM {table} WHERE ts>=? GROUP BY minuto"
+            for name, table in LIVE_TABLES.items())
+        with connect(self.settings.database_path, readonly=True) as db:
+            return [dict(row) for row in db.execute(sql, [since] * len(LIVE_TABLES))]
 
     def open_alerts(self, limit: int = 8):
         with connect(self.settings.database_path, readonly=True) as db:

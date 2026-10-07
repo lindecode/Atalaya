@@ -43,6 +43,11 @@ _STYLE = """
 .nl-legend span::before {content: ""; display: inline-block; width: 10px; height: 10px; border-radius: 3px;
   margin-right: 6px; vertical-align: middle; background: var(--c);}
 [data-testid="stSidebarLogo"] {height: 3rem; max-width: 100%;}
+.nl-tile {border: 1px solid var(--nl-line); border-top: 3px solid var(--c); border-radius: 10px; padding: 8px 10px;
+  display: flex; flex-direction: column; gap: 1px; min-height: 96px;}
+.nl-tile span {font-size: .72rem; opacity: .7; text-transform: uppercase; letter-spacing: .03em;}
+.nl-tile b {color: var(--c); font-size: .95rem;}
+.nl-tile small {opacity: .75;}
 .nl-about {text-align: center;}
 .nl-about h3 {margin: 4px 0 0 0; padding: 0;}
 .nl-about small {opacity: .6;}
@@ -148,7 +153,7 @@ def _record(row: dict) -> list[dict]:
 
 
 def table(rows, *, key: str, columns: dict | None = None, view: str | None = None, windowed: bool = True,
-          detail: bool = True, on_pick=None):
+          detail: bool = True, on_pick=None, searchable: bool = True):
     """Searchable, sortable table. `view` names a table_views layout; selecting a row shows every stored field.
 
     `on_pick(row)` draws extra context for the selected row inside its detail panel; the row is also returned.
@@ -167,7 +172,7 @@ def table(rows, *, key: str, columns: dict | None = None, view: str | None = Non
         has_dates = bool(date_columns)
     available = list(pd.DataFrame(shown).columns)
     search = st.text_input("Buscar en la tabla", key=f"search-text-{key}", placeholder="Nombre, IP, ruta, estado…",
-                           label_visibility="collapsed", icon=":material/search:")
+                           label_visibility="collapsed", icon=":material/search:") if searchable else ""
     matches = [index for index, row in enumerate(shown) if filter_table_rows([row], search, available)]
     frame = pd.DataFrame([shown[index] for index in matches], columns=available)
     if search:

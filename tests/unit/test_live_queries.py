@@ -45,3 +45,28 @@ def test_live_queries_return_bounded_current_state_and_timeline(tmp_path):
     assert len(events) == 2 and {row["tipo"] for row in events} <= {"alerta", "conexión"}
     assert freshness["Procesos"] == now and freshness["Conexiones"] == now
     assert runs[0]["id"] == run and runs[0]["collectors"] == {}
+
+
+def test_live_filters_run_in_sql_so_busy_sources_cannot_hide_others(tmp_path):
+    database = tmp_path / "atalaya.db"
+    settings = replace(Settings(), database_path=database, reports_dir=tmp_path / "reports")
+    SQLiteRepository(settings).initialize()
+    now = datetime.now(timezone.utc).isoformat()
+    with connect(database) as db:
+        for index in range(50):  # a noisy file scan
+            db.execute("INSERT INTO file_events(ts,source,action,path,dedup_key) VALUES (?,?,?,?,?)",
+                       (now, "scan", "observed_new", f"C:/tmp/f{index}.txt", f"f{index}"))
+        db.execute("INSERT INTO auth_events(ts,channel,event_id,record_id,target_user,source_ip) VALUES (?,?,?,?,?,?)",
+                   (now, "Security", 4625, 1, "ana_admin", "203.0.113.9"))
+        db.execute("INSERT INTO auth_events(ts,channel,event_id,record_id,target_user,source_ip) VALUES (?,?,?,?,?,?)",
+                   (now, "Security", 4624, 2, "anaXadmin", "198.51.100.1"))
+    query = SQLiteQueryRepository(settings)
+    since = "2000-01-01T00:00:00+00:00"
+
+    assert [row["tipo"] for row in query.live_events(since, 5, types=["acceso"])] == ["acceso", "acceso"]
+    assert [row["resumen"] for row in query.live_events(since, 50, text="ana_admin")] == ["ana_admin desde 203.0.113.9"]
+    relevant = query.live_events(since, 50, relevant_only=True)
+    assert [row["origen"] for row in relevant] == ["4625"]
+    assert query.live_events(since, 50, types=[]) == []
+    activity = {row["tipo"]: row["total"] for row in query.live_activity(since)}
+    assert activity == {"archivo": 50, "acceso": 2}
