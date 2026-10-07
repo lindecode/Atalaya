@@ -36,6 +36,21 @@ escucha, el PID, la ruta del ejecutable y el archivo GGUF de su línea de comand
 No habilita las herramientas internas ni MCP de llama.cpp: las únicas herramientas
 disponibles siguen pasando por el harness de solo lectura de Atalaya.
 
+Si uno de los puertos configurados ya está ocupado por otro programa, Atalaya
+selecciona un puerto libre de loopback para esa sesión y dirige allí todos sus
+clientes. Nunca reutiliza un servicio solo porque responda en el puerto.
+
+Los paquetes construidos con llama.cpp incluyen `COMPONENTS.sha256.json`.
+Antes de arrancar, Atalaya verifica contra él `llama-server.exe` y el modelo
+correspondiente; una alteración bloquea su ejecución. El manifiesto detecta
+corrupción o cambios posteriores al empaquetado. Para autenticar también al
+distribuidor, firme el instalador con un certificado de firma de código.
+
+En Windows, Atalaya intenta incorporar cada servidor iniciado a un Job Object
+con `KILL_ON_JOB_CLOSE`: cuando el sistema permite la asignación, si Atalaya
+termina abruptamente Windows finaliza también el proceso de IA y evita
+servidores huérfanos. La salida normal conserva además el cierre explícito.
+
 ## Compatibilidad necesaria del modelo
 
 El modelo GGUF debe admitir chat, JSON estructurado y llamadas a herramientas.

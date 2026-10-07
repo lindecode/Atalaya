@@ -26,6 +26,7 @@ $Stage = Join-Path $Build 'Atalaya'
 $Dist = Join-Path $Root 'dist'
 $Cache = Join-Path $Packaging 'cache'
 $versions = Get-Content (Join-Path $Packaging 'versions.json') -Raw | ConvertFrom-Json
+$componentFiles = [ordered]@{}
 
 function Write-Paso([string]$texto) { Write-Host "`n==> $texto" -ForegroundColor Cyan }
 
@@ -99,9 +100,12 @@ if ($LlamaCppZip -or $ModeloGguf) {
     $llamaTarget = Join-Path $Runtime 'llama.cpp'
     New-Item -ItemType Directory -Force -Path $llamaTarget | Out-Null
     Copy-Item -Path (Join-Path $server.DirectoryName '*') -Destination $llamaTarget -Recurse -Force
+    $serverTarget = Join-Path $llamaTarget 'llama-server.exe'
     $modelTarget = Join-Path $Stage 'models'
     New-Item -ItemType Directory -Force -Path $modelTarget | Out-Null
     Copy-Item -LiteralPath $ModeloGguf -Destination (Join-Path $modelTarget 'atalaya.gguf')
+    $componentFiles['runtime/llama.cpp/llama-server.exe'] = (Get-FileHash -LiteralPath $serverTarget -Algorithm SHA256).Hash.ToLower()
+    $componentFiles['models/atalaya.gguf'] = (Get-FileHash -LiteralPath (Join-Path $modelTarget 'atalaya.gguf') -Algorithm SHA256).Hash.ToLower()
     $licenseTarget = Join-Path $Stage 'THIRD_PARTY_LICENSES'
     New-Item -ItemType Directory -Force -Path $licenseTarget | Out-Null
     Copy-Item -LiteralPath $LlamaCppLicense -Destination (Join-Path $licenseTarget 'llama.cpp.txt')
@@ -115,9 +119,17 @@ if ($LlamaCppZip -or $ModeloGguf) {
         $embeddingHash = (Get-FileHash -LiteralPath $EmbeddingGguf -Algorithm SHA256).Hash.ToLower()
         if ($embeddingHash -ne $EmbeddingSha256.ToLower()) { throw 'SHA-256 incorrecto para el modelo de embeddings' }
         Copy-Item -LiteralPath $EmbeddingGguf -Destination (Join-Path $modelTarget 'atalaya-embedding.gguf')
+        $componentFiles['models/atalaya-embedding.gguf'] = (Get-FileHash -LiteralPath (Join-Path $modelTarget 'atalaya-embedding.gguf') -Algorithm SHA256).Hash.ToLower()
         Copy-Item -LiteralPath $EmbeddingLicense -Destination (Join-Path $licenseTarget 'embedding-model.txt')
     }
     Write-Host '  llama-server.exe y modelo verificados e incluidos'
+}
+
+if ($componentFiles.Count) {
+    # El runtime vuelve a calcular estos hashes antes de ejecutar componentes incluidos.
+    @{ schema = 1; files = $componentFiles } | ConvertTo-Json -Depth 3 |
+        Set-Content -Path (Join-Path $Stage 'COMPONENTS.sha256.json') -Encoding utf8
+    Write-Host '  Manifiesto de integridad de componentes generado'
 }
 
 Write-Paso "Dependencias (requirements.lock.txt)"
