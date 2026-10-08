@@ -19,6 +19,12 @@ function Test-PythonRuntime([string]$exe) {
     return $LASTEXITCODE -eq 0
 }
 
+function Test-Pip([string]$exe) {
+    $ErrorActionPreference = 'Continue'   # en PowerShell 5.1, redirigir stderr con 'Stop' lo convierte en error
+    & $exe -m pip --version *> $null
+    return $LASTEXITCODE -eq 0
+}
+
 function Find-BasePython {
     # Python >= 3.11 (la herramienta usa tomllib). Se ignora el alias de la Microsoft Store.
     $ErrorActionPreference = 'Continue'   # en PowerShell 5.1, 2>$null con 'Stop' convierte stderr en error
@@ -79,6 +85,16 @@ if (Test-BundledRuntime) {
     Write-Ok "Incluidas en el paquete (runtime\); no se descarga nada"
 } else {
     if ($SinRed) { throw "SinRed requiere un runtime ya preparado; no se pueden descargar dependencias para .venv." }
+    # Un .venv copiado de otra carpeta o a medio borrar conserva python.exe pero puede no traer pip:
+    # se repone con ensurepip, que viene con Python y no usa la red
+    if (-not (Test-Pip $python)) {
+        Write-Aviso "El entorno no tiene pip (copiado de otra carpeta o incompleto); se repone con ensurepip"
+        & $python -m ensurepip --upgrade --default-pip
+        if ($LASTEXITCODE -or -not (Test-Pip $python)) {
+            throw "No se pudo reponer pip. Elimine la carpeta .venv y vuelva a ejecutar el instalador."
+        }
+        Write-Ok "pip repuesto"
+    }
     & $python -m pip install --disable-pip-version-check -r (Join-Path $Root 'requirements.lock.txt')
     if ($LASTEXITCODE) { throw "Fallo la instalacion de dependencias" }
     Write-Ok "Dependencias instaladas"

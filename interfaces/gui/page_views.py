@@ -1,24 +1,29 @@
 from __future__ import annotations
 
-from datetime import datetime
+import ipaddress
+import json
+from datetime import datetime, timedelta, timezone
 
 import pandas as pd
 import plotly.express as px
 import streamlit as st
 
+from domain.rules.catalog import ALL_RULES
 from infrastructure.clock import SystemClock
+from infrastructure.sqlite.queries import ENTITY_LIMIT, ROWS_LIMIT
 from interfaces.gui import network
-from interfaces.gui.common import context
-from interfaces.gui.components import (SEVERITY_COLORS, SEVERITY_NAMES, chart, empty, hero, legend, risk_banner,
-                                       severity_label, table)
+from interfaces.gui.common import context, refresh_data, selected_window_hours
+from interfaces.gui.components import (SEVERITY_COLORS, SEVERITY_ICONS, SEVERITY_NAMES, chart, empty, hero, legend,
+                                       page_link, plain_label, risk_banner, search_links, severity_label, table)
+from interfaces.gui.chart_data import hourly_frame
+from interfaces.gui.rule_help import OPEN_STATUSES, RULES, STATUS_NAMES
+from interfaces.gui.table_formatting import COLUMN_FORMAT, format_local_datetime, local_series, to_local_datetime
+from interfaces.gui.table_views import EVENT_NAMES, FILE_ACTIONS, VIEWS, evidence_view
 
 
 FLOW_LEGEND = [("Entrante", network.COLORS["inbound"]), ("Saliente", network.COLORS["outbound"]),
                ("Proceso local", network.COLORS["process"]), ("IP de Internet", network.COLORS["public"]),
                ("IP de red local/VPN", network.COLORS["private"]), ("Sospechosa", network.COLORS["suspicious"])]
-EVENT_NAMES = {4624: "Inicio de sesión", 4625: "Inicio fallido", 4648: "Credenciales explícitas", 4672: "Privilegios especiales",
-               4698: "Tarea programada creada", 4720: "Usuario creado", 4732: "Añadido a grupo", 1102: "Log de auditoría borrado",
-               1149: "Conexión RDP"}
 
 
 def _local(ts: str | None) -> str:
@@ -27,18 +32,90 @@ def _local(ts: str | None) -> str:
     return datetime.fromisoformat(ts).astimezone().strftime("%d/%m %H:%M")
 
 
-def _link(page: str, label: str, icon: str):
-    """Link to another page; when a page runs on its own (tests, direct run) there is no navigation to link to."""
-    try:
-        st.page_link(page, label=label, icon=icon)
-    except Exception:
-        st.caption(f"→ {label}")
+_link = page_link
+
+
+MEMORY_COLUMNS = {
+    "memoria MB": st.column_config.NumberColumn(format="%.1f"), "privada MB": st.column_config.NumberColumn(format="%.1f"),
+    "RSS MB": st.column_config.NumberColumn(format="%.1f"), "pico privado MB": st.column_config.NumberColumn(format="%.1f"),
+    "% RAM": st.column_config.ProgressColumn(format="%.1f%%", min_value=0, max_value=100),
+}
+
+
+def _truncation_note(rows, limit: int = ROWS_LIMIT):
+    """query.rows() stops at `limit`: say so, since the metrics and tables below are computed from those rows."""
+    if len(rows) >= limit:
+        st.warning(f"Se muestran las {limit:,} filas más recientes de la ventana; las cifras de esta página se "
+                   "calculan sobre ellas. Elija una ventana temporal más corta para verlo todo.", icon=":material/info:")
+
+
+HOUR_MS = 3_600_000
 
 
 def _style(figure, height: int = 320):
+    """Shared chart look: transparent background, legend below, compact hover."""
     figure.update_layout(height=height, margin=dict(l=8, r=8, t=10, b=8), paper_bgcolor="rgba(0,0,0,0)",
-                         plot_bgcolor="rgba(0,0,0,0)", legend=dict(orientation="h", y=-0.18, title=None))
+                         plot_bgcolor="rgba(0,0,0,0)", legend=dict(orientation="h", y=-0.18, title=None),
+                         hoverlabel=dict(namelength=-1), bargap=0.15)
     return figure
+
+
+def _time_axis(figure, hourly_bars: bool = False):
+    """Local-time axis as dd/mm HH:MM; hourly bars span their hour instead of a millisecond-wide sliver."""
+    figure.update_xaxes(tickformat="%d/%m<br>%H:%M", hoverformat="%d/%m/%Y %H:%M", title=None)
+    if hourly_bars:
+        figure.update_traces(width=HOUR_MS * 0.85, selector=dict(type="bar"))
+    return figure
+
+
+# --- Resumen del LLM por sección -------------------------------------------------------------------
+
+def _ago(ts: str) -> str:
+    minutes = int((datetime.now().astimezone() - datetime.fromisoformat(ts).astimezone()).total_seconds() // 60)
+    if minutes < 1:
+        return "hace un momento"
+    if minutes < 60:
+        return f"hace {minutes} min"
+    return f"hace {minutes // 60} h" if minutes < 48 * 60 else f"hace {minutes // 1440} días"
+
+
+def _section_summary(query, settings, section: str):
+    """Latest LLM summary of this section (automatic or on demand) and a button to refresh it now."""
+    found = query.latest_section_summary(section)
+    latest, last = found["ok"], found["last"]
+    with st.container(border=True):
+        head, action = st.columns([3, 1], vertical_alignment="center")
+        if latest:
+            result = latest["result"]
+            origin = "automático" if latest["trigger"] == "auto" else "a petición"
+            head.markdown(f"**:material/psychology: Resumen del LLM** · {_severity_name(result['risk'])}")
+            head.caption(f"{_ago(latest['created_at'])} · {format_local_datetime(latest['created_at'])} · "
+                         f"{_plain(latest['model'] or '?')} · ventana de {latest['window_hours']} h · {origin}")
+        else:
+            head.markdown("**:material/psychology: Resumen del LLM**")
+            head.caption("Aún no hay resumen de esta sección: el ciclo automático genera uno por turno, "
+                         "o pulse «Resumir ahora».")
+        if action.button("Resumir ahora", key=f"summary-{section}", icon=":material/auto_awesome:", width="stretch",
+                         help="Usa la ventana temporal de la barra lateral. Solo corre un resumen a la vez."):
+            from bootstrap import build_section_summary_service
+            with st.spinner("El LLM local está resumiendo esta sección…"):
+                try:
+                    build_section_summary_service(settings).summarize(section, selected_window_hours(), "manual")
+                except RuntimeError as exc:  # another summary holds the LLM
+                    st.warning(str(exc))
+                    return
+            refresh_data()
+            st.rerun()
+        if latest:
+            # LLM text is shaped by collected data: plain text, never Markdown/HTML
+            st.text(latest["result"]["summary"])
+            points = latest["result"].get("highlights", [])
+            if points:
+                st.text("\n".join(f"• {point}" for point in points))
+            st.caption("Interpretación del LLM local a partir de cifras agregadas; contrástela con la evidencia de esta página.")
+        if last and last.get("error") and (not latest or last["id"] != latest["id"]):
+            st.caption(f"El último intento ({_ago(last['created_at'])}) falló; se muestra el resumen anterior.")
+            st.text(last["error"][:300])
 
 
 # --- Panel -----------------------------------------------------------------------------------------
@@ -46,6 +123,7 @@ def _style(figure, height: int = 320):
 def overview():
     settings, _, query, since = context()
     hero("🛡️ Panel de seguridad", "Qué pasa ahora en este equipo: alertas abiertas, tráfico de red y exposición.")
+    _section_summary(query, settings, "panel")
     severities = query.open_alerts_by_severity()
     analysis = query.latest_analysis()
     last_collect = query.last_run("collect")
@@ -79,19 +157,272 @@ def overview():
     with right:
         st.subheader("Alertas abiertas", divider="gray")
         if severities:
-            frame = pd.DataFrame([{"nivel": SEVERITY_NAMES[s], "total": severities[s]} for s in SEVERITY_COLORS if severities.get(s)])
-            figure = px.pie(frame, names="nivel", values="total", hole=0.62, color="nivel",
-                            color_discrete_map={SEVERITY_NAMES[s]: c for s, c in SEVERITY_COLORS.items()})
-            figure.update_traces(textinfo="value", sort=False)
-            chart(_style(figure, 230), key="overview-severity")
+            # A few categories compared by size: labelled bars read faster than a donut
+            frame = pd.DataFrame([{"nivel": SEVERITY_NAMES[s], "total": severities[s]}
+                                  for s in ("low", "medium", "high", "critical") if severities.get(s)])
+            figure = px.bar(frame, x="total", y="nivel", orientation="h", color="nivel", text="total",
+                            color_discrete_map={SEVERITY_NAMES[s]: c for s, c in SEVERITY_COLORS.items()},
+                            labels={"nivel": "", "total": ""})
+            figure.update_traces(textposition="outside", cliponaxis=False, hovertemplate="%{y}: %{x}<extra></extra>")
+            figure.update_xaxes(showticklabels=False, showgrid=False)
+            chart(_style(figure, 50 + 42 * len(frame)).update_layout(showlegend=False), key="overview-severity")
             for alert in query.open_alerts(6):
-                st.text(f"{severity_label(alert['severity'])}  #{alert['id']} {alert['rule_id']} · {alert['title']}")
+                _link("pages/2_Alertas.py", f"{_severity_name(alert['severity'])} · \\#{alert['id']} {alert['rule_id']} · "
+                      f"{_plain(alert['title'])}", ":material/chevron_right:", query_params={"id": alert["id"]})
             _link("pages/2_Alertas.py", "Revisar alertas", ":material/notification_important:")
         else:
             st.success("No hay alertas abiertas.")
         if analysis and analysis.get("result_json"):
             with st.expander(f"Resumen del LLM ({analysis['model']})", icon=":material/psychology:"):
                 st.text(analysis["result_json"]["summary"])
+
+
+# --- Operaciones en vivo -------------------------------------------------------------------------
+
+LIVE_TYPES = {"alerta": "🚨 Alertas", "conexión": "🌐 Conexiones", "acceso": "🔑 Accesos", "archivo": "📁 Archivos",
+              "firewall": "🧱 Firewall", "ssh": "🖥️ SSH"}
+LIVE_LEVELS = {"critical": "🔴 Crítico", "high": "🟠 Alto", "medium": "🟡 Atención", "low": "⚪ Bajo", "info": "· Info"}
+LIVE_ORIGINS = {"outbound": "Saliente", "inbound": "Entrante", "listen": "En escucha", "session": "Sesión",
+                "service": "Servicio", "DROP": "Bloqueado", "ALLOW": "Permitido", "scan": "Escaneo",
+                "watchdog": "Vigilancia en vivo", **FILE_ACTIONS, **{str(key): value for key, value in EVENT_NAMES.items()}}
+LIVE_SPANS = {"Últimos 15 min": 0.25, "Última hora": 1, "Últimas 6 h": 6, "Ventana de la barra lateral": None}
+RUN_KINDS = {"collect": "Recolección", "analyze": "Análisis", "watch": "Vigilancia de archivos", "cycle": "Ciclo"}
+RUN_STATES = {"ok": "✅ Correcta", "partial": "🟡 Parcial", "error": "❌ Error", "running": "🔄 En curso",
+              "skipped": "⏭️ Omitida"}
+COLLECTOR_NAMES = {
+    "psutil_connections": "Conexiones de red", "psutil_processes": "Procesos", "security_events": "Accesos (Security)",
+    "rdp_events": "Escritorio remoto (RDP)", "recent_files": "Archivos recientes", "windows_persistence": "Persistencia",
+    "windows_firewall": "Firewall de Windows", "sysmon_network": "Sysmon · red", "sysmon_files": "Sysmon · archivos",
+    "sysmon_process_registry": "Sysmon · procesos y registro", "ssh_observability": "SSH", "watchdog": "Vigilancia de archivos",
+}
+FRESHNESS = {"ok": ("Al día", "#22C55E"), "late": ("Con retraso", "#EAB308"), "stale": ("Desactualizada", "#EF4444"),
+             "none": ("Sin revisar", "#94A3B8"), "off": ("No disponible", "#94A3B8")}
+# Which collectors check each source; alerts are checked by every analysis
+SOURCE_COLLECTORS = {
+    "Procesos": ("psutil_processes",), "Conexiones": ("psutil_connections", "sysmon_network"),
+    "Accesos": ("security_events", "rdp_events"), "Archivos": ("recent_files", "sysmon_files", "watchdog"),
+    "Firewall": ("windows_firewall",), "SSH": ("ssh_observability",),
+}
+
+
+def _source_checks(runs: list[dict], last_data: dict[str, str | None]) -> list[tuple[str, str, str, str]]:
+    """(source, state, 'revisada …', 'último dato …') per source: quiet sources are fine, unavailable ones say so."""
+    rows = []
+    for source in (*SOURCE_COLLECTORS, "Alertas"):
+        data_age = _age_label(last_data.get(source))[0]
+        data_text = "sin datos aún" if data_age == "Sin datos" else f"último dato {data_age}"
+        if source == "Alertas":
+            run = next((run for run in runs if run["kind"] == "analyze" and run["status"] != "running"), None)
+        else:
+            run = next((run for run in runs if run["status"] != "running"
+                        and any(name in (run.get("collectors") or {}) for name in SOURCE_COLLECTORS[source])), None)
+        if run is None:
+            rows.append((source, "none", "no revisada recientemente", data_text))
+            continue
+        statuses = [run["collectors"][name].get("status") for name in SOURCE_COLLECTORS.get(source, ())
+                    if name in (run.get("collectors") or {})]
+        # Files are only scanned by the standard profile, which runs every N cycles
+        interval = _cycle_config()[1] if source == "Archivos" else None
+        checked, state = _age_label(run.get("finished_at") or run["started_at"], interval)
+        if statuses and not any(status in {"ok", "partial"} for status in statuses):
+            rows.append((source, "off", f"comprobada {checked}", "requiere permisos o no existe"))
+        else:
+            rows.append((source, state, f"revisada {checked}", data_text))
+    return rows
+
+
+def _seconds_since(value: str | None) -> int | None:
+    if not value:
+        return None
+    observed = datetime.fromisoformat(value)
+    if observed.tzinfo is None:
+        observed = observed.replace(tzinfo=datetime.now().astimezone().tzinfo)
+    return max(0, int((datetime.now().astimezone() - observed.astimezone()).total_seconds()))
+
+
+def _age_label(value: str | None, interval: int | None = None) -> tuple[str, str]:
+    """('hace 3 min', state) with the state measured against how often that thing is expected (default: the cycle)."""
+    seconds = _seconds_since(value)
+    if seconds is None:
+        return "Sin datos", "none"
+    text = (f"hace {seconds} s" if seconds < 60 else f"hace {seconds // 60} min" if seconds < 3600
+            else f"hace {seconds // 3600} h" if seconds < 172_800 else f"hace {seconds // 86_400} días")
+    expected = interval or _cycle_seconds()
+    return text, "ok" if seconds <= 2 * expected else "late" if seconds <= 6 * expected else "stale"
+
+
+@st.cache_data(ttl=60, show_spinner=False)
+def _cycle_config() -> tuple[int, int]:
+    """(seconds between cycles, seconds between standard-profile cycles) from the automation settings."""
+    from bootstrap import build_automation_config_service
+    try:
+        config = build_automation_config_service().load()
+        return int(config.cycle_minutes) * 60, int(config.cycle_minutes * config.standard_every_cycles) * 60
+    except Exception:
+        return 300, 3600
+
+
+def _cycle_seconds() -> int:
+    return _cycle_config()[0]
+
+
+def _live_health(runs: list[dict]):
+    """One sentence that says whether Atalaya is watching, and what to do if it is not."""
+    cycle_min = _cycle_seconds() // 60
+    current = next((run for run in runs if run["status"] == "running"), None)
+    last_collect = next((run for run in runs if run["kind"] == "collect" and run["status"] != "running"), None)
+    if current:
+        beat, state = _age_label(current.get("heartbeat_at") or current["started_at"])
+        if state == "stale":
+            st.error(f"La {RUN_KINDS.get(current['kind'], current['kind']).lower()} #{current['id']} lleva sin dar "
+                     f"señales desde {beat}: puede haberse quedado bloqueada. Revise Estado o reinicie Atalaya.",
+                     icon=":material/error:")
+        else:
+            st.info(f"{RUN_KINDS.get(current['kind'], current['kind'])} en curso (#{current['id']}) · última señal {beat}.",
+                    icon=":material/sync:")
+        return
+    if not last_collect:
+        st.warning("Todavía no hay recolecciones. Pulse «Recolectar» en la barra lateral para tomar la primera foto del "
+                   "equipo.", icon=":material/info:")
+        return
+    age, state = _age_label(last_collect.get("finished_at") or last_collect["started_at"])
+    partial = " Algunas fuentes no estuvieron disponibles (ver detalle abajo)." if last_collect["status"] == "partial" else ""
+    if state == "ok":
+        st.success(f"Atalaya está vigilando: última recolección {age} (el ciclo automático corre cada {cycle_min} min)."
+                   + partial, icon=":material/check_circle:")
+    elif state == "late":
+        st.warning(f"La última recolección fue {age}, más de lo esperado para un ciclo de {cycle_min} min." + partial,
+                   icon=":material/schedule:")
+    else:
+        st.error(f"Sin recolecciones recientes: la última fue {age}. El ciclo automático no parece estar activo; "
+                 "lo que ve abajo no es el estado actual. Pulse «Recolectar» en la barra lateral o active el ciclo en "
+                 "Estado → Configuración de análisis automático.", icon=":material/warning:")
+
+
+def _live_event_links(row: dict):
+    """From a selected event to the page that explains it."""
+    kind, summary = row.get("tipo"), str(row.get("resumen") or "")
+    if kind == "alerta":
+        _link("pages/2_Alertas.py", f"Abrir la alerta \\#{row['entidad_id']}", ":material/notification_important:",
+              query_params={"id": row["entidad_id"]})
+    address = summary.split("→")[-1].strip().rsplit(":", 1)[0] if "→" in summary else ""
+    if kind in {"conexión", "ssh"} and _valid_ip(address):
+        _link("pages/3_Conexiones.py", f"Ver la IP {_valid_ip(address)} en Conexiones", ":material/hub:",
+              query_params={"ip": _valid_ip(address)})
+    term = _valid_ip(address) or (summary if kind == "archivo" else summary.split(" desde ")[-1])
+    if term and len(term) >= 2:
+        _link("pages/13_Buscar.py", f"Buscar «{_plain(term[:60])}»", ":material/search:", query_params={"q": term[:200]})
+
+
+def live_operations():
+    _, _, query, since = context()
+    hero("📡 En vivo", "¿Atalaya está vigilando ahora mismo? ¿Qué acaba de pasar? Se actualiza sola; no usa el LLM.")
+    controls = st.columns([2, 2, 3], vertical_alignment="bottom")
+    enabled = controls[0].toggle("Actualización automática", value=True, key="live-enabled",
+                                 help="Desactívela para examinar un evento sin que la lista se mueva.")
+    seconds = controls[1].selectbox("Cada", [5, 10, 30, 60], index=1, key="live-seconds", disabled=not enabled,
+                                    format_func=lambda value: f"{value} segundos")
+    span_label = controls[2].selectbox("Periodo", list(LIVE_SPANS), index=1, key="live-span")
+    every = f"{seconds}s" if enabled else None
+
+    @st.fragment(run_every=every)
+    def current_state():
+        runs = query.live_runs(15)
+        _live_health(runs)
+        status = query.live_status()
+        alerts = status["alerts"]
+        a, b, c, d, e = st.columns(5)
+        a.metric("Alertas graves", alerts.get("critical", 0) + alerts.get("high", 0),
+                 help="Alertas nuevas o analizadas de severidad crítica o alta. Revíselas en Alertas.")
+        b.metric("Procesos", status["processes"], help="Procesos activos en la última foto de procesos.")
+        c.metric("Memoria privada", f"{status['memory_bytes'] / (1024 ** 3):.1f} GB",
+                 help="Suma de la memoria privada de todos los procesos en la última foto (incluye memoria paginada, "
+                      "por eso puede superar la RAM física).")
+        d.metric("Conexiones", status["connections"], help="Sin contar puertos en escucha ni conexiones cerrándose.")
+        e.metric("En escucha", status["listeners"], help="Programas que aceptan conexiones. Vea su alcance en Conexiones.")
+
+        st.markdown("**Fuentes** · cuándo se revisó cada una por última vez")
+        last_data = {row["fuente"]: row["ultima_observacion"] for row in query.live_freshness()}
+        checks = _source_checks(runs, last_data)
+        for column, (source, state, checked, data) in zip(st.columns(len(checks)), checks):
+            label, color = FRESHNESS[state]
+            # Literal source names and computed ages only: nothing collected reaches this HTML
+            column.markdown(f'<div class="nl-tile" style="--c:{color}"><span>{source}</span><b>{label}</b>'
+                            f'<small>{checked}</small><small>{data}</small></div>', unsafe_allow_html=True)
+        st.caption(f"«Al día»: revisada en los últimos 2 ciclos ({2 * _cycle_seconds() // 60} min); que no haya datos "
+                   "nuevos es normal. «No disponible»: la fuente necesita permisos o no existe en este equipo "
+                   f"(vea Primeros pasos). Archivos se revisa con el perfil standard, cada {_cycle_config()[1] // 60} min.")
+
+        pulse = query.live_activity(_span_since(LIVE_SPANS[span_label], since))
+        if pulse:
+            frame = pd.DataFrame(pulse)
+            frame["minuto"] = local_series(frame["minuto"] + ":00+00:00")
+            frame["tipo"] = frame["tipo"].map(LIVE_TYPES)
+            figure = px.bar(frame, x="minuto", y="total", color="tipo", labels={"minuto": "", "total": "", "tipo": ""})
+            figure.update_traces(width=60_000 * 0.8,
+                                 hovertemplate="%{x|%d/%m %H:%M} · %{y} eventos<extra>%{fullData.name}</extra>")
+            start = to_local_datetime(_span_since(LIVE_SPANS[span_label], since))
+            figure.update_xaxes(range=[start, datetime.now()])
+            st.markdown("**Pulso de actividad** · eventos registrados por minuto (cada recolección aparece como un pico)")
+            chart(_time_axis(_style(figure, 220)), key="live-pulse")
+
+    current_state()
+
+    st.subheader("Qué acaba de pasar", divider="gray")
+    f1, f2, f3 = st.columns([3, 3, 2], vertical_alignment="bottom")
+    types = f1.multiselect("Tipos", list(LIVE_TYPES), default=[name for name in LIVE_TYPES if name != "archivo"],
+                           format_func=LIVE_TYPES.get, key="live-types", placeholder="Todos",
+                           help="Archivos se oculta por defecto: el escaneo genera miles de eventos.")
+    text = f2.text_input("Buscar", key="live-text", placeholder="IP, proceso, ruta, usuario…", icon=":material/search:")
+    relevant = f3.toggle("Solo lo relevante", key="live-relevant", help="Oculta los eventos de nivel informativo.")
+
+    @st.fragment(run_every=every)
+    def recent_events():
+        events = query.live_events(_span_since(LIVE_SPANS[span_label], since), 300, types or list(LIVE_TYPES),
+                                   text, relevant)
+        if not events:
+            return empty("No hay eventos con estos filtros en el periodo elegido.")
+        rows = [{**event, "Fecha": event["ts"], "Tipo": LIVE_TYPES.get(event["tipo"], event["tipo"]),
+                 "Nivel": LIVE_LEVELS.get(event["nivel"], event["nivel"]),
+                 "Qué pasó": (f"{FILE_ACTIONS.get(event['origen'], event['origen'])}: {event['resumen']}"
+                              if event["tipo"] == "archivo" else event["resumen"]),
+                 "Detalle": LIVE_ORIGINS.get(str(event["origen"]), event["origen"])} for event in events]
+        st.caption(f"{len(rows)} evento(s), del más reciente al más antiguo"
+                   + (" (máximo 300: acote con los filtros)." if len(rows) >= 300 else "."))
+        shown = [{key: row[key] for key in ("Fecha", "Tipo", "Nivel", "Qué pasó", "Detalle")} for row in rows]
+        table(shown, key="live-events", windowed=False, searchable=False,
+              on_pick=lambda picked: _live_event_links(rows[shown.index(picked)] if picked in shown else picked))
+
+    recent_events()
+
+    with st.expander("Historial de ejecuciones y estado de cada recolector", icon=":material/history:"):
+        runs = query.live_runs(15)
+        if not runs:
+            return empty("Todavía no hay ejecuciones registradas.")
+        table([{"#": run["id"], "Tipo": RUN_KINDS.get(run["kind"], run["kind"]),
+                "Estado": RUN_STATES.get(run["status"], run["status"]), "started_at": run["started_at"],
+                "finished_at": run["finished_at"], "Administrador": bool(run["is_admin"])} for run in runs],
+              key="live-runs", windowed=False, searchable=False, detail=False,
+              columns={"started_at": st.column_config.DatetimeColumn("Inicio", format=COLUMN_FORMAT),
+                       "finished_at": st.column_config.DatetimeColumn("Fin", format=COLUMN_FORMAT),
+                       "#": st.column_config.NumberColumn(format="%d")})
+        latest_collect = next((run for run in runs if run["kind"] == "collect" and run["collectors"]), None)
+        if latest_collect:
+            st.markdown(f"**Recolectores en la recolección #{latest_collect['id']}**")
+            table([{"Recolector": COLLECTOR_NAMES.get(name, name),
+                    "Estado": RUN_STATES.get(detail.get("status"), detail.get("status", "?")),
+                    "Encontrados": detail.get("found", 0), "Nuevos": detail.get("inserted", 0),
+                    "Avisos": "; ".join(map(str, detail.get("warnings", [])))[:300]}
+                   for name, detail in latest_collect["collectors"].items()],
+                  key="live-collectors", windowed=False, searchable=False, detail=False)
+
+
+def _span_since(hours: float | None, window_since: str) -> str:
+    """Start of the chosen period; never earlier than the sidebar window."""
+    if hours is None:
+        return window_since
+    start = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat()
+    return max(start, window_since)
 
 
 # --- Actividad (antes Resumen) ---------------------------------------------------------------------
@@ -107,10 +438,17 @@ def summary():
     timeline = query.timeline(since)
     st.subheader("Eventos por hora", divider="gray")
     if timeline:
-        frame = pd.DataFrame(timeline)
-        frame["bucket"] = pd.to_datetime(frame["bucket"], utc=True).dt.tz_convert(None)
-        chart(_style(px.bar(frame, x="bucket", y="count", color="type", barmode="stack",
-                            labels={"bucket": "", "count": "eventos", "type": ""}), 360), key="activity-timeline")
+        # One row per event type with its own scale: hundreds of connections would otherwise flatten the alerts
+        frame = hourly_frame(timeline, since, time_key="bucket", value_key="count", series_key="type")
+        figure = px.bar(frame, x="bucket", y="count", color="type", facet_row="type",
+                        labels={"bucket": "", "count": "", "type": ""})
+        figure.update_yaxes(matches=None, title=None)
+        figure.for_each_annotation(lambda note: note.update(text=note.text.split("=")[-1].capitalize(), textangle=0,
+                                                            x=0, xanchor="left", y=note.y + 0.02, yanchor="bottom"))
+        figure.update_traces(hovertemplate="%{x|%d/%m %H:%M} · %{y} eventos<extra>%{fullData.name}</extra>")
+        types = frame["type"].nunique()
+        chart(_time_axis(_style(figure, 70 + 120 * types), hourly_bars=True).update_layout(showlegend=False),
+              key="activity-timeline")
     else:
         empty("Recolecte datos para ver la línea de tiempo.")
     analysis = query.latest_analysis()
@@ -128,11 +466,71 @@ def summary():
         empty("Todavía no hay un análisis del LLM. Pulse Analizar en la barra lateral.")
 
 
+@st.cache_data(ttl=120, show_spinner=False)
+def _dns_records() -> list[dict]:
+    from infrastructure.windows.dns_cache import dns_cache_records
+    return dns_cache_records()
+
+
+def _valid_ip(text: str | None) -> str | None:
+    try:
+        return str(ipaddress.ip_address(str(text or "").strip().split("%")[0]))
+    except ValueError:
+        return None
+
+
+def _ip_matches(row: dict, needle: str) -> bool:
+    return any(needle in str(row.get(field) or "") for field in ("raddr", "laddr"))
+
+
+def _ip_profile(query, ip: str, since: str):
+    """What this computer knows about one IP: scope, local DNS names, processes, ports and related evidence."""
+    from infrastructure.windows.dns_cache import names_for
+
+    found = query.entity_search(ip, since)
+    exact = lambda rows, *fields: [row for row in rows if any(str(row.get(field) or "") == ip for field in fields)]
+    conns = exact(found["connections"], "raddr", "laddr")
+    blocked = exact(found["firewall_events"], "src_ip", "dst_ip")
+    logons = exact(found["auth_events"], "source_ip")
+    ssh = exact(found["ssh_observations"], "remote_address", "local_address")
+    alerts = [row for row in found["alerts"] if f'"{ip}"' in str(row.get("evidence") or "") or ip == str(row.get("title"))]
+    names = names_for(ip, _dns_records())
+    with st.container(border=True):
+        # `ip` went through ipaddress.ip_address: only digits, hex, dots and colons reach the Markdown
+        st.markdown(f"#### :material/lan: {ip} · {network.SCOPE_LABELS.get(network.scope(ip), 'Desconocido')}")
+        if names:
+            st.text("Nombres que este equipo resolvió a esta IP: " + ", ".join(names[:8])
+                    + (f" (+{len(names) - 8})" if len(names) > 8 else ""))
+        else:
+            st.caption("Sin nombres en la caché DNS local de Windows (se vacía con el tiempo y al reiniciar). "
+                       "Atalaya no consulta servidores externos.")
+        a, b, c, d, e = st.columns(5)
+        a.metric("Conexiones", len(conns))
+        b.metric("Procesos", len({network.process_label(row) for row in conns}))
+        c.metric("Bloqueos del firewall", len(blocked))
+        d.metric("Inicios de sesión", len(logons))
+        e.metric("Alertas", len(alerts))
+        if conns:
+            ports = sorted({row.get("rport") if row.get("raddr") == ip else row.get("lport") for row in conns} - {None})
+            seen = sorted(str(row["ts"]) for row in conns)
+            st.text("Procesos: " + ", ".join(sorted({network.process_label(row) for row in conns}))[:400])
+            st.text("Puertos y servicios: " + ", ".join(f"{port} ({network.service(port)})" for port in ports[:15]))
+            st.text(f"Primera vez: {format_local_datetime(seen[0])} · última vez: {format_local_datetime(seen[-1])} "
+                    "(en la ventana temporal)")
+        if ssh:
+            st.text(f"SSH: {len(ssh)} observación(es) con esta IP.")
+        for alert in alerts[:5]:
+            _link("pages/2_Alertas.py", f"{_severity_name(alert['severity'])} · alerta \\#{alert['id']} · {alert['rule_id']} · "
+                  f"{_plain(alert['title'])}", ":material/notification_important:", query_params={"id": alert["id"]})
+        _link("pages/13_Buscar.py", f"Ver todo lo registrado sobre {ip}", ":material/search:", query_params={"q": ip})
+
+
 # --- Conexiones ------------------------------------------------------------------------------------
 
 def connections():
     settings, _, query, since = context()
     hero("🌐 Conexiones", "Quién habla con este equipo (entrantes), con quién habla él (salientes) y qué puertos deja abiertos.")
+    _section_summary(query, settings, "conexiones")
     controls = st.columns([2, 1, 1, 1])
     mode = controls[0].segmented_control("Datos", ["Última recolección", "Toda la ventana"], default="Última recolección",
                                          key="net-mode")
@@ -141,9 +539,25 @@ def connections():
                                           help="Conexiones entre programas del propio equipo (127.0.0.1)")
     include_closing = controls[3].toggle("Cerrándose", value=False, key="net-closing",
                                          help="Incluye TIME_WAIT, CLOSE_WAIT y similares")
+    ip_filter = st.text_input("Filtrar por IP", value=st.query_params.get("ip", ""), icon=":material/filter_alt:",
+                              placeholder="Una IP completa (203.0.113.7) o parte de ella (192.168.)",
+                              help="Filtra todas las pestañas por IP remota o local. Con una IP completa se muestra su perfil.")
+    needle = ip_filter.strip()
+    if needle != st.query_params.get("ip", ""):
+        if needle:
+            st.query_params["ip"] = needle
+        elif "ip" in st.query_params:
+            del st.query_params["ip"]
     rows = query.connections(since, latest_only=(mode != "Toda la ventana"))
+    if needle:
+        total = len(rows)
+        rows = [row for row in rows if _ip_matches(row, needle)]
+        st.caption(f"Filtrando por «{_plain(needle)}»: {len(rows)} de {total} conexiones.")
+    if _valid_ip(needle):
+        _ip_profile(query, _valid_ip(needle), since)
     if not rows:
-        return empty("No hay conexiones en la ventana. Pulse Recolectar en la barra lateral.")
+        return empty("No hay conexiones que coincidan. Pruebe con «Toda la ventana» o quite el filtro de IP."
+                     if needle else "No hay conexiones en la ventana. Pulse Recolectar en la barra lateral.")
     flows = network.active_flows(rows, include_loopback, include_closing)
     if direction != "Ambos":
         flows = [row for row in flows if row["direction"] == ("inbound" if direction == "Entrantes" else "outbound")]
@@ -194,14 +608,16 @@ def connections():
             empty("No hay conexiones salientes con estos filtros.")
     with tab_time:
         all_rows = query.connections(since) if mode != "Toda la ventana" else rows
+        if needle:
+            all_rows = [row for row in all_rows if _ip_matches(row, needle)]
         points = network.timeline_rows(all_rows, include_loopback)
         if len({point["ts"] for point in points}) > 1:
             frame = pd.DataFrame(points)
-            frame["ts"] = pd.to_datetime(frame["ts"], utc=True).dt.tz_convert(None)
+            frame["ts"] = local_series(frame["ts"])
             figure = px.area(frame, x="ts", y="conexiones", color="sentido", markers=True,
                              color_discrete_map={"Entrantes": network.COLORS["inbound"], "Salientes": network.COLORS["outbound"]},
                              labels={"ts": "", "conexiones": "conexiones abiertas", "sentido": ""})
-            chart(_style(figure, 360), key="net-timeline")
+            chart(_time_axis(_style(figure, 360)), key="net-timeline")
             st.caption("Cada punto es una recolección. Un salto brusco de salientes merece una mirada al mapa de flujo.")
         else:
             empty("Hace falta más de una recolección en la ventana para ver la evolución.")
@@ -211,8 +627,10 @@ def connections():
                    "servicio": network.service(row.get("rport") if row["direction"] == "outbound" else row.get("lport")),
                    "alcance": network.SCOPE_LABELS.get(network.scope(row["raddr"]), "?"), "local": f"{row.get('laddr')}:{row.get('lport')}",
                    "estado": row.get("state"), "sospechosa": "⚠" if network.is_suspicious(row, settings.suspicious_ports) else "",
-                   "ruta": row.get("process_path"), "hora": _local(row.get("ts"))} for row in flows]
-        table(detail, key="connections")
+                   "ruta": row.get("process_path"), "hora": row.get("ts")} for row in flows]
+        st.caption("Seleccione una conexión para ver el perfil de su IP remota.")
+        table(detail, key="connections",
+              on_pick=lambda row: _valid_ip(row.get("remoto")) and _ip_profile(query, _valid_ip(row["remoto"]), since))
     with st.expander("Sesiones y agentes SSH", icon=":material/terminal:"):
         ssh_rows = query.rows("ssh_observations", since, 1000)
         if ssh_rows:
@@ -222,7 +640,7 @@ def connections():
             a.metric("Sesiones observadas", len(sessions))
             b.metric("Túneles", sum(bool(row.get("tunnel_types")) for row in sessions))
             c.metric("Reenvío de agente", sum(row.get("agent_forwarding") == 1 for row in sessions))
-            table(services + sessions, key="ssh_observations")
+            table(services + sessions, key="ssh_observations", view="ssh_observations")
         else:
             st.caption("Sin observaciones SSH. Pulse Recolectar para consultar sesiones, sshd y ssh-agent.")
 
@@ -243,7 +661,101 @@ def _bulk_learn(repository):
             now = SystemClock().now_iso()
             counts = repository.approve_all_observed(now)
             dismissed = repository.dismiss_baselined("Baseline aprendida", now)
+            refresh_data()
             st.success(f"Aprobados {sum(counts.values())} elementos {counts}; {dismissed} alertas descartadas.")
+
+
+def _alert_summary(evidence) -> str:
+    """The rule's evidence summary as one line (collected values: shown in a dataframe cell, never as markup)."""
+    try:
+        data = json.loads(evidence) if isinstance(evidence, str) else evidence
+    except ValueError:
+        return str(evidence)[:200]
+    if isinstance(data, dict):
+        return " · ".join(f"{key}: {value}" for key, value in data.items())[:200]
+    return str(data)[:200]
+
+
+def _severity_name(level: str) -> str:
+    return f"{SEVERITY_ICONS.get(level, '⚪')} {SEVERITY_NAMES.get(level, level)}"
+
+
+def _set_status(repository, alert_ids, status: str, note: str | None):
+    now = SystemClock().now_iso()
+    for alert_id in alert_ids:
+        repository.update_alert_status(alert_id, status, note or None, now)
+    refresh_data()
+
+
+def _alert_detail(repository, query, row: dict):
+    """Everything about one alert: what the rule means, its evidence, the LLM's view and the triage actions."""
+    with st.container(border=True):
+        st.markdown(f"#### {_severity_name(row['severity'])} · {row['rule_id']} · alerta #{row['id']}")
+        st.text(f"{row['title']}  ·  {STATUS_NAMES.get(row['status'], row['status'])}  ·  "
+                f"{format_local_datetime(row['ts'])}")
+        if row.get("status_note"):
+            st.text(f"Nota: {row['status_note']}")
+        rule = RULES.get(row["rule_id"])
+        if rule:
+            left, right = st.columns(2)
+            left.markdown("**Qué detecta**")
+            left.write(rule.detects)
+            right.markdown("**Qué revisar**")
+            right.write(rule.check)
+        try:
+            summary = json.loads(row["evidence"]) if isinstance(row["evidence"], str) else row["evidence"]
+        except ValueError:
+            summary = {"evidencia": row["evidence"]}
+        if isinstance(summary, dict) and summary:
+            st.markdown("**Resumen de la evidencia**")
+            st.dataframe(pd.DataFrame([{"campo": key, "valor": "" if value is None else str(value)}
+                                       for key, value in summary.items()]), hide_index=True, width="stretch",
+                         key=f"summary-{row['id']}")
+            search_links(summary.values(), key=f"alert-{row['id']}")
+        st.markdown("**Eventos que la originaron**")
+        evidence = query.alert_evidence(row["id"])
+        table(evidence, key=f"evidence-{row['id']}", view=evidence_view(evidence), windowed=False)
+        for incident in query.llm_incidents_for(row["id"]):
+            st.markdown(f"**Análisis del LLM** ({_plain(incident['model'])}) · severidad LLM: `{incident['severity']}` · "
+                        f"posible falso positivo: `{incident['false_positive_likelihood']}`")
+            # LLM text is shaped by collected data: show it as plain text, never as Markdown/HTML
+            st.text(incident["narrative"])
+            if incident.get("benign_explanations"):
+                st.text("Explicaciones benignas: " + "; ".join(incident["benign_explanations"]))
+            if incident.get("recommended_actions"):
+                st.text("Recomendaciones: " + "; ".join(incident["recommended_actions"]))
+        note = st.text_input("Nota", key=f"note-{row['id']}")
+        a, b, c = st.columns(3)
+        if a.button("Confirmar", key=f"confirm-{row['id']}", icon=":material/check_circle:"):
+            _set_status(repository, [row["id"]], "confirmed", note); st.rerun()
+        if b.button("Descartar", key=f"dismiss-{row['id']}", icon=":material/cancel:"):
+            _set_status(repository, [row["id"]], "dismissed", note); st.rerun()
+        if row["rule_id"] in BASELINE_RULES and c.button("Aprobar como normal", key=f"approve-{row['id']}",
+                                                         icon=":material/verified:"):
+            repository.approve_alert(row["id"], SystemClock().now_iso()); refresh_data(); st.rerun()
+
+
+def _bulk_actions(repository, selected: list[dict]):
+    with st.container(border=True):
+        st.markdown(f"**{len(selected)} alertas seleccionadas**")
+        note = st.text_input("Nota para todas", key="bulk-note")
+        a, b, c = st.columns(3)
+        ids = [row["id"] for row in selected]
+        if a.button("Confirmar seleccionadas", key="bulk-confirm", icon=":material/check_circle:"):
+            _set_status(repository, ids, "confirmed", note); st.rerun()
+        if b.button("Descartar seleccionadas", key="bulk-dismiss", icon=":material/cancel:"):
+            _set_status(repository, ids, "dismissed", note); st.rerun()
+        approvable = [row["id"] for row in selected if row["rule_id"] in BASELINE_RULES]
+        if approvable and c.button(f"Aprobar como normal ({len(approvable)})", key="bulk-approve",
+                                   icon=":material/verified:", help="Solo las de reglas con baseline: "
+                                   + ", ".join(sorted(BASELINE_RULES))):
+            now = SystemClock().now_iso()
+            for alert_id in approvable:
+                try:
+                    repository.approve_alert(alert_id, now)
+                except (KeyError, ValueError):
+                    continue  # already covered by an earlier approval in this batch
+            refresh_data(); st.rerun()
 
 
 def alerts():
@@ -251,42 +763,53 @@ def alerts():
     hero("🚨 Alertas", "Lo que detectaron las reglas, con su evidencia y la explicación del LLM.")
     _bulk_learn(repository)
     rows = query.rows("alerts", since)
-    if not rows: return empty("No hay alertas. Pulse Analizar para aplicar R01–R14.")
-    open_rows = [row for row in rows if row["status"] in {"new", "analyzed"}]
+    _truncation_note(rows)
+    requested = st.query_params.get("id")
+    if not rows and not requested:
+        return empty(f"No hay alertas. Pulse Analizar para aplicar las reglas R01–R{len(ALL_RULES):02d}.")
+    open_rows = [row for row in rows if row["status"] in OPEN_STATUSES]
     labels = {"critical": "Críticas abiertas", "high": "Altas abiertas", "medium": "Medias abiertas", "low": "Bajas abiertas"}
     for column, (level, label) in zip(st.columns(4), labels.items()):
         column.metric(label, sum(row["severity"] == level for row in open_rows))
     a, b, c = st.columns(3)
-    statuses = a.multiselect("Estado", ["new", "analyzed", "confirmed", "dismissed"], default=["new", "analyzed"])
-    severities = b.multiselect("Severidad", ["low", "medium", "high", "critical"])
-    rules = c.multiselect("Regla", sorted({row["rule_id"] for row in rows}))
+    statuses = a.multiselect("Estado", list(STATUS_NAMES), default=list(OPEN_STATUSES), format_func=STATUS_NAMES.get,
+                             key="alert-status", placeholder="Todos")
+    severities = b.multiselect("Severidad", ["critical", "high", "medium", "low"], format_func=_severity_name,
+                               key="alert-severity", placeholder="Todas")
+    rules = c.multiselect("Regla", sorted({row["rule_id"] for row in rows}), key="alert-rule", placeholder="Todas",
+                          format_func=lambda rule: f"{rule} · {RULES[rule].detects[:45]}…" if rule in RULES else rule)
     rows = [row for row in rows if (not statuses or row["status"] in statuses)
             and (not severities or row["severity"] in severities) and (not rules or row["rule_id"] in rules)]
     rank = {"critical": 0, "high": 1, "medium": 2, "low": 3}
     rows.sort(key=lambda row: (rank.get(row["severity"], 4), row["ts"]))
     if len(rows) > MAX_ALERTS_SHOWN:
         st.caption(f"Mostrando {MAX_ALERTS_SHOWN} de {len(rows)} alertas; use los filtros para acotar.")
-    for row in rows[:MAX_ALERTS_SHOWN]:
-        with st.expander(f"{severity_label(row['severity'])} · {row['rule_id']} · {row['title']} · #{row['id']} · {row['status']}"):
-            st.code(row["evidence"], language="json")
-            table(query.alert_evidence(row["id"]), key=f"evidence-{row['id']}")
-            for incident in query.llm_incidents_for(row["id"]):
-                st.markdown(f"**Análisis del LLM** ({incident['model']}) · severidad LLM: `{incident['severity']}` · "
-                            f"posible falso positivo: `{incident['false_positive_likelihood']}`")
-                # LLM text is shaped by collected data: show it as plain text, never as Markdown/HTML
-                st.text(incident["narrative"])
-                if incident.get("benign_explanations"):
-                    st.text("Explicaciones benignas: " + "; ".join(incident["benign_explanations"]))
-                if incident.get("recommended_actions"):
-                    st.text("Recomendaciones: " + "; ".join(incident["recommended_actions"]))
-            note = st.text_input("Nota", key=f"note-{row['id']}")
-            a, b, c = st.columns(3)
-            if a.button("Confirmar", key=f"confirm-{row['id']}", icon=":material/check_circle:"):
-                repository.update_alert_status(row["id"], "confirmed", note or None, SystemClock().now_iso()); st.rerun()
-            if b.button("Descartar", key=f"dismiss-{row['id']}", icon=":material/cancel:"):
-                repository.update_alert_status(row["id"], "dismissed", note or None, SystemClock().now_iso()); st.rerun()
-            if row["rule_id"] in BASELINE_RULES and c.button("Aprobar como normal", key=f"approve-{row['id']}", icon=":material/verified:"):
-                repository.approve_alert(row["id"], SystemClock().now_iso()); st.rerun()
+    rows = rows[:MAX_ALERTS_SHOWN]
+
+    selected: list[dict] = []
+    if rows:
+        frame = pd.DataFrame([{"#": row["id"], "Severidad": _severity_name(row["severity"]), "Regla": row["rule_id"],
+                               "Título": row["title"], "Resumen": _alert_summary(row["evidence"]),
+                               "Estado": STATUS_NAMES.get(row["status"], row["status"]),
+                               "Fecha": to_local_datetime(row["ts"])} for row in rows])
+        event = st.dataframe(frame, hide_index=True, width="stretch", key="alerts-table", on_select="rerun",
+                             selection_mode="multi-row",
+                             column_config={"#": st.column_config.NumberColumn(format="%d", width="small"),
+                                            "Fecha": st.column_config.DatetimeColumn(format=COLUMN_FORMAT)})
+        st.caption("Seleccione una alerta para ver su detalle, o varias para actuar sobre todas a la vez.")
+        selected = [rows[index] for index in (event.selection.rows if event else []) if index < len(rows)]
+    else:
+        empty("Ninguna alerta coincide con los filtros.")
+    if len(selected) > 1:
+        _bulk_actions(repository, selected)
+        return
+    target = selected[0] if selected else None
+    if target is None and requested and str(requested).isdigit():
+        target = query.alert(int(requested))  # a link from the Panel or a search, even outside these filters
+    if target is None and rows:
+        target = rows[0]
+    if target:
+        _alert_detail(repository, query, target)
 
 
 # --- Evidencia -------------------------------------------------------------------------------------
@@ -295,12 +818,12 @@ def _hourly_chart(query, table_name: str, since: str, by: str | None, names: dic
     points = query.hourly(table_name, since, by)
     if not points:
         return
-    frame = pd.DataFrame(points)
-    frame["hora"] = pd.to_datetime(frame["hora"], utc=True).dt.tz_convert(None)
+    frame = hourly_frame(points, since, time_key="hora", value_key="total", series_key="serie" if by else None)
     if by:
         frame["serie"] = frame["serie"].map(lambda value: (names or {}).get(int(value) if value.isdigit() else value, value))
     figure = px.bar(frame, x="hora", y="total", color="serie" if by else None, labels={"hora": "", "total": "eventos", "serie": ""})
-    chart(_style(figure, 300), key=f"hourly-{key}")
+    figure.update_traces(hovertemplate="%{x|%d/%m %H:%M} · %{y} eventos<extra>%{fullData.name}</extra>")
+    chart(_time_axis(_style(figure, 300), hourly_bars=True), key=f"hourly-{key}")
 
 
 def _top_chart(query, table_name: str, column: str, since: str, title: str, names: dict | None = None, key: str = ""):
@@ -310,14 +833,18 @@ def _top_chart(query, table_name: str, column: str, since: str, title: str, name
         return st.caption("Sin datos.")
     frame = pd.DataFrame(items)
     frame["valor"] = frame["valor"].map(lambda value: network.safe((names or {}).get(value, value), 40))
-    figure = px.bar(frame.iloc[::-1], x="total", y="valor", orientation="h", labels={"valor": "", "total": ""})
+    figure = px.bar(frame.iloc[::-1], x="total", y="valor", orientation="h", text="total", labels={"valor": "", "total": ""})
+    figure.update_traces(textposition="outside", cliponaxis=False, hovertemplate="%{y}: %{x}<extra></extra>")
+    figure.update_xaxes(showticklabels=False, showgrid=False)
     chart(_style(figure, 300), key=f"top-{key}")
 
 
 def access():
-    _, _, query, since = context()
+    settings, _, query, since = context()
     hero("🔑 Accesos", "Inicios de sesión, intentos fallidos, RDP y cambios de cuentas.")
+    _section_summary(query, settings, "accesos")
     rows = query.rows("auth_events", since)
+    _truncation_note(rows)
     if not rows:
         empty("Sin eventos de acceso. El registro Security necesita administrador o el grupo «Lectores del registro de eventos» "
               "(start\\configurar-permisos.bat).")
@@ -332,14 +859,15 @@ def access():
     with left: _top_chart(query, "auth_events", "source_ip", since, "Orígenes más frecuentes", key="auth-ip")
     with right: _top_chart(query, "auth_events", "target_user", since, "Cuentas más usadas", key="auth-user")
     with st.expander("Detalle", icon=":material/table:"):
-        table([{k: v for k, v in row.items() if k != "raw_xml"} | {"evento": EVENT_NAMES.get(row["event_id"], row["event_id"])}
-               for row in rows], key="auth_events")
+        table(rows, key="auth_events", view="auth_events")
 
 
 def files():
-    _, _, query, since = context()
+    settings, _, query, since = context()
     hero("📁 Archivos", "Creaciones, cambios, renombrados y borrados en las carpetas vigiladas.")
+    _section_summary(query, settings, "archivos")
     rows = query.rows("file_events", since)
+    _truncation_note(rows)
     if not rows:
         empty("Sin eventos de archivos. Pulse Recolectar o ejecute start\\vigilar.bat.")
     else:
@@ -353,18 +881,20 @@ def files():
         with left: _top_chart(query, "file_events", "extension", since, "Extensiones", key="files-ext")
         with right: _top_chart(query, "file_events", "action", since, "Acciones", key="files-action")
         with st.expander("Detalle", icon=":material/table:"):
-            table(rows, key="file_events")
+            table(rows, key="file_events", view="file_events")
     st.subheader("Reputación de ejecutables")
     reputations = query.rows("file_reputation", None, 100)
-    table(reputations, key="file_reputation")
+    table(reputations, key="file_reputation", view="file_reputation", windowed=False)
     st.caption("Sólo se consulta el SHA-256; nunca se carga el ejecutable. Ejecute "
                "`main.py reputation inspect RUTA --online` para enriquecer un archivo.")
 
 
 def persistence():
-    _, _, query, since = context()
+    settings, _, query, since = context()
     hero("🧩 Persistencia", "Lo que arranca solo: claves Run, carpeta Inicio, tareas programadas y servicios.")
+    _section_summary(query, settings, "persistencia")
     rows = query.rows("persistence_items", since)
+    _truncation_note(rows)
     if not rows:
         return empty("Nada nuevo en la ventana. Pulse Recolectar para inventariar Run, Inicio, tareas y servicios.")
     names = {"run_key": "Claves Run", "startup_folder": "Carpeta Inicio", "scheduled_task": "Tareas", "service": "Servicios"}
@@ -372,13 +902,15 @@ def persistence():
         column.metric(f"{label} (nuevos)", sum(row["kind"] == kind for row in rows))
     _top_chart(query, "persistence_items", "kind", since, "Elementos vistos por primera vez, por tipo", names, key="persistence")
     with st.expander("Detalle", icon=":material/table:"):
-        table(rows, key="persistence_items")
+        table(rows, key="persistence_items", view="persistence_items")
 
 
 def firewall():
-    _, _, query, since = context()
+    settings, _, query, since = context()
     hero("🧱 Firewall", "Paquetes que el firewall de Windows bloqueó: quién intentó entrar y a qué puertos.")
+    _section_summary(query, settings, "firewall")
     rows = query.rows("firewall_events", since)
+    _truncation_note(rows)
     if not rows:
         empty("Sin eventos del firewall. Active el registro de paquetes bloqueados con start\\configurar-permisos.bat.")
         return
@@ -392,7 +924,7 @@ def firewall():
     with right: _top_chart(query, "firewall_events", "dst_port", since, "Puertos más buscados",
                            {port: f"{port} · {name}" for port, name in network.SERVICES.items()}, key="fw-port")
     with st.expander("Detalle", icon=":material/table:"):
-        table(rows, key="firewall_events")
+        table(rows, key="firewall_events", view="firewall_events")
 
 
 # --- Herramientas ----------------------------------------------------------------------------------
@@ -409,12 +941,7 @@ def reports():
     st.download_button("Descargar", content.encode("utf-8"), chosen.name, "text/markdown", icon=":material/download:")
 
 
-MARKDOWN_SPECIAL = set("\\`*_{}[]()#+-.!|~<>")
-
-
-def _plain(text: str) -> str:
-    """Button labels render Markdown (links, even images that would load a URL): escape it."""
-    return "".join("\\" + char if char in MARKDOWN_SPECIAL else char for char in text)
+_plain = plain_label
 
 
 def _rag_panel():
@@ -535,13 +1062,13 @@ def state():
         icons = {"ok": "✅", "partial": "🟡", "skipped": "⏭️", "error": "❌"}
         table([{"fuente": name, "estado": f"{icons.get(info.get('status'), '')} {info.get('status')}",
                 "nuevos": info.get("inserted"), "avisos": " · ".join(info.get("warnings", []))[:300]}
-               for name, info in detail.items()], key="collectors")
+               for name, info in detail.items()], key="collectors", windowed=False, detail=False)
     st.subheader("Filas por tabla", divider="gray")
     frame = pd.DataFrame([{"tabla": name, "filas": count} for name, count in status["tables"].items()])
     chart(_style(px.bar(frame.sort_values("filas"), x="filas", y="tabla", orientation="h", labels={"tabla": "", "filas": ""}), 380),
           key="state-tables")
     st.subheader("Ejecuciones", divider="gray")
-    table(query.rows("runs", None, 100), key="runs")
+    table(query.rows("runs", None, 100), key="runs", view="runs", windowed=False)
     st.subheader("Modelos por función", divider="gray")
     from bootstrap import build_model_service
     model_service = build_model_service(settings)
@@ -613,6 +1140,7 @@ def state():
     if st.button("Purgar", disabled=not confirm, icon=":material/delete_sweep:"):
         from datetime import timedelta, timezone
         st.json(repository.purge((datetime.now(timezone.utc) - timedelta(days=current.retention_days)).isoformat()))
+        refresh_data()
 
 
 # --- Primeros pasos --------------------------------------------------------------------------------
@@ -663,6 +1191,7 @@ def getting_started():
 def processes():
     settings, _, query, since = context()
     hero("🧠 Procesos y RAM", "Consumo actual, evolución y ciclo de vida observados localmente.")
+    _section_summary(query, settings, "procesos")
     current = query.processes_current()
     if not current:
         empty("Todavía no hay snapshots de procesos. Pulse Recolectar para crear el primero.")
@@ -684,12 +1213,13 @@ def processes():
         with st.expander("Procesos en rutas que requieren revisión", icon=":material/warning:"):
             table([{"proceso": row.get("name"), "pid": row.get("pid"), "padre": row.get("parent_name"),
                     "memoria MB": row["memoria_mb"], "ruta": row.get("path")}
-                   for row in suspicious], key="processes-suspicious")
+                   for row in suspicious], key="processes-suspicious", windowed=False, columns=MEMORY_COLUMNS)
 
     top = pd.DataFrame(current[:20])
     figure = px.bar(top.sort_values("memoria_mb"), x="memoria_mb", y="name", orientation="h",
                     hover_data=["pid", "rss_mb", "memory_percent", "path"],
-                    labels={"memoria_mb": "Memoria privada (MB)", "name": ""})
+                    text="memoria_mb", labels={"memoria_mb": "Memoria privada (MB)", "name": ""})
+    figure.update_traces(texttemplate="%{x:,.0f} MB", textposition="outside", cliponaxis=False)
     chart(_style(figure, 520), key="process-memory-top")
 
     search = st.text_input("Filtrar por nombre, ruta o usuario", key="process-filter").casefold().strip()
@@ -698,7 +1228,7 @@ def processes():
     table([{"proceso": row.get("name"), "pid": row.get("pid"), "privada MB": row["memoria_mb"],
             "RSS MB": row["rss_mb"], "% RAM": row.get("memory_percent"), "estado": row.get("status"),
             "usuario": row.get("process_user"), "padre": row.get("parent_name"), "ruta": row.get("path")}
-           for row in filtered], key="processes-current")
+           for row in filtered], key="processes-current", windowed=False, columns=MEMORY_COLUMNS)
 
     st.subheader("Historial", divider="gray")
     choices = {f"{row.get('name') or '?'} · PID {row['pid']} · {row['process_key'][:8]}": row["process_key"]
@@ -707,19 +1237,19 @@ def processes():
     history = query.process_history(since, choices[selected])
     if history:
         frame = pd.DataFrame(history)
-        frame["hora"] = pd.to_datetime(frame["ts"], utc=True).dt.tz_convert(None)
+        frame["hora"] = local_series(frame["ts"])
         frame["privada MB"] = frame["private_bytes"].fillna(frame["rss_bytes"]) / 1024 ** 2
         frame["RSS MB"] = frame["rss_bytes"] / 1024 ** 2
-        chart(_style(px.line(frame, x="hora", y=["privada MB", "RSS MB"],
-                             labels={"value": "MB", "variable": "Métrica", "hora": ""}), 340),
+        chart(_time_axis(_style(px.line(frame, x="hora", y=["privada MB", "RSS MB"],
+                                        labels={"value": "MB", "variable": "Métrica", "hora": ""}), 340)),
               key="process-memory-history")
 
     st.subheader("Finalizados recientemente", divider="gray")
     ended = query.process_lifecycle(False, 250)
-    table([{"proceso": row.get("name"), "pid": row.get("pid"), "inicio observado": _local(row.get("first_seen")),
-            "última observación": _local(row.get("last_seen")), "fin inferido": _local(row.get("ended_at")),
+    table([{"proceso": row.get("name"), "pid": row.get("pid"), "inicio observado": row.get("first_seen"),
+            "última observación": row.get("last_seen"), "fin inferido": row.get("ended_at"),
             "pico privado MB": round((row.get("peak_private_bytes") or 0) / 1024 ** 2, 1), "ruta": row.get("path")}
-           for row in ended], key="processes-ended")
+           for row in ended], key="processes-ended", windowed=False, columns=MEMORY_COLUMNS)
 
 
 def _pull_with_progress(doctor, model: str):
@@ -734,3 +1264,48 @@ def _pull_with_progress(doctor, model: str):
     bar.progress(1.0, text=f"{model} descargado")
     st.cache_data.clear()
     st.rerun()
+
+
+# --- Buscar ----------------------------------------------------------------------------------------
+
+SEARCH_LABELS = {"alerts": "Alertas", "connections": "Conexiones", "firewall_events": "Firewall", "auth_events": "Accesos",
+                 "file_events": "Archivos", "ssh_observations": "SSH", "process_lifecycle": "Procesos",
+                 "persistence_items": "Persistencia", "file_reputation": "Reputación"}
+
+
+def search():
+    _, _, query, since = context()
+    hero("🔎 Buscar", "Todo lo registrado sobre una IP, un proceso, una ruta, un hash o un usuario, en un solo lugar.")
+    term = st.text_input("Buscar", value=st.query_params.get("q", ""), label_visibility="collapsed",
+                         icon=":material/search:", placeholder="203.0.113.7 · powershell.exe · C:\\Users\\… · SHA-256 · usuario")
+    st.caption("Busca coincidencias parciales, sin distinguir mayúsculas. Los eventos se limitan a la ventana temporal; "
+               "procesos, persistencia y reputación son inventarios y se buscan completos.")
+    term = term.strip()
+    # Keep the URL shareable, but only touch it when the term changes (rewriting it on load confuses the router)
+    if not term:
+        if "q" in st.query_params:
+            del st.query_params["q"]
+        return
+    if st.query_params.get("q") != term:
+        st.query_params["q"] = term
+    try:
+        results = query.entity_search(term, since)
+    except ValueError as exc:
+        return st.warning(str(exc))
+    found = [(name, rows) for name, rows in results.items() if rows]
+    if not found:
+        return empty("Nada coincide en la ventana seleccionada. Pruebe con parte del valor o una ventana más larga.")
+    columns = st.columns(min(len(found), 5))
+    for index, (name, rows) in enumerate(found):
+        columns[index % len(columns)].metric(SEARCH_LABELS[name], f"{len(rows)}{'+' if len(rows) >= ENTITY_LIMIT else ''}")
+    for tab, (name, rows) in zip(st.tabs([f"{SEARCH_LABELS[name]} ({len(rows)})" for name, rows in found]), found):
+        with tab:
+            if len(rows) >= ENTITY_LIMIT:
+                st.caption(f"Se muestran las {ENTITY_LIMIT} coincidencias más recientes.")
+            if name == "alerts":
+                for row in rows[:10]:
+                    _link("pages/2_Alertas.py", f"{_severity_name(row['severity'])} · alerta \\#{row['id']} · "
+                          f"{row['rule_id']} · {_plain(row['title'])}", ":material/open_in_new:",
+                          query_params={"id": row["id"]})
+            table(rows, key=f"search-{name}", view=name if name in VIEWS else None,
+                  windowed=name not in {"process_lifecycle", "persistence_items", "file_reputation"})

@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+from datetime import datetime
+
 import pandas as pd
 import streamlit as st
 
-from interfaces.gui.table_formatting import filter_table_rows, format_table_rows
+from interfaces.gui.table_formatting import (COLUMN_FORMAT, DISPLAY_FORMAT, filter_table_rows, format_table_rows,
+                                             is_date_column, to_local_datetime)
+from interfaces.gui.table_views import VIEWS, column_config, present, visible
 
 
 SEVERITY_ICONS = {"low": "⚪", "medium": "🟡", "high": "🟠", "critical": "🔴"}
@@ -39,6 +43,11 @@ _STYLE = """
 .nl-legend span::before {content: ""; display: inline-block; width: 10px; height: 10px; border-radius: 3px;
   margin-right: 6px; vertical-align: middle; background: var(--c);}
 [data-testid="stSidebarLogo"] {height: 3rem; max-width: 100%;}
+.nl-tile {border: 1px solid var(--nl-line); border-top: 3px solid var(--c); border-radius: 10px; padding: 8px 10px;
+  display: flex; flex-direction: column; gap: 1px; min-height: 96px;}
+.nl-tile span {font-size: .72rem; opacity: .7; text-transform: uppercase; letter-spacing: .03em;}
+.nl-tile b {color: var(--c); font-size: .95rem;}
+.nl-tile small {opacity: .75;}
 .nl-about {text-align: center;}
 .nl-about h3 {margin: 4px 0 0 0; padding: 0;}
 .nl-about small {opacity: .6;}
@@ -89,24 +98,108 @@ def empty(message: str):
     st.info(message)
 
 
-def table(rows, *, key: str, columns: dict | None = None):
+MARKDOWN_SPECIAL = set("\\`*_{}[]()#+-.!|~<>")
+SEARCH_PAGE = "pages/13_Buscar.py"
+# Row fields worth pivoting on (raw names and the Spanish labels of table_views)
+ENTITY_FIELDS = {"raddr", "laddr", "src_ip", "dst_ip", "source_ip", "source_host", "remote_address", "process_name",
+                 "process_path", "path", "dest_path", "sha256", "target_user", "process_user", "name", "remote",
+                 "remoto", "proceso", "ruta", "IP de origen", "IP de destino", "Cuenta", "Proceso", "Ruta", "SHA-256",
+                 "Remoto", "Usuario"}
+
+
+def plain_label(text: object) -> str:
+    """Labels render Markdown (links, even images that would load a URL): escape collected text before using it."""
+    return "".join("\\" + char if char in MARKDOWN_SPECIAL else char for char in str(text))
+
+
+def page_link(page: str, label: str, icon: str, query_params: dict | None = None):
+    """Link to another page; when a page runs on its own (tests, direct run) there is no navigation to link to."""
+    try:
+        st.page_link(page, label=label, icon=icon, query_params=query_params)
+    except Exception:
+        st.caption(f"→ {label}")
+
+
+def search_links(values, key: str, limit: int = 4):
+    """'Buscar «…»' links to the entity search for the distinct, meaningful values given."""
+    seen = []
+    for value in values:
+        text = "" if value is None else str(value).strip()
+        if 2 <= len(text) <= 200 and text not in seen and text not in {"-", "?", "None"}:
+            seen.append(text)
+    if not seen:
+        return
+    columns = st.columns(min(len(seen[:limit]), limit))
+    for column, text in zip(columns, seen[:limit]):
+        with column:
+            page_link(SEARCH_PAGE, f"Buscar «{plain_label(text[:40])}»", ":material/search:", query_params={"q": text})
+
+
+def csv_name(key: str, windowed: bool = True) -> str:
+    """conexiones_24-horas_20261007-1055.csv: says which window and when it was exported."""
+    window = str(st.session_state.get("window") or "").replace(" ", "-") if windowed else ""
+    stamp = datetime.now().strftime("%Y%m%d-%H%M")
+    return "_".join(part for part in (key, window, stamp) if part) + ".csv"
+
+
+def _record(row: dict) -> list[dict]:
+    """Every stored field of one row, as text, for the detail panel (collected data: shown as data, never markup)."""
+    fields = []
+    for name, value in row.items():
+        local = to_local_datetime(value) if is_date_column(name) else value
+        text = local.strftime(DISPLAY_FORMAT) if isinstance(local, datetime) else ("" if value is None else str(value))
+        fields.append({"campo": name, "valor": text[:4000] + ("…" if len(text) > 4000 else "")})
+    return fields
+
+
+def table(rows, *, key: str, columns: dict | None = None, view: str | None = None, windowed: bool = True,
+          detail: bool = True, on_pick=None, searchable: bool = True):
+    """Searchable, sortable table. `view` names a table_views layout; selecting a row shows every stored field.
+
+    `on_pick(row)` draws extra context for the selected row inside its detail panel; the row is also returned.
+    """
     if not rows:
         empty("No hay datos para la ventana seleccionada.")
         return
-    formatted, date_columns = format_table_rows(rows)
-    available = list(pd.DataFrame(formatted).columns)
-    with st.expander("Buscar en esta tabla", icon=":material/search:"):
-        selected = st.multiselect("Columnas", available, default=available, key=f"search-columns-{key}")
-        search = st.text_input("Texto", key=f"search-text-{key}", placeholder="Nombre, IP, ruta, estado...")
-    filtered = filter_table_rows(formatted, search, selected)
-    frame = pd.DataFrame(filtered, columns=available)
+    raw = [dict(row) for row in rows]
+    if view:
+        shown, config = present(raw, view), column_config(VIEWS[view]) | (columns or {})
+        has_dates = any(column.kind == "date" for column in VIEWS[view])
+    else:
+        shown, date_columns = format_table_rows(visible(row) for row in raw)
+        # Real datetimes (not text) so clicking a date column sorts chronologically
+        config = {name: st.column_config.DatetimeColumn(format=COLUMN_FORMAT) for name in date_columns} | (columns or {})
+        has_dates = bool(date_columns)
+    available = list(pd.DataFrame(shown).columns)
+    search = st.text_input("Buscar en la tabla", key=f"search-text-{key}", placeholder="Nombre, IP, ruta, estado…",
+                           label_visibility="collapsed", icon=":material/search:") if searchable else ""
+    matches = [index for index, row in enumerate(shown) if filter_table_rows([row], search, available)]
+    frame = pd.DataFrame([shown[index] for index in matches], columns=available)
     if search:
-        st.caption(f"{len(filtered)} de {len(formatted)} fila(s) coinciden con la búsqueda.")
-    if date_columns:
-        st.caption("Las fechas se muestran como DD/MM/AAAA HH:MM:SS en la hora local del equipo.")
-    st.dataframe(frame, width="stretch", hide_index=True, column_config=columns)
-    st.download_button("Descargar CSV", frame.to_csv(index=False).encode("utf-8"), f"{key}.csv", "text/csv",
-                       key=f"download-{key}", icon=":material/download:")
+        st.caption(f"{len(matches)} de {len(shown)} fila(s) coinciden con la búsqueda.")
+    event = st.dataframe(frame, width="stretch", hide_index=True, column_config=config, key=f"table-{key}",
+                         on_select="rerun" if detail else "ignore", selection_mode="single-row")
+    caption = " ".join(text for text, show in (("Fechas en hora local del equipo.", has_dates),
+                                               ("Seleccione una fila para ver todos sus campos.", detail)) if show)
+    if caption:
+        st.caption(caption)
+    selected = list(getattr(getattr(event, "selection", None), "rows", None) or [])
+    if detail and selected and selected[0] < len(matches):
+        with st.container(border=True):
+            st.markdown("**Detalle de la fila seleccionada**")
+            record = raw[matches[selected[0]]]
+            st.dataframe(pd.DataFrame(_record(record)), hide_index=True, width="stretch", key=f"record-{key}")
+            shown_row = shown[matches[selected[0]]]
+            search_links([value for name, value in list(record.items()) + list(shown_row.items())
+                          if name in ENTITY_FIELDS], key=f"links-{key}")
+            if on_pick:
+                on_pick(record)
+    else:
+        record = None
+    st.download_button("Descargar CSV", frame.to_csv(index=False).encode("utf-8"), csv_name(key, windowed), "text/csv",
+                       key=f"download-{key}", icon=":material/download:",
+                       help="Exporta las filas visibles, con el filtro de búsqueda aplicado.")
+    return record
 
 
 def severity_label(value: str) -> str:

@@ -27,6 +27,11 @@ packaging\build.ps1 -SinInstalador      # sin Inno Setup: solo carpeta y ZIP
 packaging\build.ps1 -SinZip -SinPrueba  # iteración rápida del instalador
 ```
 
+Para integrar `llama-server.exe` y un modelo GGUF sin exigir Ollama instalado,
+use los parámetros con hashes descritos en
+[`README/LLAMA_CPP.md`](../README/LLAMA_CPP.md). Esta modalidad es opcional y
+puede aumentar el paquete varios gigabytes.
+
 Qué hace `build.ps1`, en orden:
 
 1. Lee la versión de `shared\about.py` (`APP_VERSION`), que es la única fuente.

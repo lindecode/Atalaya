@@ -12,7 +12,7 @@ ROLE_PREFERENCES = {"chat": "ollama_model_chat", "analysis": "ollama_model_analy
 
 
 class ModelService:
-    """Lists the local Ollama models and remembers which one analyze/chat should use (stored in SQLite)."""
+    """Lists local-provider models and remembers which one each role should use."""
 
     def __init__(self, repository, catalog: ModelCatalog, clock: Clock, settings: Settings):
         self.repository = repository
@@ -27,13 +27,13 @@ class ModelService:
                 or self.repository.get_preference(MODEL_PREFERENCE) or self.settings.ollama_model)
 
     def available(self) -> list[dict[str, Any]]:
-        """Raises if Ollama is unreachable; callers decide how to degrade."""
+        """Raises if the selected local provider is unreachable."""
         return self.catalog.list_models()
 
     def select(self, name: str, role: str = "chat") -> dict[str, Any]:
         model = next((item for item in self.available() if item["name"] == name), None)
         if model is None:
-            raise ValueError(f"El modelo {name!r} no está instalado en Ollama (ollama pull {name})")
+            raise ValueError(f"El modelo {name!r} no está instalado o disponible en el proveedor local")
         if not model["chat"]:
             raise ValueError(f"{name} es un modelo de embeddings y no puede analizar ni conversar")
         self.repository.initialize()

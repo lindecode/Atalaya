@@ -28,6 +28,8 @@ PAGES = [
     "interfaces/gui/pages/10_Estado.py",
     "interfaces/gui/pages/11_Primeros_pasos.py",
     "interfaces/gui/pages/12_Procesos.py",
+    "interfaces/gui/pages/13_Buscar.py",
+    "interfaces/gui/pages/14_En_vivo.py",
 ]
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -60,7 +62,8 @@ def test_alert_workflow_and_xss_literal(tmp_path, monkeypatch):
 
     alert_app = AppTest.from_file(ROOT / "interfaces/gui/pages/2_Alertas.py", default_timeout=30).run()
     assert not alert_app.exception
-    assert payload in str(alert_app.dataframe[0].value)
+    # Shown literally inside a dataframe cell (never rendered as HTML)
+    assert payload in alert_app.dataframe(key="alerts-table").value["Resumen"].iloc[0]
     confirm = next(button for button in alert_app.button if button.label == "Confirmar")
     confirm.click().run()
     with connect(database, readonly=True) as db:

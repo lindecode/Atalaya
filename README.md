@@ -2,7 +2,8 @@
 
 Atalaya es un monitor local de seguridad para Windows 10/11 x64. Recolecta
 evidencia del equipo, detecta comportamientos sospechosos mediante reglas
-deterministas y, opcionalmente, utiliza modelos locales de Ollama para explicar
+deterministas y, opcionalmente, utiliza Ollama o un runtime integrado de
+`llama.cpp` para explicar
 alertas y consultar la información en lenguaje natural.
 
 La interfaz, SQLite y los modelos operan en el equipo. Atalaya no es un
@@ -31,6 +32,7 @@ funciones que pueden generar tráfico externo son explícitas:
 | Función | Destino | Información enviada |
 |---|---|---|
 | Ollama | Sólo `localhost`, validado por la aplicación | Prompts y contexto al modelo local |
+| llama.cpp integrado | Sólo `127.0.0.1`, proceso y modelo validados | Prompts y contexto al modelo local |
 | Reputación en línea | VirusTotal, sólo al solicitar `--online` o `lookup` | Hash SHA-256; no se carga el archivo |
 | Instalación y modelos | PyPI, Python.org y Ollama | Descargas de dependencias o modelos |
 
@@ -42,7 +44,7 @@ con evidencia al reportar un problema.
 
 - Windows 10 u 11 x64.
 - Instalador oficial, o Python 3.11+ para ejecutar desde el código fuente.
-- Ollama para análisis y chat con LLM; la recolección y las reglas funcionan sin él.
+- Ollama o un paquete integrado de llama.cpp para análisis y chat; las reglas funcionan sin LLM.
 - WebView2 para la ventana integrada; si no está disponible puede usarse el navegador.
 - Permisos de administrador sólo para configurar o leer determinadas fuentes
   protegidas. El uso diario no necesita ejecutarse elevado.
@@ -91,7 +93,7 @@ start\diagnostico.bat
    quiera utilizar.
 2. Abra el panel y realice una recolección estándar.
 3. Revise las alertas antes de aprobar elementos como normales.
-4. Configure Ollama si desea explicaciones, chat o embeddings.
+4. Configure Ollama o llama.cpp si desea explicaciones, chat o embeddings.
 5. Cree un backup antes de activar la automatización.
 6. Active el ciclo programado desde **Estado → Configuración de análisis automático**.
 
@@ -120,6 +122,10 @@ Variables de entorno admitidas:
 | `ATALAYA_FIREWALL_LOG` | Indica otro registro del Firewall de Windows |
 | `OLLAMA_HOST` | Endpoint local de Ollama; sólo se aceptan direcciones loopback |
 | `OLLAMA_EMBEDDING_MODEL` | Modelo local para embeddings RAG |
+| `ATALAYA_LLM_PROVIDER` | `auto`, `ollama` o `llama_cpp` |
+| `ATALAYA_LLAMA_CPP_SERVER` | Ruta a `llama-server.exe` |
+| `ATALAYA_LLAMA_CPP_MODEL` | Ruta al modelo GGUF |
+| `ATALAYA_LLAMA_CPP_EMBEDDING_MODEL` | Ruta al GGUF dedicado de embeddings |
 | `VIRUSTOTAL_API_KEY` | Activa consultas opcionales de reputación |
 
 Ejemplo temporal en PowerShell:
@@ -184,6 +190,7 @@ conocer la separación entre código abierto, servicios y módulos comerciales.
 - [Reputación de ejecutables](README.reputation.md)
 - [Construcción y firma del instalador](packaging/README.md)
 - [Análisis periódico, retención y lectura de tablas](README/ANALISIS_PERIODICO.md)
+- [Runtime portable con llama.cpp](README/LLAMA_CPP.md)
 - [Seguridad y divulgación responsable](SECURITY.md)
 - [Contribuciones](CONTRIBUTING.md)
 - [Código de conducta](CODE_OF_CONDUCT.md)

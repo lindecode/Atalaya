@@ -84,7 +84,42 @@ class DoctorService:
         self.webview2_version, self.model_puller = webview2_version, model_puller
 
     def run(self) -> list[Check]:
-        return self._python() + self._data() + self._operation() + self._ollama() + self._sources()
+        return self._python() + self._data() + self._operation() + self._llm() + self._sources()
+
+    def _llm(self) -> list[Check]:
+        from infrastructure.llm_provider import provider_name
+        return self._llama_cpp() if provider_name(self.settings) == "llama_cpp" else self._ollama()
+
+    def _llama_cpp(self) -> list[Check]:
+        executable, model = self.settings.llama_cpp_executable, self.settings.llama_cpp_model_path
+        if not executable.is_file() or not model.is_file():
+            missing = executable if not executable.is_file() else model
+            return [Check("llama-cpp", "LLM local", "llama.cpp integrado", "warn",
+                          f"Falta {missing}: las reglas funcionan, pero no el chat ni las explicaciones",
+                          "Configure ATALAYA_LLAMA_CPP_SERVER y ATALAYA_LLAMA_CPP_MODEL")]
+        try:
+            installed = self.models.available()
+        except Exception as exc:
+            return [Check("llama-cpp", "LLM local", "llama.cpp integrado", "warn",
+                          f"Configurado pero no responde: {exc}", "Reinicie Atalaya y revise logs\\llama-server.log")]
+        size = model.stat().st_size / 1e9
+        checks = [Check("llama-cpp", "LLM local", "llama.cpp integrado", "ok",
+                        f"En marcha · {model.name} · {size:.1f} GB · {len(installed)} modelo(s)")]
+        embedding = self.settings.llama_cpp_embedding_model_path
+        if not embedding.is_file():
+            checks.append(Check("llama-cpp-embedding", "LLM local", "Embeddings llama.cpp", "info",
+                                "Sin modelo dedicado: RAG usa búsqueda léxica",
+                                "Configure ATALAYA_LLAMA_CPP_EMBEDDING_MODEL para búsqueda semántica"))
+        else:
+            from infrastructure.llama_cpp.client import LlamaCppClient
+            from infrastructure.llama_cpp.credentials import load_or_create_key
+            from infrastructure.llama_cpp.endpoints import runtime_host
+            ready = LlamaCppClient(runtime_host(self.settings, "embedding"), 2,
+                                   load_or_create_key(self.settings, "embedding")).health()
+            checks.append(Check("llama-cpp-embedding", "LLM local", "Embeddings llama.cpp",
+                                "ok" if ready else "warn", f"{embedding.name} · {'en marcha' if ready else 'detenido'}",
+                                "Reinicie Atalaya" if not ready else ""))
+        return checks
 
     # --- Python y dependencias ------------------------------------------------------------------
     def _python(self) -> list[Check]:

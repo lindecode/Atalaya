@@ -101,6 +101,11 @@ class ProcessManager:
         except Exception:
             child.kill()
 
+    def adopt(self, name: str, child) -> None:
+        """Track a securely constructed external child so Quit stops it too."""
+        if child is not None:
+            self.children[name] = child
+
     def stop_all(self) -> None:
         for name in list(self.children):
             self.stop(name)
@@ -224,7 +229,19 @@ class TrayController:
         self.processes.stop_all()
 
 
-def start_ollama_if_needed() -> None:
+def start_llm_if_needed(settings: Settings | None = None):
+    settings = settings or Settings()
+    from infrastructure.llm_provider import provider_name
+    if provider_name(settings) == "llama_cpp":
+        from infrastructure.llama_cpp.runtime import configured, start_if_needed
+        children = {}
+        try:
+            children["llama_cpp_chat"] = start_if_needed(settings, role="chat")
+            if configured(settings, "embedding"):
+                children["llama_cpp_embedding"] = start_if_needed(settings, role="embedding")
+        except RuntimeError:
+            log.exception("llama.cpp did not start")
+        return children
     if ollama_ready():
         return
     from application.doctor import find_ollama
@@ -235,6 +252,7 @@ def start_ollama_if_needed() -> None:
     command = [str(app)] if app.exists() else [exe, "serve"]
     subprocess.Popen(command, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL)
+    return None
 
 
 def tray_image(alert: bool = False):
@@ -314,7 +332,10 @@ def run_tray(open_browser: bool = True, monitor: bool = False, force_browser: bo
 
     def background(_icon) -> None:
         _icon.visible = True
-        start_ollama_if_needed()
+        llm_children = start_llm_if_needed(settings)
+        if isinstance(llm_children, dict):
+            for name, child in llm_children.items():
+                controller.processes.adopt(name, child)
         controller.ensure_gui()
         if monitor:
             controller.processes.start("watch", "watch")

@@ -55,11 +55,13 @@ class AutomationConfigService:
 
 class CycleService:
     def __init__(self, repository, clock, settings, config_service, collect_factory, analyze_factory,
-                 pid_alive: Callable[[int], bool] = lambda pid: True):
+                 pid_alive: Callable[[int], bool] = lambda pid: True,
+                 summary_step: Callable[[int], dict | None] | None = None):
         self.repository, self.clock, self.settings = repository, clock, settings
         self.config_service = config_service
         self.collect_factory, self.analyze_factory = collect_factory, analyze_factory
         self.pid_alive = pid_alive
+        self.summary_step = summary_step
 
     def execute(self, profile: str | None = None, force_analysis=False, use_llm: bool | None = None):
         config = self.config_service.load()
@@ -75,9 +77,21 @@ class CycleService:
                 analyzed = self.analyze_factory(effective).execute(
                     use_llm=config.use_llm if use_llm is None else use_llm)
             maintenance = self._maintenance(config, selected)
+            summary = self._summary(config, analyzed, config.use_llm if use_llm is None else use_llm)
             self.repository.set_preference("automation_cycle_count", str(self._cycle_count() + 1), self.clock.now_iso())
             return {"profile": selected, "collected": collected, "analyzed": analyzed,
-                    "analysis_skipped": not should_analyze, "maintenance": maintenance}
+                    "analysis_skipped": not should_analyze, "maintenance": maintenance, "summary": summary}
+
+    def _summary(self, config, analyzed, use_llm: bool) -> dict | None:
+        """At most one section summary per cycle, and none when this cycle's analysis already used the LLM."""
+        if not self.summary_step or not use_llm:
+            return None
+        if analyzed and analyzed.get("llm_alerts"):
+            return {"skipped": "El LLM ya analizó alertas en este ciclo"}
+        try:
+            return self.summary_step(config.analysis_window_hours)
+        except Exception as exc:  # a summary never breaks the cycle
+            return {"error": f"{type(exc).__name__}: {exc}"}
 
     def _cycle_count(self):
         try: return int(self.repository.get_preference("automation_cycle_count") or 0)
@@ -106,8 +120,9 @@ class CycleService:
 class _CycleLock:
     """Exclusive lock file holding the owner's PID; a lock left by a dead process (crash, power loss) is reclaimed."""
 
-    def __init__(self, path: Path, pid_alive: Callable[[int], bool] = lambda pid: True):
-        self.path, self.pid_alive, self.fd = path, pid_alive, None
+    def __init__(self, path: Path, pid_alive: Callable[[int], bool] = lambda pid: True,
+                 busy_message: str = "Ya hay un ciclo automático en ejecución"):
+        self.path, self.pid_alive, self.fd, self.busy_message = path, pid_alive, None, busy_message
 
     def __enter__(self):
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -115,11 +130,11 @@ class _CycleLock:
             self._acquire()
         except FileExistsError:
             if not self._reclaim_stale():
-                raise RuntimeError("Ya hay un ciclo automático en ejecución") from None
+                raise RuntimeError(self.busy_message) from None
             try:
                 self._acquire()
             except FileExistsError as exc:  # another cycle reclaimed it first
-                raise RuntimeError("Ya hay un ciclo automático en ejecución") from exc
+                raise RuntimeError(self.busy_message) from exc
         return self
 
     def _acquire(self):

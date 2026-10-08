@@ -12,12 +12,14 @@ st.set_page_config(page_title=DISPLAY_NAME, page_icon=str(ICON_PATH) if ICON_PAT
 navigation = st.navigation({
     "Vigilancia": [
         st.Page("pages/0_Panel.py", title="Panel", icon=":material/dashboard:", default=True),
+        st.Page("pages/14_En_vivo.py", title="En vivo", icon=":material/pulse_alert:", url_path="en-vivo"),
         st.Page("pages/3_Conexiones.py", title="Conexiones", icon=":material/hub:"),
         st.Page("pages/12_Procesos.py", title="Procesos y RAM", icon=":material/memory:"),
         st.Page("pages/2_Alertas.py", title="Alertas", icon=":material/notification_important:"),
         st.Page("pages/1_Resumen.py", title="Actividad", icon=":material/monitoring:"),
     ],
     "Evidencia": [
+        st.Page("pages/13_Buscar.py", title="Buscar", icon=":material/search:", url_path="buscar"),
         st.Page("pages/4_Accesos.py", title="Accesos", icon=":material/key:"),
         st.Page("pages/5_Archivos.py", title="Archivos", icon=":material/folder_open:"),
         st.Page("pages/6_Persistencia.py", title="Persistencia", icon=":material/autorenew:"),
@@ -30,5 +32,5 @@ navigation = st.navigation({
         st.Page("pages/8_Informes.py", title="Informes", icon=":material/description:"),
         st.Page("pages/10_Estado.py", title="Estado", icon=":material/settings:"),
     ],
-})
+}, expanded=True)
 navigation.run()

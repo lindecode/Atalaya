@@ -7,7 +7,16 @@
 param(
     [switch]$SinInstalador,   # solo carpeta + ZIP portable (no necesita Inno Setup)
     [switch]$SinZip,
-    [switch]$SinPrueba        # omite la prueba de humo del paquete
+    [switch]$SinPrueba,       # omite la prueba de humo del paquete
+    [string]$LlamaCppZip,     # ZIP oficial precompilado de llama.cpp (opcional)
+    [string]$LlamaCppSha256,
+    [string]$LlamaCppLicense,
+    [string]$ModeloGguf,      # modelo con licencia redistribuible (opcional)
+    [string]$ModeloSha256,
+    [string]$ModeloLicense,
+    [string]$EmbeddingGguf,   # modelo dedicado de embeddings (opcional)
+    [string]$EmbeddingSha256,
+    [string]$EmbeddingLicense
 )
 $ErrorActionPreference = 'Stop'
 $Packaging = $PSScriptRoot
@@ -17,6 +26,7 @@ $Stage = Join-Path $Build 'Atalaya'
 $Dist = Join-Path $Root 'dist'
 $Cache = Join-Path $Packaging 'cache'
 $versions = Get-Content (Join-Path $Packaging 'versions.json') -Raw | ConvertFrom-Json
+$componentFiles = [ordered]@{}
 
 function Write-Paso([string]$texto) { Write-Host "`n==> $texto" -ForegroundColor Cyan }
 
@@ -69,6 +79,58 @@ $pth = Get-ChildItem $Runtime -Filter 'python*._pth' | Select-Object -First 1
 $zipName = (Get-ChildItem $Runtime -Filter 'python*.zip' | Select-Object -First 1).Name
 Set-Content -Path $pth.FullName -Encoding ascii -Value @($zipName, '.', 'Lib\site-packages', '..', 'import site')
 Write-Host "  SHA-256 verificado; $($pth.Name) configurado"
+
+if ($LlamaCppZip -or $ModeloGguf) {
+    if (-not ($LlamaCppZip -and $LlamaCppSha256 -and $LlamaCppLicense -and $ModeloGguf -and $ModeloSha256 -and $ModeloLicense)) {
+        throw 'Para integrar llama.cpp indique ZIP, modelo, hashes y las dos licencias'
+    }
+    Write-Paso 'Runtime llama.cpp integrado'
+    foreach ($item in @(@($LlamaCppZip, $LlamaCppSha256, 'llama.cpp'), @($ModeloGguf, $ModeloSha256, 'modelo GGUF'))) {
+        if (-not (Test-Path -LiteralPath $item[0] -PathType Leaf)) { throw "No existe $($item[2]): $($item[0])" }
+        $actual = (Get-FileHash -LiteralPath $item[0] -Algorithm SHA256).Hash.ToLower()
+        if ($actual -ne $item[1].ToLower()) { throw "SHA-256 incorrecto para $($item[2])" }
+    }
+    foreach ($license in @($LlamaCppLicense, $ModeloLicense)) {
+        if (-not (Test-Path -LiteralPath $license -PathType Leaf)) { throw "No existe la licencia: $license" }
+    }
+    $llamaTemp = Join-Path $Build 'llama-cpp-extract'
+    Expand-Archive -LiteralPath $LlamaCppZip -DestinationPath $llamaTemp
+    $server = Get-ChildItem $llamaTemp -Recurse -File -Filter 'llama-server.exe' | Select-Object -First 1
+    if (-not $server) { throw 'El ZIP verificado no contiene llama-server.exe' }
+    $llamaTarget = Join-Path $Runtime 'llama.cpp'
+    New-Item -ItemType Directory -Force -Path $llamaTarget | Out-Null
+    Copy-Item -Path (Join-Path $server.DirectoryName '*') -Destination $llamaTarget -Recurse -Force
+    $serverTarget = Join-Path $llamaTarget 'llama-server.exe'
+    $modelTarget = Join-Path $Stage 'models'
+    New-Item -ItemType Directory -Force -Path $modelTarget | Out-Null
+    Copy-Item -LiteralPath $ModeloGguf -Destination (Join-Path $modelTarget 'atalaya.gguf')
+    $componentFiles['runtime/llama.cpp/llama-server.exe'] = (Get-FileHash -LiteralPath $serverTarget -Algorithm SHA256).Hash.ToLower()
+    $componentFiles['models/atalaya.gguf'] = (Get-FileHash -LiteralPath (Join-Path $modelTarget 'atalaya.gguf') -Algorithm SHA256).Hash.ToLower()
+    $licenseTarget = Join-Path $Stage 'THIRD_PARTY_LICENSES'
+    New-Item -ItemType Directory -Force -Path $licenseTarget | Out-Null
+    Copy-Item -LiteralPath $LlamaCppLicense -Destination (Join-Path $licenseTarget 'llama.cpp.txt')
+    Copy-Item -LiteralPath $ModeloLicense -Destination (Join-Path $licenseTarget 'model.txt')
+    if ($EmbeddingGguf -or $EmbeddingSha256 -or $EmbeddingLicense) {
+        if (-not ($EmbeddingGguf -and $EmbeddingSha256 -and $EmbeddingLicense)) {
+            throw 'El modelo de embeddings requiere archivo, SHA-256 y licencia'
+        }
+        if (-not (Test-Path -LiteralPath $EmbeddingGguf -PathType Leaf)) { throw "No existe: $EmbeddingGguf" }
+        if (-not (Test-Path -LiteralPath $EmbeddingLicense -PathType Leaf)) { throw "No existe: $EmbeddingLicense" }
+        $embeddingHash = (Get-FileHash -LiteralPath $EmbeddingGguf -Algorithm SHA256).Hash.ToLower()
+        if ($embeddingHash -ne $EmbeddingSha256.ToLower()) { throw 'SHA-256 incorrecto para el modelo de embeddings' }
+        Copy-Item -LiteralPath $EmbeddingGguf -Destination (Join-Path $modelTarget 'atalaya-embedding.gguf')
+        $componentFiles['models/atalaya-embedding.gguf'] = (Get-FileHash -LiteralPath (Join-Path $modelTarget 'atalaya-embedding.gguf') -Algorithm SHA256).Hash.ToLower()
+        Copy-Item -LiteralPath $EmbeddingLicense -Destination (Join-Path $licenseTarget 'embedding-model.txt')
+    }
+    Write-Host '  llama-server.exe y modelo verificados e incluidos'
+}
+
+if ($componentFiles.Count) {
+    # El runtime vuelve a calcular estos hashes antes de ejecutar componentes incluidos.
+    @{ schema = 1; files = $componentFiles } | ConvertTo-Json -Depth 3 |
+        Set-Content -Path (Join-Path $Stage 'COMPONENTS.sha256.json') -Encoding utf8
+    Write-Host '  Manifiesto de integridad de componentes generado'
+}
 
 Write-Paso "Dependencias (requirements.lock.txt)"
 $sitePackages = Join-Path $Runtime 'Lib\site-packages'

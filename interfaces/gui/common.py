@@ -7,6 +7,42 @@ from infrastructure.sqlite.repositories import SQLiteRepository
 from settings import Settings
 
 
+QUERY_TTL_SECONDS = 60
+WINDOW_HOURS = {"1 hora": 1, "24 horas": 24, "7 días": 168, "30 días": 720}
+
+
+def selected_window_hours() -> int:
+    return WINDOW_HOURS.get(st.session_state.get("window"), 24)
+
+
+@st.cache_data(ttl=QUERY_TTL_SECONDS, show_spinner=False)
+def _cached_query(_query: SQLiteQueryRepository, database: str, method: str, args: tuple, kwargs: tuple):
+    """One SQLite read per (database, method, arguments) per minute instead of one per widget interaction."""
+    return getattr(_query, method)(*args, **dict(kwargs))
+
+
+class CachedQueries:
+    """Read-only facade over SQLiteQueryRepository whose results are cached; writes go through the repository."""
+
+    def __init__(self, query: SQLiteQueryRepository):
+        self._query = query
+
+    def __getattr__(self, name):
+        attribute = getattr(self._query, name)
+        if not callable(attribute) or name.startswith("_"):
+            return attribute
+        # Live views have their own small, indexed queries and must not inherit the one-minute cache.
+        if name.startswith("live_"):
+            return attribute
+        database = str(self._query.settings.database_path)
+        return lambda *args, **kwargs: _cached_query(self._query, database, name, args, tuple(sorted(kwargs.items())))
+
+
+def refresh_data() -> None:
+    """Forget cached reads after collecting, analysing or changing alerts/baseline."""
+    _cached_query.clear()
+
+
 @st.cache_data(ttl=60, show_spinner=False)
 def _installed_models() -> tuple[list[dict], str | None]:
     from bootstrap import build_model_service
@@ -78,14 +114,14 @@ def context():
     settings = Settings()
     repository = SQLiteRepository(settings)
     repository.initialize()
-    query = SQLiteQueryRepository(settings)
+    query = CachedQueries(SQLiteQueryRepository(settings))
     # Name and subtitle sit beside the icon in the sidebar header; collapsed, only the icon remains
     wordmark = WORDMARK_PATHS["light" if getattr(st.context.theme, "type", None) == "light" else "dark"]
     if wordmark.exists() and ICON_PATH.exists():
         st.logo(str(wordmark), icon_image=str(ICON_PATH), size="large")
     elif ICON_PATH.exists():
         st.logo(str(ICON_PATH), size="large")
-    options = {"1 hora": 1, "24 horas": 24, "7 días": 168, "30 días": 720}
+    options = WINDOW_HOURS
     label = st.sidebar.selectbox("Ventana temporal", list(options), index=1, key="window")
     _actions(settings)
     st.sidebar.divider()
