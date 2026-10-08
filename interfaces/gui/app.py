@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import streamlit as st
 
+from infrastructure.logging_config import configure_logging
 from shared.about import DISPLAY_NAME, ICON_PATH
 
+
+configure_logging("gui")
 
 st.set_page_config(page_title=DISPLAY_NAME, page_icon=str(ICON_PATH) if ICON_PATH.exists() else "🛡️",
                    layout="wide", initial_sidebar_state="expanded")
@@ -31,6 +34,7 @@ navigation = st.navigation({
         st.Page("pages/9_Chat.py", title="Chat", icon=":material/forum:"),
         st.Page("pages/8_Informes.py", title="Informes", icon=":material/description:"),
         st.Page("pages/10_Estado.py", title="Estado", icon=":material/settings:"),
+        st.Page("pages/15_Bitacora.py", title="Bitácora", icon=":material/bug_report:", url_path="bitacora"),
     ],
 }, expanded=True)
 navigation.run()

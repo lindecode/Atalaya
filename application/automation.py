@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 from dataclasses import asdict, dataclass, replace
 from datetime import datetime, timedelta
@@ -9,6 +10,7 @@ from typing import Callable
 
 
 PREFERENCE_KEY = "automation_config_v1"
+log = logging.getLogger("atalaya.automation")
 
 
 @dataclass(frozen=True, slots=True)
@@ -91,6 +93,7 @@ class CycleService:
         try:
             return self.summary_step(config.analysis_window_hours)
         except Exception as exc:  # a summary never breaks the cycle
+            log.exception("Falló el resumen automático de sección")
             return {"error": f"{type(exc).__name__}: {exc}"}
 
     def _cycle_count(self):

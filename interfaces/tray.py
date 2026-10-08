@@ -288,7 +288,8 @@ def run_tray(open_browser: bool = True, monitor: bool = False, force_browser: bo
 
     logs = data_home() / "logs"
     logs.mkdir(parents=True, exist_ok=True)
-    logging.basicConfig(filename=logs / "tray.log", level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    from infrastructure.logging_config import configure_logging
+    configure_logging("tray")
     requests = desktop.ShowRequests()
     if _single_instance() is None:  # already running: ask it to show itself
         if open_browser and not requests.signal():

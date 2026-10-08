@@ -425,6 +425,47 @@ def _span_since(hours: float | None, window_since: str) -> str:
     return max(start, window_since)
 
 
+# --- Bitácora de errores -------------------------------------------------------------------------
+
+def error_log():
+    context()
+    from infrastructure.log_reader import read_application_logs
+    from infrastructure.logging_config import logs_dir
+
+    hero("🐞 Bitácora", "Errores y actividad técnica de Atalaya. Los archivos rotan automáticamente.")
+    directory = logs_dir()
+    entries = read_application_logs(directory, 1000)
+    levels = st.multiselect("Niveles", ["CRITICAL", "ERROR", "WARNING", "INFO"],
+                            default=["CRITICAL", "ERROR", "WARNING"], key="log-levels")
+    search = st.text_input("Buscar", placeholder="Componente, mensaje o tipo de error", key="log-search",
+                           icon=":material/search:").casefold().strip()
+    visible = [entry for entry in entries if entry.get("level") in levels and
+               (not search or search in " ".join(str(value) for value in entry.values()).casefold())]
+
+    a, b, c = st.columns(3)
+    a.metric("Errores visibles", sum(entry.get("level") in {"ERROR", "CRITICAL"} for entry in visible))
+    b.metric("Advertencias visibles", sum(entry.get("level") == "WARNING" for entry in visible))
+    c.metric("Entradas cargadas", len(entries))
+    st.caption(f"Carpeta: {directory} · cada componente conserva hasta cinco archivos de 5 MB. "
+               "Tokens y contraseñas reconocibles se redactan.")
+    if not visible:
+        return empty("No hay entradas que coincidan con los filtros.")
+
+    rows = [{"Fecha": item.get("ts"), "Nivel": item.get("level"), "Componente": item.get("logger"),
+             "Mensaje": item.get("message"), "Proceso": item.get("process")} for item in visible]
+    table(rows, key="error-log", windowed=False, searchable=False, detail=False,
+          columns={"Fecha": st.column_config.DatetimeColumn(format=COLUMN_FORMAT)})
+    with st.expander("Trazas de excepciones"):
+        failures = [item for item in visible if item.get("exception")]
+        if not failures:
+            st.caption("Las entradas visibles no contienen trazas.")
+        for index, item in enumerate(failures[:50]):
+            st.text(f"{format_local_datetime(item.get('ts'))} · {item.get('logger')} · {item.get('message')}")
+            st.code(str(item["exception"]), language="text")
+            if index < len(failures[:50]) - 1:
+                st.divider()
+
+
 # --- Actividad (antes Resumen) ---------------------------------------------------------------------
 
 def summary():

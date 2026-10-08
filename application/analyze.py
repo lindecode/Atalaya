@@ -3,6 +3,7 @@ from __future__ import annotations
 import time
 import hashlib
 import json
+import logging
 from datetime import datetime, timedelta
 
 from domain.rules import ALL_RULES
@@ -14,6 +15,7 @@ from settings import Settings
 
 
 RANK = {"low": 1, "medium": 2, "high": 3, "critical": 4}
+log = logging.getLogger("atalaya.analyze")
 
 
 class AnalyzeService:
@@ -61,6 +63,7 @@ class AnalyzeService:
                         batch_result, chars, sent_ids = self._analyze_with_retry(batch)
                         self._save_cache(batch, batch_result, chars, sent_ids)
                 except RuntimeError as exc:
+                    log.warning("Falló el lote LLM %s: %s", offset // batch_size + 1, exc)
                     errors.append(f"lote {offset // batch_size + 1}: {exc}")
                     continue
                 batch_results.append(batch_result)

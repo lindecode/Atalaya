@@ -1,10 +1,14 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 from typing import Any
 
 from application.harness import SYSTEM_POLICY, SecureChatHarness
+
+
+log = logging.getLogger("atalaya.chat")
 
 
 TOOL_SCHEMAS = [
@@ -60,6 +64,7 @@ class ChatService:
                     content = json.dumps(self.harness.tool_payload(function.name, rows), ensure_ascii=False, default=str)
                     trace.append({"name": function.name, "arguments": args, "ids": [row.get("id") for row in rows]})
                 except (ValueError, TypeError, KeyError) as exc:
+                    log.warning("Llamada de herramienta inválida (%s): %s", function.name, exc)
                     content = json.dumps({"error": f"{type(exc).__name__}: {exc}"}, ensure_ascii=False)
                     trace.append({"name": function.name, "arguments": function.arguments, "ids": [], "error": str(exc)})
                 messages.append({"role": "tool", "tool_name": function.name,

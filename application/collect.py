@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from typing import Iterable
 
 from domain.models import CollectionRequest, CollectionResult
@@ -7,6 +8,9 @@ from ports.clock import Clock
 from ports.collectors import Collector
 from ports.repositories import CollectionRepository
 from ports.system import SystemInfo
+
+
+log = logging.getLogger("atalaya.collect")
 
 
 class CollectService:
@@ -36,6 +40,7 @@ class CollectService:
                 cursor = self.repository.get_cursor(collector.name)
                 result = collector.collect(CollectionRequest(now=self.clock.now_iso(), cursor=cursor))
             except Exception as exc:
+                log.exception("Recolector %s falló", collector.name)
                 result = CollectionResult(
                     collector.name, "auth_events", (), "error",
                     (f"Error no controlado en {collector.name}: {type(exc).__name__}: {exc}",),
@@ -47,6 +52,7 @@ class CollectService:
                     inserted = self.repository.save_collection(run_id, result, self.clock.now_iso())
                     total_inserted += inserted
                 except Exception as exc:
+                    log.exception("No se pudo guardar el resultado de %s", collector.name)
                     result = CollectionResult(
                         result.collector, result.item_kind, result.items, "error",
                         result.warnings + (f"No se pudo persistir: {type(exc).__name__}: {exc}",),
@@ -54,6 +60,8 @@ class CollectService:
                     )
             if result.status != "ok":
                 overall_status = "partial"
+                log.warning("Recolector %s terminó con estado %s: %s", collector.name, result.status,
+                            "; ".join(result.warnings)[:1000])
             details[collector.name] = {
                 "status": result.status,
                 "found": len(result.items),
