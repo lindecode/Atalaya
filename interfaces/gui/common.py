@@ -5,6 +5,7 @@ import streamlit as st
 from infrastructure.sqlite.queries import SQLiteQueryRepository, since_hours
 from infrastructure.sqlite.repositories import SQLiteRepository
 from settings import Settings
+from shared.i18n import t, DEFAULT_LANGUAGE, SUPPORTED_LANGUAGES
 
 
 QUERY_TTL_SECONDS = 60
@@ -13,6 +14,11 @@ WINDOW_HOURS = {"1 hora": 1, "24 horas": 24, "7 días": 168, "30 días": 720}
 
 def selected_window_hours() -> int:
     return WINDOW_HOURS.get(st.session_state.get("window"), 24)
+
+
+def get_ui_lang() -> str:
+    """Current active language in Streamlit session_state, falling back to ATALAYA_LANG or default."""
+    return st.session_state.get("language") or Settings().language or DEFAULT_LANGUAGE
 
 
 @st.cache_data(ttl=QUERY_TTL_SECONDS, show_spinner=False)
@@ -87,42 +93,54 @@ def refresh_ai_status() -> None:
     ai_status.clear()
 
 
-def _ai_badge():
+def _ai_badge(lang: str = DEFAULT_LANGUAGE):
     """Sidebar: which model answers and whether it is ready; choosing happens only in IA local."""
     status = ai_status()
-    names = {"ollama": "Ollama", "llama_cpp": "llama.cpp", "none": "Sin IA"}
+    no_ai_name = "No AI" if lang == "en" else "Sin IA"
+    names = {"ollama": "Ollama", "llama_cpp": "llama.cpp", "none": no_ai_name}
     if status["provider"] == "none":
-        line = ":gray[●] Sin IA: solo reglas y alertas"
+        line = ":gray[●] No AI: deterministic rules only" if lang == "en" else ":gray[●] Sin IA: solo reglas y alertas"
     elif status["ready"]:
         line = f":green[●] {status['roles'].get('chat')} · {names.get(status['provider'], status['provider'])}"
     else:
-        line = f":orange[●] {names.get(status['provider'], status['provider'])} no disponible"
-    st.sidebar.markdown("**IA local**")
+        avail_msg = "unavailable" if lang == "en" else "no disponible"
+        line = f":orange[●] {names.get(status['provider'], status['provider'])} {avail_msg}"
+    st.sidebar.markdown("**Local AI**" if lang == "en" else "**IA local**")
     st.sidebar.caption(line)
     try:
-        st.sidebar.page_link(AI_PAGE, label="Configurar IA local", icon=":material/tune:")
+        link_label = "Configure local AI" if lang == "en" else "Configurar IA local"
+        st.sidebar.page_link(AI_PAGE, label=link_label, icon=":material/tune:")
     except Exception:  # a page run on its own (tests) has no navigation to link to
         pass
 
 
-def _actions(settings):
+def _actions(settings, lang: str = DEFAULT_LANGUAGE):
     """Collect / analyze buttons, available from every page."""
     from bootstrap import build_analyze_service, build_collect_service
     from infrastructure.windows.common import is_admin
 
+    btn_collect = t("common.collect", lang=lang, default="Recolectar")
+    btn_analyze = "Analyze" if lang == "en" else "Analizar"
     left, right = st.sidebar.columns(2)
-    if left.button("Recolectar", width="stretch", icon=":material/radar:", key="action-collect"):
-        with st.sidebar.status("Recolectando...") as status:
+    if left.button(btn_collect, width="stretch", icon=":material/radar:", key="action-collect"):
+        status_lbl = "Collecting..." if lang == "en" else "Recolectando..."
+        with st.sidebar.status(status_lbl) as status:
             result = build_collect_service(settings).execute()
-            status.update(label=f"Recolección {result['status']}", state="complete")
+            done_lbl = f"Collection {result['status']}" if lang == "en" else f"Recolección {result['status']}"
+            status.update(label=done_lbl, state="complete")
         st.cache_data.clear()
-    if right.button("Analizar", width="stretch", icon=":material/psychology:", key="action-analyze"):
-        with st.sidebar.status("Analizando...") as status:
+    if right.button(btn_analyze, width="stretch", icon=":material/psychology:", key="action-analyze"):
+        status_lbl = "Analyzing..." if lang == "en" else "Analizando..."
+        with st.sidebar.status(status_lbl) as status:
             result = build_analyze_service(settings).execute()
-            status.update(label=f"Análisis {result['status']}", state="complete")
+            done_lbl = f"Analysis {result['status']}" if lang == "en" else f"Análisis {result['status']}"
+            status.update(label=done_lbl, state="complete")
         st.cache_data.clear()
     if not is_admin():
-        st.sidebar.caption(":material/info: Sin administrador: algunas fuentes pueden omitirse (ver Ajustes → Permisos ampliados).")
+        admin_warning = (":material/info: Non-admin: some telemetry sources may be skipped (see Settings → Extended permissions)."
+                         if lang == "en" else
+                         ":material/info: Sin administrador: algunas fuentes pueden omitirse (ver Ajustes → Permisos ampliados).")
+        st.sidebar.caption(admin_warning)
 
 
 def context(window_applies: bool = True):
@@ -141,16 +159,34 @@ def context(window_applies: bool = True):
         st.logo(str(wordmark), icon_image=str(ICON_PATH), size="large")
     elif ICON_PATH.exists():
         st.logo(str(ICON_PATH), size="large")
+    from bootstrap import build_automation_config_service
+    automation_cfg = build_automation_config_service(settings).load()
+    lang = st.session_state.get("language") or automation_cfg.language or settings.language or DEFAULT_LANGUAGE
+    st.session_state["language"] = lang
+
     options = WINDOW_HOURS
-    label = st.sidebar.selectbox("Ventana temporal", list(options), index=1, key="window", disabled=not window_applies,
-                                 help="Periodo que muestran las páginas de evidencia, alertas e historial."
-                                 if window_applies else "Esta página no depende de la ventana temporal.")
-    _actions(settings)
+    win_label = "Time window" if lang == "en" else "Ventana temporal"
+    win_help = ("Time period displayed across evidence, alerts and history pages." if lang == "en" else
+                "Periodo que muestran las páginas de evidencia, alertas e historial.") if window_applies else (
+                "This page is independent of the time window." if lang == "en" else "Esta página no depende de la ventana temporal.")
+    window_labels = {
+        "1 hora": "1 hour" if lang == "en" else "1 hora",
+        "24 horas": "24 hours" if lang == "en" else "24 horas",
+        "7 días": "7 days" if lang == "en" else "7 días",
+        "30 días": "30 days" if lang == "en" else "30 días",
+    }
+    label = st.sidebar.selectbox(win_label, list(options), index=1, key="window", disabled=not window_applies, help=win_help,
+                                 format_func=lambda opt: window_labels.get(opt, opt))
+    _actions(settings, lang=lang)
     st.sidebar.divider()
-    _ai_badge()
+    _ai_badge(lang=lang)
     st.sidebar.divider()
-    st.sidebar.caption(":material/notifications_active: Atalaya sigue en segundo plano aunque cierre esta ventana. "
-                       "Para salir: icono junto al reloj > Salir de Atalaya.")
-    if st.sidebar.button("Acerca de", icon=":material/info:", width="stretch", key="action-about"):
-        about_dialog()
+    tray_note = (":material/notifications_active: Atalaya keeps running in the background when you close this window. "
+                 "To exit: tray icon > Exit Atalaya." if lang == "en" else
+                 ":material/notifications_active: Atalaya sigue en segundo plano aunque cierre esta ventana. "
+                 "Para salir: icono junto al reloj > Salir de Atalaya.")
+    st.sidebar.caption(tray_note)
+    about_label = "About" if lang == "en" else "Acerca de"
+    if st.sidebar.button(about_label, icon=":material/info:", width="stretch", key="action-about"):
+        about_dialog(lang=lang)
     return settings, repository, query, since_hours(options[label])

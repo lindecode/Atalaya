@@ -10,6 +10,7 @@ import html
 import ipaddress
 from collections import Counter, defaultdict
 from dataclasses import dataclass, field
+from shared.i18n import t, DEFAULT_LANGUAGE
 
 import plotly.graph_objects as go
 
@@ -56,17 +57,21 @@ def scope(address: str | None) -> str:
     return "public"
 
 
-def service(port: int | None) -> str:
-    return SERVICES.get(port, f"puerto {port}") if port else "?"
+def service(port: int | None, lang: str = DEFAULT_LANGUAGE) -> str:
+    if not port:
+        return "?"
+    if port in SERVICES:
+        return SERVICES[port]
+    return t("common.port_label", lang=lang, port=port, default=f"puerto {port}")
 
 
-def process_label(row: dict) -> str:
+def process_label(row: dict, lang: str = DEFAULT_LANGUAGE) -> str:
     if row.get("process_name"):
         return str(row["process_name"])
     pid = row.get("pid")
     if pid in (0, 4):
-        return "Sistema (kernel)"
-    return f"PID {pid} (sin permiso)" if pid else "Desconocido"
+        return t("common.kernel_system", lang=lang, default="Sistema (kernel)")
+    return t("common.permission_denied_pid", lang=lang, pid=pid, default=f"PID {pid} (sin permiso)") if pid else t("common.unknown", lang=lang, default="Desconocido")
 
 
 def is_suspicious(row: dict, suspicious_ports=()) -> bool:
@@ -179,7 +184,7 @@ def build_flow(rows: list[dict], max_remotes: int = 12, suspicious_ports=()) -> 
     return flow
 
 
-def flow_figure(flow: Flow, height: int = 560) -> go.Figure:
+def flow_figure(flow: Flow, height: int = 560, lang: str = DEFAULT_LANGUAGE) -> go.Figure:
     height = max(420, min(height, 760))
     figure = go.Figure(go.Sankey(
         arrangement="snap",
@@ -190,8 +195,11 @@ def flow_figure(flow: Flow, height: int = 560) -> go.Figure:
     ))
     figure.update_layout(height=height, autosize=True, margin=dict(l=28, r=28, t=44, b=12), font=dict(size=11),
                          paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)")
-    for x, text, color in ((0.02, "◀ ORIGEN (entrantes)", COLORS["inbound"]), (0.5, "PROCESOS DE ESTE EQUIPO", COLORS["process"]),
-                           (0.98, "DESTINO (salientes) ▶", COLORS["outbound"])):
+    inbound_hdr = "◀ " + ("ORIGIN (inbound)" if lang == "en" else "ORIGEN (entrantes)")
+    process_hdr = "PROCESSES ON THIS DEVICE" if lang == "en" else "PROCESOS DE ESTE EQUIPO"
+    outbound_hdr = ("DESTINATION (outbound)" if lang == "en" else "DESTINO (salientes)") + " ▶"
+    for x, text, color in ((0.02, inbound_hdr, COLORS["inbound"]), (0.5, process_hdr, COLORS["process"]),
+                           (0.98, outbound_hdr, COLORS["outbound"])):
         figure.add_annotation(x=x, y=1.06, xref="paper", yref="paper", text=f"<b>{text}</b>", showarrow=False,
                               font=dict(color=color, size=11),
                               xanchor="left" if x < 0.1 else "right" if x > 0.9 else "center")
@@ -237,13 +245,14 @@ def destinations_figure(rows: list[dict]) -> go.Figure:
     return figure
 
 
-def timeline_rows(rows: list[dict], include_loopback: bool = False) -> list[dict]:
+def timeline_rows(rows: list[dict], include_loopback: bool = False, lang: str = DEFAULT_LANGUAGE) -> list[dict]:
     """Per collection (run): how many inbound/outbound conversations were open."""
     buckets: dict[tuple, int] = Counter()
     stamp: dict[int, str] = {}
     for row in active_flows(rows, include_loopback):
         buckets[(row["run_id"], row["direction"])] += 1
         stamp.setdefault(row["run_id"], row["ts"])
-    names = {"inbound": "Entrantes", "outbound": "Salientes"}
+    names = {"inbound": "Inbound" if lang == "en" else "Entrantes",
+             "outbound": "Outbound" if lang == "en" else "Salientes"}
     return [{"ts": stamp[run], "sentido": names[direction], "conexiones": count}
             for (run, direction), count in sorted(buckets.items(), key=lambda item: stamp[item[0][0]])]

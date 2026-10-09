@@ -118,6 +118,7 @@ class Settings:
     reputation_max_bytes: int = 50 * 1024 * 1024
     firewall_log_path: Path = field(default_factory=_default_firewall_log)
     watch_batch_seconds: float = 5.0
+    language: str = field(default_factory=lambda: os.environ.get('ATALAYA_LANG', 'es').casefold())
 
     def ensure_runtime_dirs(self) -> None:
         # Only the default location inherits old data; tests and ATALAYA_DB point elsewhere on purpose

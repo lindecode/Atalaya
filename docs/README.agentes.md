@@ -12,6 +12,7 @@ Este directorio es el punto de entrada para agentes humanos o de IA que mantenga
 - [Seguridad y privacidad](README.seguridad.md): obligatorio para recolección, red, LLM, RAG, archivos, procesos, reputación y exportaciones.
 - [Interfaz y navegación](README.interfaz.md): obligatorio para GUI, tablas o ubicación de menús.
 - [IA, RAG y modelos](README.ia-rag.md): obligatorio para prompts, herramientas, chunks, embeddings y proveedores locales.
+- [Internacionalización e idioma](README.lang.md): catálogo i18n, leyendas de UI, soporte bilingüe y prompts de IA.
 - [Pruebas y entrega](README.pruebas.md): validaciones y preparación del commit.
 
 La documentación operativa para usuarios sigue en `README/`. `agente.md` conserva el plan histórico: no es la fuente normativa del estado actual.

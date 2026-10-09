@@ -8,6 +8,7 @@ import streamlit as st
 from interfaces.gui.table_formatting import (COLUMN_FORMAT, DISPLAY_FORMAT, filter_table_rows, format_table_rows,
                                              is_date_column, to_local_datetime)
 from interfaces.gui.table_views import VIEWS, column_config, present, visible
+from shared.i18n import t, DEFAULT_LANGUAGE
 
 
 SEVERITY_ICONS = {"low": "⚪", "medium": "🟡", "high": "🟠", "critical": "🔴"}
@@ -74,18 +75,61 @@ def apply_style():
         st.markdown(_DARK_STYLE, unsafe_allow_html=True)
 
 
-def hero(title: str, subtitle: str):
+PAGE_HERO_MAP: dict[str, str] = {
+    "panel de seguridad": "overview",
+    "en vivo": "live",
+    "conexiones": "connections",
+    "alertas": "alerts",
+    "accesos": "access",
+    "archivos": "files",
+    "persistencia": "persistence",
+    "firewall": "firewall",
+    "informes": "reports",
+    "chat": "chat",
+    "ajustes": "settings",
+    "primeros pasos": "getting_started",
+    "procesos y ram": "processes",
+    "buscar": "search",
+    "historial de análisis": "history",
+    "ia local": "local_ai",
+}
+
+
+def severity_name(level: str, lang: str = DEFAULT_LANGUAGE) -> str:
+    name = t(f"tables.severity.{level}", lang=lang)
+    return name if isinstance(name, str) else SEVERITY_NAMES.get(level, level)
+
+
+def hero(title: str, subtitle: str, page_key: str | None = None, lang: str | None = None):
     """Page header. Only literals written in this codebase may be passed here (it renders HTML)."""
+    if lang is None:
+        lang = st.session_state.get("language") or DEFAULT_LANGUAGE
+
+    if not page_key:
+        normalized = "".join(c for c in title.lower() if c.isalnum() or c.isspace()).strip()
+        for key, pkey in PAGE_HERO_MAP.items():
+            if key in normalized:
+                page_key = pkey
+                break
+
+    if page_key:
+        title = t(f"pages.{page_key}.title", lang=lang, default=title)
+        subtitle = t(f"pages.{page_key}.subtitle", lang=lang, default=subtitle)
+
     st.markdown(f'<div class="nl-hero"><h1>{title}</h1><p>{subtitle}</p></div>', unsafe_allow_html=True)
 
 
-def risk_banner(level: str, detail: str):
+def risk_banner(level: str, detail: str, lang: str | None = None):
     """`level` is validated against the known severities; `detail` must be a literal or a number."""
+    if lang is None:
+        lang = st.session_state.get("language") or DEFAULT_LANGUAGE
     level = level if level in SEVERITY_COLORS else "low"
     color = SEVERITY_COLORS[level]
+    sev_name = t(f"tables.severity.{level}", lang=lang, default=SEVERITY_NAMES[level]).lower()
+    risk_title = f"Risk: {sev_name}" if lang == "en" else f"Riesgo {sev_name}"
     st.markdown(
         f'<div class="nl-risk" style="background:{color}1f"><div class="dot" style="background:{color}"></div>'
-        f'<div><b>Riesgo {SEVERITY_NAMES[level].lower()}</b><br><span>{detail}</span></div></div>',
+        f'<div><b>{risk_title}</b><br><span>{detail}</span></div></div>',
         unsafe_allow_html=True,
     )
 
@@ -155,17 +199,19 @@ def _record(row: dict) -> list[dict]:
 
 
 def table(rows, *, key: str, columns: dict | None = None, view: str | None = None, windowed: bool = True,
-          detail: bool = True, on_pick=None, searchable: bool = True):
+          detail: bool = True, on_pick=None, searchable: bool = True, lang: str | None = None):
     """Searchable, sortable table. `view` names a table_views layout; selecting a row shows every stored field.
 
     `on_pick(row)` draws extra context for the selected row inside its detail panel; the row is also returned.
     """
+    if lang is None:
+        lang = st.session_state.get("language") or DEFAULT_LANGUAGE
     if not rows:
-        empty("No hay datos para la ventana seleccionada.")
+        empty("No data for the selected time window." if lang == "en" else "No hay datos para la ventana seleccionada.")
         return
     raw = [dict(row) for row in rows]
     if view:
-        shown, config = present(raw, view), column_config(VIEWS[view]) | (columns or {})
+        shown, config = present(raw, view, lang=lang), column_config(VIEWS[view], lang=lang) | (columns or {})
         has_dates = any(column.kind == "date" for column in VIEWS[view])
     else:
         shown, date_columns = format_table_rows(visible(row) for row in raw)
@@ -173,22 +219,25 @@ def table(rows, *, key: str, columns: dict | None = None, view: str | None = Non
         config = {name: st.column_config.DatetimeColumn(format=COLUMN_FORMAT) for name in date_columns} | (columns or {})
         has_dates = bool(date_columns)
     available = list(pd.DataFrame(shown).columns)
-    search = st.text_input("Buscar en la tabla", key=f"search-text-{key}", placeholder="Nombre, IP, ruta, estado…",
+    search_placeholder = "Name, IP, path, status…" if lang == "en" else "Nombre, IP, ruta, estado…"
+    search_label = "Search in table" if lang == "en" else "Buscar en la tabla"
+    search = st.text_input(search_label, key=f"search-text-{key}", placeholder=search_placeholder,
                            label_visibility="collapsed", icon=":material/search:") if searchable else ""
     matches = [index for index, row in enumerate(shown) if filter_table_rows([row], search, available)]
     frame = pd.DataFrame([shown[index] for index in matches], columns=available)
     if search:
-        st.caption(f"{len(matches)} de {len(shown)} fila(s) coinciden con la búsqueda.")
+        st.caption(t("common.rows_matching", lang=lang, matches=len(matches), total=len(shown)))
     event = st.dataframe(frame, width="stretch", hide_index=True, column_config=config, key=f"table-{key}",
                          on_select="rerun" if detail else "ignore", selection_mode="single-row")
-    caption = " ".join(text for text, show in (("Fechas en hora local del equipo.", has_dates),
-                                               ("Seleccione una fila para ver todos sus campos.", detail)) if show)
+    date_note = "Dates in device local time." if lang == "en" else "Fechas en hora local del equipo."
+    row_note = "Select a row to inspect all fields." if lang == "en" else "Seleccione una fila para ver todos sus campos."
+    caption = " ".join(text for text, show in ((date_note, has_dates), (row_note, detail)) if show)
     if caption:
         st.caption(caption)
     selected = list(getattr(getattr(event, "selection", None), "rows", None) or [])
     if detail and selected and selected[0] < len(matches):
         with st.container(border=True):
-            st.markdown("**Detalle de la fila seleccionada**")
+            st.markdown("**Selected row details**" if lang == "en" else "**Detalle de la fila seleccionada**")
             record = raw[matches[selected[0]]]
             st.dataframe(pd.DataFrame(_record(record)), hide_index=True, width="stretch", key=f"record-{key}")
             shown_row = shown[matches[selected[0]]]
@@ -198,9 +247,10 @@ def table(rows, *, key: str, columns: dict | None = None, view: str | None = Non
                 on_pick(record)
     else:
         record = None
-    st.download_button("Descargar CSV", frame.to_csv(index=False).encode("utf-8"), csv_name(key, windowed), "text/csv",
-                       key=f"download-{key}", icon=":material/download:",
-                       help="Exporta las filas visibles, con el filtro de búsqueda aplicado.")
+    csv_label = "Download CSV" if lang == "en" else "Descargar CSV"
+    csv_help = "Exports visible rows with search filter applied." if lang == "en" else "Exporta las filas visibles, con el filtro de búsqueda aplicado."
+    st.download_button(csv_label, frame.to_csv(index=False).encode("utf-8"), csv_name(key, windowed), "text/csv",
+                       key=f"download-{key}", icon=":material/download:", help=csv_help)
     return record
 
 
@@ -213,16 +263,27 @@ def chart(figure, key: str | None = None):
                     config={"displaylogo": False, "responsive": True})
 
 
-@st.dialog("Acerca de Atalaya")
-def about_dialog():
-    from shared.about import APP_NAME, APP_VERSION, AUTHOR, AUTHOR_LOGO_PATH, COMPANY_URL, COPYRIGHT, REPOSITORY_URL
+def about_dialog(lang: str | None = None):
+    if lang is None:
+        lang = st.session_state.get("language") or DEFAULT_LANGUAGE
+    title = "About Atalaya" if lang == "en" else "Acerca de Atalaya"
 
-    _, middle, _ = st.columns([1, 2, 1])
-    if AUTHOR_LOGO_PATH.exists():
-        middle.image(str(AUTHOR_LOGO_PATH), width="stretch")
-    st.markdown(f'<div class="nl-about"><h3>{APP_NAME}</h3><small>v{APP_VERSION}</small><hr>'
-                f'<p>Desarrollado por</p><b>{AUTHOR}</b></div>', unsafe_allow_html=True)
-    # A link the user opens by hand: the application itself never connects to GitHub
-    st.link_button("Repositorio en GitHub", REPOSITORY_URL, icon=":material/open_in_new:", width="stretch")
-    st.link_button("Sitio web de LindeCode", COMPANY_URL, icon=":material/language:", width="stretch")
-    st.caption(COPYRIGHT)
+    @st.dialog(title)
+    def _dialog():
+        from shared.about import APP_NAME, APP_VERSION, AUTHOR, AUTHOR_LOGO_PATH, COMPANY_URL, COPYRIGHT, REPOSITORY_URL
+
+        _, middle, _ = st.columns([1, 2, 1])
+        if AUTHOR_LOGO_PATH.exists():
+            middle.image(str(AUTHOR_LOGO_PATH), width="stretch")
+        dev_label = "Developed by" if lang == "en" else "Desarrollado por"
+        st.markdown(f'<div class="nl-about"><h3>{APP_NAME}</h3><small>v{APP_VERSION}</small><hr>'
+                    f'<p>{dev_label}</p><b>{AUTHOR}</b></div>', unsafe_allow_html=True)
+        # A link the user opens by hand: the application itself never connects to GitHub
+        repo_label = "GitHub Repository" if lang == "en" else "Repositorio en GitHub"
+        company_label = "LindeCode Website" if lang == "en" else "Sitio web de LindeCode"
+        st.link_button(repo_label, REPOSITORY_URL, icon=":material/open_in_new:", width="stretch")
+        st.link_button(company_label, COMPANY_URL, icon=":material/language:", width="stretch")
+        st.caption(COPYRIGHT)
+
+    _dialog()
+

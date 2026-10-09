@@ -5,7 +5,8 @@ import logging
 import re
 from typing import Any
 
-from application.harness import SYSTEM_POLICY, SecureChatHarness
+from application.harness import SYSTEM_POLICY, SecureChatHarness, get_system_policy
+from shared.i18n import t, DEFAULT_LANGUAGE
 
 
 log = logging.getLogger("atalaya.chat")

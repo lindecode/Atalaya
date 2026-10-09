@@ -8,7 +8,8 @@ param(
     [switch]$SinModelos,         # no descargar modelos de Ollama
     [switch]$SinPermisos,        # no ofrecer la configuracion de permisos (requiere administrador)
     [switch]$SinRed,             # no instalar paquetes, Ollama ni descargar modelos
-    [string]$Modelo = 'qwen3.5:4b'
+    [string]$Modelo = 'qwen3.5:4b',
+    [string]$Idioma = ''         # 'es' o 'en' (si no se especifica, se pregunta o usa 'es')
 )
 . "$PSScriptRoot\comun.ps1"
 
@@ -130,6 +131,29 @@ Write-Paso "Base de datos local"
 if ((Invoke-Tool @('status')) -ne 0) { throw "No se pudo inicializar la base de datos" }
 Write-Paso "Indice de documentacion para el chat (RAG)"
 if ((Invoke-Tool @('rag', 'index')) -ne 0) { Write-Aviso "No se pudo indexar la documentacion; el chat seguira sin ella." }
+
+# 4.1 Idioma / Language ------------------------------------------------------------------------
+Write-Paso "Idioma de la interfaz y modelos (Language)"
+$selectedLang = $Idioma
+if (-not $selectedLang) {
+    if ($Si) {
+        $selectedLang = 'es'
+    } else {
+        $promptLang = Read-Host "  Seleccione idioma / Select language [es/en] (por defecto: es)"
+        if ($promptLang -match '^(en|english)$') {
+            $selectedLang = 'en'
+        } else {
+            $selectedLang = 'es'
+        }
+    }
+}
+try {
+    $scriptLang = "from bootstrap import build_automation_config_service; from settings import Settings; s = Settings(); svc = build_automation_config_service(s); c = svc.load(); from dataclasses import replace; svc.save(replace(c, language='$selectedLang'))"
+    & $python -c $scriptLang 2>$null
+    Write-Ok "Idioma configurado: $selectedLang"
+} catch {
+    Write-Aviso "No se pudo guardar la preferencia de idioma en la base; podra cambiarla despues en Ajustes."
+}
 
 # 5. Accesos directos ---------------------------------------------------------------------------
 if (-not $SinAccesos) {

@@ -17,9 +17,10 @@ from interfaces.gui.common import AI_PAGE, ai_status, context, refresh_data, sel
 from interfaces.gui.components import (SEVERITY_COLORS, SEVERITY_ICONS, SEVERITY_NAMES, chart, empty, hero, legend,
                                        csv_name, page_link, plain_label, risk_banner, search_links, severity_label, table)
 from interfaces.gui.chart_data import hourly_frame
-from interfaces.gui.rule_help import OPEN_STATUSES, RULES, STATUS_NAMES
+from interfaces.gui.rule_help import OPEN_STATUSES, RULES, STATUS_NAMES, rule_help, status_names
 from interfaces.gui.table_formatting import COLUMN_FORMAT, format_local_datetime, local_series, to_local_datetime
 from interfaces.gui.table_views import EVENT_NAMES, FILE_ACTIONS, VIEWS, evidence_view
+from shared.i18n import DEFAULT_LANGUAGE, t
 
 
 LIVE_PAGE = "views/02_En_vivo.py"
@@ -74,8 +75,14 @@ def _time_axis(figure, hourly_bars: bool = False):
 
 # --- Resumen del LLM por sección -------------------------------------------------------------------
 
-def _ago(ts: str) -> str:
+def _ago(ts: str, lang: str = "es") -> str:
     minutes = int((datetime.now().astimezone() - datetime.fromisoformat(ts).astimezone()).total_seconds() // 60)
+    if lang == "en":
+        if minutes < 1:
+            return "just now"
+        if minutes < 60:
+            return f"{minutes} min ago"
+        return f"{minutes // 60} h ago" if minutes < 48 * 60 else f"{minutes // 1440} days ago"
     if minutes < 1:
         return "hace un momento"
     if minutes < 60:
@@ -85,24 +92,33 @@ def _ago(ts: str) -> str:
 
 def _section_summary(query, settings, section: str):
     """Latest LLM summary of this section (automatic or on demand) and a button to refresh it now."""
+    lang = st.session_state.get("language") or "es"
     found = query.latest_section_summary(section)
     latest, last = found["ok"], found["last"]
     with st.container(border=True):
         head, action = st.columns([3, 1], vertical_alignment="center")
+        title_hdr = "**:material/psychology: " + ("LLM Summary" if lang == "en" else "Resumen del LLM") + "**"
         if latest:
             result = latest["result"]
-            origin = "automático" if latest["trigger"] == "auto" else "a petición"
-            head.markdown(f"**:material/psychology: Resumen del LLM** · {_severity_name(result['risk'])}")
-            head.caption(f"{_ago(latest['created_at'])} · {format_local_datetime(latest['created_at'])} · "
-                         f"{_plain(latest['model'] or '?')} · ventana de {latest['window_hours']} h · {origin}")
+            origin = ("automatic" if latest["trigger"] == "auto" else "on demand") if lang == "en" else ("automático" if latest["trigger"] == "auto" else "a petición")
+            head.markdown(f"{title_hdr} · {_severity_name(result['risk'], lang=lang)}")
+            win_desc = f"{latest['window_hours']}h window" if lang == "en" else f"ventana de {latest['window_hours']} h"
+            head.caption(f"{_ago(latest['created_at'], lang=lang)} · {format_local_datetime(latest['created_at'])} · "
+                         f"{_plain(latest['model'] or '?')} · {win_desc} · {origin}")
         else:
-            head.markdown("**:material/psychology: Resumen del LLM**")
-            head.caption("Aún no hay resumen de esta sección: el ciclo automático genera uno por turno, "
+            head.markdown(title_hdr)
+            head.caption("No summary for this section yet: the automated cycle generates one, or click «Summarize now»."
+                         if lang == "en" else
+                         "Aún no hay resumen de esta sección: el ciclo automático genera uno por turno, "
                          "o pulse «Resumir ahora».")
-        if action.button("Resumir ahora", key=f"summary-{section}", icon=":material/auto_awesome:", width="stretch",
-                         help="Usa la ventana temporal de la barra lateral. Solo corre un resumen a la vez."):
+        btn_label = "Summarize now" if lang == "en" else "Resumir ahora"
+        btn_help = ("Uses sidebar time window. Only runs one summary at a time." if lang == "en" else
+                    "Usa la ventana temporal de la barra lateral. Solo corre un resumen a la vez.")
+        if action.button(btn_label, key=f"summary-{section}", icon=":material/auto_awesome:", width="stretch",
+                         help=btn_help):
             from bootstrap import build_section_summary_service
-            with st.spinner("El LLM local está resumiendo esta sección…"):
+            spin_msg = "Local LLM is summarizing this section…" if lang == "en" else "El LLM local está resumiendo esta sección…"
+            with st.spinner(spin_msg):
                 try:
                     build_section_summary_service(settings).summarize(section, selected_window_hours(), "manual")
                 except RuntimeError as exc:  # another summary holds the LLM
@@ -116,9 +132,14 @@ def _section_summary(query, settings, section: str):
             points = latest["result"].get("highlights", [])
             if points:
                 st.text("\n".join(f"• {point}" for point in points))
-            st.caption("Interpretación del LLM local a partir de cifras agregadas; contrástela con la evidencia de esta página.")
+            st.caption("Local LLM interpretation from aggregated figures; compare with the evidence on this page."
+                       if lang == "en" else
+                       "Interpretación del LLM local a partir de cifras agregadas; contrástela con la evidencia de esta página.")
         if last and last.get("error") and (not latest or last["id"] != latest["id"]):
-            st.caption(f"El último intento ({_ago(last['created_at'])}) falló; se muestra el resumen anterior.")
+            fail_msg = (f"Latest attempt ({_ago(last['created_at'], lang=lang)}) failed; showing previous summary."
+                        if lang == "en" else
+                        f"El último intento ({_ago(last['created_at'], lang=lang)}) falló; se muestra el resumen anterior.")
+            st.caption(fail_msg)
             st.text(last["error"][:300])
 
 
@@ -126,7 +147,8 @@ def _section_summary(query, settings, section: str):
 
 def overview():
     settings, _, query, since = context()
-    hero("🛡️ Panel de seguridad", "Qué pasa ahora en este equipo: alertas abiertas, tráfico de red y exposición.")
+    lang = st.session_state.get("language") or "es"
+    hero("🛡️ Panel de seguridad", "Qué pasa ahora en este equipo: alertas abiertas, tráfico de red y exposición.", page_key="overview", lang=lang)
     _section_summary(query, settings, "panel")
     severities = query.open_alerts_by_severity()
     analysis = query.latest_analysis()
@@ -135,52 +157,58 @@ def overview():
     llm_level = analysis["result_json"]["overall_risk"] if analysis and analysis.get("result_json") else "low"
     level = max(worst, llm_level, key=rank.get)
     open_total = sum(severities.values())
-    risk_banner(level, f"{open_total} alerta(s) abierta(s)" + (" · según reglas y el último análisis del LLM"
-                                                              if analysis and analysis.get("result_json") else ""))
+    banner_detail = (
+        (f"{open_total} open alert(s)" + (" · based on rules and latest LLM analysis" if analysis and analysis.get("result_json") else ""))
+        if lang == "en" else
+        (f"{open_total} alerta(s) abierta(s)" + (" · según reglas y el último análisis del LLM" if analysis and analysis.get("result_json") else ""))
+    )
+    risk_banner(level, banner_detail, lang=lang)
     _live_health(query.live_runs(15))
 
     snapshot = query.connections(since, latest_only=True)
     flows = network.active_flows(snapshot)
     exposed = [item for item in network.exposure(snapshot) if item["alcance"] == "Toda la red"]
     a, b, c, d, e = st.columns(5)
-    a.metric("Alertas críticas/altas", severities.get("critical", 0) + severities.get("high", 0))
-    b.metric("Salientes activas", sum(row["direction"] == "outbound" for row in flows))
-    c.metric("Entrantes activas", sum(row["direction"] == "inbound" for row in flows))
-    d.metric("Puertos abiertos a la red", len(exposed))
-    e.metric("Destinos distintos", len({row["raddr"] for row in flows if row["direction"] == "outbound"}))
+    a.metric("Critical/high alerts" if lang == "en" else "Alertas críticas/altas", severities.get("critical", 0) + severities.get("high", 0))
+    b.metric("Active outbound" if lang == "en" else "Salientes activas", sum(row["direction"] == "outbound" for row in flows))
+    c.metric("Active inbound" if lang == "en" else "Entrantes activas", sum(row["direction"] == "inbound" for row in flows))
+    d.metric("Network open ports" if lang == "en" else "Puertos abiertos a la red", len(exposed))
+    e.metric("Distinct destinations" if lang == "en" else "Destinos distintos", len({row["raddr"] for row in flows if row["direction"] == "outbound"}))
 
     left, right = st.columns([3, 2], gap="large")
     with left:
-        st.subheader("Tráfico ahora", divider="gray")
+        st.subheader("Current Traffic" if lang == "en" else "Tráfico ahora", divider="gray")
         if flows:
             legend(FLOW_LEGEND[:3])
             chart(network.flow_figure(network.build_flow(flows, max_remotes=8, suspicious_ports=settings.suspicious_ports), height=420),
                   key="overview-flow")
-            _link("views/11_Conexiones.py", "Ver el mapa completo de conexiones", ":material/hub:")
+            _link("views/11_Conexiones.py", "View full connection map" if lang == "en" else "Ver el mapa completo de conexiones", ":material/hub:")
         else:
-            empty("Sin conexiones activas con el exterior en la última recolección. Pulse Recolectar.")
+            empty("No active outbound connections in latest collection. Click Collect." if lang == "en" else "Sin conexiones activas con el exterior en la última recolección. Pulse Recolectar.")
     with right:
-        st.subheader("Alertas abiertas", divider="gray")
+        st.subheader("Open Alerts" if lang == "en" else "Alertas abiertas", divider="gray")
         if severities:
             # A few categories compared by size: labelled bars read faster than a donut
-            frame = pd.DataFrame([{"nivel": SEVERITY_NAMES[s], "total": severities[s]}
+            sev_label_fn = lambda s: t(f"tables.severity.{s}", lang=lang, default=SEVERITY_NAMES[s])
+            frame = pd.DataFrame([{"nivel": sev_label_fn(s), "total": severities[s]}
                                   for s in ("low", "medium", "high", "critical") if severities.get(s)])
             figure = px.bar(frame, x="total", y="nivel", orientation="h", color="nivel", text="total",
-                            color_discrete_map={SEVERITY_NAMES[s]: c for s, c in SEVERITY_COLORS.items()},
+                            color_discrete_map={sev_label_fn(s): c for s, c in SEVERITY_COLORS.items()},
                             labels={"nivel": "", "total": ""})
             figure.update_traces(textposition="outside", cliponaxis=False, hovertemplate="%{y}: %{x}<extra></extra>")
             figure.update_xaxes(showticklabels=False, showgrid=False)
             chart(_style(figure, 50 + 42 * len(frame)).update_layout(showlegend=False), key="overview-severity")
             for alert in query.open_alerts(6):
-                _link("views/03_Alertas.py", f"{_severity_name(alert['severity'])} · \\#{alert['id']} {alert['rule_id']} · "
+                _link("views/03_Alertas.py", f"{_severity_name(alert['severity'], lang=lang)} · \\#{alert['id']} {alert['rule_id']} · "
                       f"{_plain(alert['title'])}", ":material/chevron_right:", query_params={"id": alert["id"]})
-            _link("views/03_Alertas.py", "Revisar alertas", ":material/notification_important:")
+            _link("views/03_Alertas.py", "Review alerts" if lang == "en" else "Revisar alertas", ":material/notification_important:")
         else:
-            st.success("No hay alertas abiertas.")
-        _link(HISTORY_PAGE, "Conclusiones del LLM en el historial", ":material/history_edu:")
+            st.success("No open alerts." if lang == "en" else "No hay alertas abiertas.")
+        _link(HISTORY_PAGE, "LLM conclusions in history" if lang == "en" else "Conclusiones del LLM en el historial", ":material/history_edu:")
 
-    st.subheader("Actividad por hora", divider="gray")
+    st.subheader("Activity per Hour" if lang == "en" else "Actividad por hora", divider="gray")
     _activity_chart(query, since)
+
 
 
 # --- Operaciones en vivo -------------------------------------------------------------------------
@@ -328,13 +356,14 @@ def _live_event_links(row: dict):
 
 def live_operations():
     _, _, query, since = context()
-    hero("📡 En vivo", "¿Atalaya está vigilando ahora mismo? ¿Qué acaba de pasar? Se actualiza sola; no usa el LLM.")
+    lang = st.session_state.get("language") or "es"
+    hero("⚡ En vivo", "¿Atalaya está vigilando ahora mismo? ¿Qué acaba de pasar? Se actualiza sola; no usa el LLM.", page_key="live", lang=lang)
     controls = st.columns([2, 2, 3], vertical_alignment="bottom")
-    enabled = controls[0].toggle("Actualización automática", value=True, key="live-enabled",
-                                 help="Desactívela para examinar un evento sin que la lista se mueva.")
-    seconds = controls[1].selectbox("Cada", [5, 10, 30, 60], index=1, key="live-seconds", disabled=not enabled,
-                                    format_func=lambda value: f"{value} segundos")
-    controls[2].caption("El flujo de eventos usa la ventana temporal de la barra lateral; el pulso, la última hora.")
+    enabled = controls[0].toggle("Auto-refresh" if lang == "en" else "Actualización automática", value=True, key="live-enabled",
+                                 help="Desactívela para examinar un evento sin que la lista se mueva." if lang != "en" else "Disable to inspect an event without moving the list.")
+    seconds = controls[1].selectbox("Every" if lang == "en" else "Cada", [5, 10, 30, 60], index=1, key="live-seconds", disabled=not enabled,
+                                    format_func=lambda value: f"{value} seconds" if lang == "en" else f"{value} segundos")
+    controls[2].caption("Event stream uses sidebar time window; pulse uses last hour." if lang == "en" else "El flujo de eventos usa la ventana temporal de la barra lateral; el pulso, la última hora.")
     every = f"{seconds}s" if enabled else None
 
     @st.fragment(run_every=every)
@@ -343,19 +372,16 @@ def live_operations():
         _live_health(runs)
         status = query.live_status()
         b, c, d, e = st.columns(4)
-        b.metric("Procesos", status["processes"], help="Procesos activos en la última foto de procesos.")
-        c.metric("Memoria privada", f"{status['memory_bytes'] / (1024 ** 3):.1f} GB",
-                 help="Suma de la memoria privada de todos los procesos en la última foto (incluye memoria paginada, "
-                      "por eso puede superar la RAM física).")
-        d.metric("Conexiones", status["connections"], help="Sin contar puertos en escucha ni conexiones cerrándose.")
-        e.metric("En escucha", status["listeners"], help="Programas que aceptan conexiones. Vea su alcance en Conexiones.")
+        b.metric("Processes" if lang == "en" else "Procesos", status["processes"], help="Active processes in latest snapshot.")
+        c.metric("Private memory" if lang == "en" else "Memoria privada", f"{status['memory_bytes'] / (1024 ** 3):.1f} GB")
+        d.metric("Connections" if lang == "en" else "Conexiones", status["connections"])
+        e.metric("Listening" if lang == "en" else "En escucha", status["listeners"])
 
-        st.markdown("**Fuentes** · cuándo se revisó cada una por última vez")
+        st.markdown("**Sources** · when each was last checked" if lang == "en" else "**Fuentes** · cuándo se revisó cada una por última vez")
         last_data = {row["fuente"]: row["ultima_observacion"] for row in query.live_freshness()}
         checks = _source_checks(runs, last_data)
         for column, (source, state, checked, data) in zip(st.columns(len(checks)), checks):
             label, color = FRESHNESS[state]
-            # Literal source names and computed ages only: nothing collected reaches this HTML
             column.markdown(f'<div class="nl-tile" style="--c:{color}"><span>{source}</span><b>{label}</b>'
                             f'<small>{checked}</small><small>{data}</small></div>', unsafe_allow_html=True)
         st.caption(f"«Al día»: revisada en los últimos 2 ciclos ({2 * _cycle_seconds() // 60} min); que no haya datos "
@@ -372,18 +398,22 @@ def live_operations():
             figure.update_traces(width=60_000 * 0.8,
                                  hovertemplate="%{x|%d/%m %H:%M} · %{y} eventos<extra>%{fullData.name}</extra>")
             figure.update_xaxes(range=[to_local_datetime(last_hour), datetime.now()])
-            st.markdown("**Pulso de la última hora** · eventos registrados por minuto (cada recolección aparece como un pico)")
+            st.markdown("**Last hour pulse** · events per minute" if lang == "en" else "**Pulso de la última hora** · eventos registrados por minuto (cada recolección aparece como un pico)")
             chart(_time_axis(_style(figure, 220)), key="live-pulse")
 
     current_state()
 
-    st.subheader("Qué acaba de pasar", divider="gray")
+    st.subheader("What just happened" if lang == "en" else "Qué acaba de pasar", divider="gray")
     f1, f2, f3 = st.columns([3, 3, 2], vertical_alignment="bottom")
-    types = f1.multiselect("Tipos", list(LIVE_TYPES), default=[name for name in LIVE_TYPES if name != "archivo"],
-                           format_func=LIVE_TYPES.get, key="live-types", placeholder="Todos",
-                           help="Archivos se oculta por defecto: el escaneo genera miles de eventos.")
-    text = f2.text_input("Buscar", key="live-text", placeholder="IP, proceso, ruta, usuario…", icon=":material/search:")
-    relevant = f3.toggle("Solo lo relevante", key="live-relevant", help="Oculta los eventos de nivel informativo.")
+    types = f1.multiselect("Types" if lang == "en" else "Tipos", list(LIVE_TYPES), default=[name for name in LIVE_TYPES if name != "archivo"],
+                           format_func=LIVE_TYPES.get, key="live-types", placeholder="All" if lang == "en" else "Todos",
+                           help="Archivos se oculta por defecto: el escaneo genera miles de eventos." if lang != "en" else "Files are hidden by default: scans produce thousands of events.")
+    text = f2.text_input("Buscar" if lang != "en" else "Search", key="live-text",
+                         placeholder="IP, process, path, user…" if lang == "en" else "IP, proceso, ruta, usuario…",
+                         icon=":material/search:")
+    relevant = f3.toggle("Relevant only" if lang == "en" else "Solo lo relevante", key="live-relevant",
+                         help="Oculta los eventos de nivel informativo." if lang != "en" else "Hides informational events.")
+
 
     @st.fragment(run_every=every)
     def recent_events():
@@ -548,51 +578,62 @@ def _ip_profile(query, ip: str, since: str):
 
 def connections():
     settings, _, query, since = context()
-    hero("🌐 Conexiones", "Quién habla con este equipo (entrantes), con quién habla él (salientes) y qué puertos deja abiertos.")
+    lang = st.session_state.get("language") or "es"
+    hero("🌐 Conexiones", "Quién habla con este equipo (entrantes), con quién habla él (salientes) y qué puertos deja abiertos.", page_key="connections", lang=lang)
     _section_summary(query, settings, "conexiones")
     controls = st.columns([2, 1, 1, 1])
-    mode = controls[0].segmented_control("Datos", ["Última recolección", "Toda la ventana"], default="Última recolección",
+    mode = controls[0].segmented_control("Datos" if lang != "en" else "Data",
+                                         ["Última recolección", "Toda la ventana"] if lang != "en" else ["Latest collection", "Entire window"],
+                                         default="Última recolección" if lang != "en" else "Latest collection",
                                          key="net-mode")
-    direction = controls[1].selectbox("Sentido", ["Ambos", "Entrantes", "Salientes"], key="net-direction")
-    include_loopback = controls[2].toggle("Tráfico interno", value=False, key="net-loopback",
-                                          help="Conexiones entre programas del propio equipo (127.0.0.1)")
-    include_closing = controls[3].toggle("Cerrándose", value=False, key="net-closing",
-                                         help="Incluye TIME_WAIT, CLOSE_WAIT y similares")
-    ip_filter = st.text_input("Filtrar por IP", value=st.query_params.get("ip", ""), icon=":material/filter_alt:",
-                              placeholder="Una IP completa (203.0.113.7) o parte de ella (192.168.)",
-                              help="Filtra todas las pestañas por IP remota o local. Con una IP completa se muestra su perfil.")
+    dir_options = ["Ambos", "Entrantes", "Salientes"] if lang != "en" else ["Both", "Inbound", "Outbound"]
+    direction = controls[1].selectbox("Sentido" if lang != "en" else "Direction", dir_options, key="net-direction")
+    include_loopback = controls[2].toggle("Tráfico interno" if lang != "en" else "Internal traffic", value=False, key="net-loopback",
+                                          help="Conexiones entre programas del propio equipo (127.0.0.1)" if lang != "en" else "Loopback traffic between local applications (127.0.0.1)")
+    include_closing = controls[3].toggle("Cerrándose" if lang != "en" else "Closing", value=False, key="net-closing",
+                                          help="Incluye TIME_WAIT, CLOSE_WAIT y similares" if lang != "en" else "Includes TIME_WAIT, CLOSE_WAIT, etc.")
+    ip_filter = st.text_input("Filtrar por IP" if lang != "en" else "Filter by IP", value=st.query_params.get("ip", ""), icon=":material/filter_alt:",
+                              placeholder="203.0.113.7 · 192.168." if lang == "en" else "Una IP completa (203.0.113.7) o parte de ella (192.168.)",
+                              help="Filtra todas las pestañas por IP remota o local. Con una IP completa se muestra su perfil." if lang != "en" else "Filters all tabs by IP.")
     needle = ip_filter.strip()
     if needle != st.query_params.get("ip", ""):
         if needle:
             st.query_params["ip"] = needle
         elif "ip" in st.query_params:
             del st.query_params["ip"]
-    rows = query.connections(since, latest_only=(mode != "Toda la ventana"))
+    is_entire_window = (mode == "Toda la ventana" or mode == "Entire window")
+    rows = query.connections(since, latest_only=not is_entire_window)
     if needle:
         total = len(rows)
         rows = [row for row in rows if _ip_matches(row, needle)]
-        st.caption(f"Filtrando por «{_plain(needle)}»: {len(rows)} de {total} conexiones.")
+        st.caption(f"Filtrando por «{_plain(needle)}»: {len(rows)} de {total} conexiones." if lang != "en" else f"Filtering by «{_plain(needle)}»: {len(rows)} of {total} connections.")
     if _valid_ip(needle):
         _ip_profile(query, _valid_ip(needle), since)
     if not rows:
         return empty("No hay conexiones que coincidan. Pruebe con «Toda la ventana» o quite el filtro de IP."
                      if needle else "No hay conexiones en la ventana. Pulse Recolectar en la barra lateral.")
     flows = network.active_flows(rows, include_loopback, include_closing)
-    if direction != "Ambos":
-        flows = [row for row in flows if row["direction"] == ("inbound" if direction == "Entrantes" else "outbound")]
+    if direction not in ("Ambos", "Both"):
+        is_inbound = (direction in ("Entrantes", "Inbound"))
+        flows = [row for row in flows if row["direction"] == ("inbound" if is_inbound else "outbound")]
     suspicious = [row for row in flows if network.is_suspicious(row, settings.suspicious_ports)]
     exposure = network.exposure(rows)
 
     a, b, c, d, e = st.columns(5)
-    a.metric("Salientes", sum(row["direction"] == "outbound" for row in flows))
-    b.metric("Entrantes", sum(row["direction"] == "inbound" for row in flows))
-    c.metric("Procesos con red", len({network.process_label(row) for row in flows}))
-    d.metric("Abiertos a toda la red", sum(item["alcance"] == "Toda la red" for item in exposure))
-    e.metric("Sospechosas", len(suspicious))
+    a.metric("Outbound" if lang == "en" else "Salientes", sum(row["direction"] == "outbound" for row in flows))
+    b.metric("Inbound" if lang == "en" else "Entrantes", sum(row["direction"] == "inbound" for row in flows))
+    c.metric("Processes with network" if lang == "en" else "Procesos con red", len({network.process_label(row) for row in flows}))
+    d.metric("Open to entire network" if lang == "en" else "Abiertos a toda la red", sum(item["alcance"] == "Toda la red" for item in exposure))
+    e.metric("Suspicious" if lang == "en" else "Sospechosas", len(suspicious))
 
-    tab_flow, tab_exposure, tab_services, tab_time, tab_table = st.tabs(
-        [":material/hub: Mapa de flujo", ":material/shield: Exposición", ":material/donut_large: Servicios",
-         ":material/timeline: Evolución", ":material/table: Detalle"])
+    tab_flow, tab_exposure, tab_services, tab_time, tab_table = st.tabs([
+        ":material/hub: " + ("Flow Map" if lang == "en" else "Mapa de flujo"),
+        ":material/shield: " + ("Exposure" if lang == "en" else "Exposición"),
+        ":material/donut_large: " + ("Services" if lang == "en" else "Servicios"),
+        ":material/timeline: " + ("Timeline" if lang == "en" else "Evolución"),
+        ":material/table: " + ("Table Details" if lang == "en" else "Detalle"),
+    ])
+
     with tab_flow:
         if flows:
             legend(FLOW_LEGEND)
@@ -695,8 +736,11 @@ def _alert_summary(evidence) -> str:
     return str(data)[:200]
 
 
-def _severity_name(level: str) -> str:
-    return f"{SEVERITY_ICONS.get(level, '⚪')} {SEVERITY_NAMES.get(level, level)}"
+def _severity_name(level: str, lang: str | None = None) -> str:
+    if lang is None:
+        lang = st.session_state.get("language") or "es"
+    sev = t(f"tables.severity.{level}", lang=lang, default=SEVERITY_NAMES.get(level, level))
+    return f"{SEVERITY_ICONS.get(level, '⚪')} {sev}"
 
 
 def _set_status(repository, alert_ids, status: str, note: str | None):
@@ -714,12 +758,14 @@ def _alert_detail(repository, query, row: dict):
                 f"{format_local_datetime(row['ts'])}")
         if row.get("status_note"):
             st.text(f"Nota: {row['status_note']}")
-        rule = RULES.get(row["rule_id"])
+        from interfaces.gui.rule_help import rule_help
+        lang = st.session_state.get("language") or "es"
+        rule = rule_help(row["rule_id"], lang=lang)
         if rule:
             left, right = st.columns(2)
-            left.markdown("**Qué detecta**")
+            left.markdown("**What it detects**" if lang == "en" else "**Qué detecta**")
             left.write(rule.detects)
-            right.markdown("**Qué revisar**")
+            right.markdown("**What to check**" if lang == "en" else "**Qué revisar**")
             right.write(rule.check)
         try:
             summary = json.loads(row["evidence"]) if isinstance(row["evidence"], str) else row["evidence"]
@@ -779,46 +825,60 @@ def _bulk_actions(repository, selected: list[dict]):
 
 def alerts():
     _, repository, query, since = context()
-    hero("🚨 Alertas", "Lo que detectaron las reglas, con su evidencia y la explicación del LLM.")
+    lang = st.session_state.get("language") or "es"
+    hero("🚨 Alertas", "Lo que detectaron las reglas, con su evidencia y la explicación del LLM.", page_key="alerts", lang=lang)
     _bulk_learn(repository)
     rows = query.rows("alerts", since)
     _truncation_note(rows)
     requested = st.query_params.get("id")
     if not rows and not requested:
-        return empty(f"No hay alertas. Pulse Analizar para aplicar las reglas R01–R{len(ALL_RULES):02d}.")
+        empty_msg = f"No alerts. Click Analyze to evaluate rules R01–R{len(ALL_RULES):02d}." if lang == "en" else f"No hay alertas. Pulse Analizar para aplicar las reglas R01–R{len(ALL_RULES):02d}."
+        return empty(empty_msg)
     open_rows = [row for row in rows if row["status"] in OPEN_STATUSES]
-    labels = {"critical": "Críticas abiertas", "high": "Altas abiertas", "medium": "Medias abiertas", "low": "Bajas abiertas"}
+    labels_es = {"critical": "Críticas abiertas", "high": "Altas abiertas", "medium": "Medias abiertas", "low": "Bajas abiertas"}
+    labels_en = {"critical": "Open critical", "high": "Open high", "medium": "Open medium", "low": "Open low"}
+    labels = labels_en if lang == "en" else labels_es
     for column, (level, label) in zip(st.columns(4), labels.items()):
         column.metric(label, sum(row["severity"] == level for row in open_rows))
     a, b, c = st.columns(3)
-    statuses = a.multiselect("Estado", list(STATUS_NAMES), default=list(OPEN_STATUSES), format_func=STATUS_NAMES.get,
-                             key="alert-status", placeholder="Todos")
-    severities = b.multiselect("Severidad", ["critical", "high", "medium", "low"], format_func=_severity_name,
-                               key="alert-severity", placeholder="Todas")
-    rules = c.multiselect("Regla", sorted({row["rule_id"] for row in rows}), key="alert-rule", placeholder="Todas",
-                          format_func=lambda rule: f"{rule} · {RULES[rule].detects[:45]}…" if rule in RULES else rule)
+    curr_status_names = status_names(lang=lang)
+    statuses = a.multiselect("Status" if lang == "en" else "Estado", list(curr_status_names), default=list(OPEN_STATUSES),
+                             format_func=curr_status_names.get, key="alert-status",
+                             placeholder="All" if lang == "en" else "Todos")
+    severities = b.multiselect("Severity" if lang == "en" else "Severidad", ["critical", "high", "medium", "low"],
+                               format_func=lambda s: _severity_name(s, lang=lang), key="alert-severity",
+                               placeholder="All" if lang == "en" else "Todas")
+    rules = c.multiselect("Rule" if lang == "en" else "Regla", sorted({row["rule_id"] for row in rows}),
+                          key="alert-rule", placeholder="All" if lang == "en" else "Todas",
+                          format_func=lambda rule: (f"{rule} · {rule_help(rule, lang=lang).detects[:45]}…" if rule_help(rule, lang=lang) else rule))
     rows = [row for row in rows if (not statuses or row["status"] in statuses)
             and (not severities or row["severity"] in severities) and (not rules or row["rule_id"] in rules)]
     rank = {"critical": 0, "high": 1, "medium": 2, "low": 3}
     rows.sort(key=lambda row: (rank.get(row["severity"], 4), row["ts"]))
     if len(rows) > MAX_ALERTS_SHOWN:
-        st.caption(f"Mostrando {MAX_ALERTS_SHOWN} de {len(rows)} alertas; use los filtros para acotar.")
+        st.caption(f"Showing {MAX_ALERTS_SHOWN} of {len(rows)} alerts; use filters to narrow down." if lang == "en" else f"Mostrando {MAX_ALERTS_SHOWN} de {len(rows)} alertas; use los filtros para acotar.")
     rows = rows[:MAX_ALERTS_SHOWN]
 
     selected: list[dict] = []
     if rows:
-        frame = pd.DataFrame([{"#": row["id"], "Severidad": _severity_name(row["severity"]), "Regla": row["rule_id"],
-                               "Título": row["title"], "Resumen": _alert_summary(row["evidence"]),
-                               "Estado": STATUS_NAMES.get(row["status"], row["status"]),
-                               "Fecha": to_local_datetime(row["ts"])} for row in rows])
+        col_sev = "Severity" if lang == "en" else "Severidad"
+        col_rule = "Rule" if lang == "en" else "Regla"
+        col_title = "Title" if lang == "en" else "Título"
+        col_summary = "Summary" if lang == "en" else "Resumen"
+        col_status = "Status" if lang == "en" else "Estado"
+        col_date = "Date" if lang == "en" else "Fecha"
+        frame = pd.DataFrame([{"#": row["id"], col_sev: _severity_name(row["severity"], lang=lang), col_rule: row["rule_id"],
+                               col_title: row["title"], col_summary: _alert_summary(row["evidence"]),
+                               col_status: curr_status_names.get(row["status"], row["status"]),
+                               col_date: to_local_datetime(row["ts"])} for row in rows])
         event = st.dataframe(frame, hide_index=True, width="stretch", key="alerts-table", on_select="rerun",
                              selection_mode="multi-row",
                              column_config={"#": st.column_config.NumberColumn(format="%d", width="small"),
-                                            "Fecha": st.column_config.DatetimeColumn(format=COLUMN_FORMAT)})
-        st.caption("Seleccione una alerta para ver su detalle, o varias para actuar sobre todas a la vez.")
+                                            col_date: st.column_config.DatetimeColumn(format=COLUMN_FORMAT)})
+        st.caption("Select an alert to inspect details, or multiple to act on them together." if lang == "en" else "Seleccione una alerta para ver su detalle, o varias para actuar sobre todas a la vez.")
         selected = [rows[index] for index in (event.selection.rows if event else []) if index < len(rows)]
     else:
-        empty("Ninguna alerta coincide con los filtros.")
+        empty("No alerts match the filters." if lang == "en" else "Ninguna alerta coincide con los filtros.")
     if len(selected) > 1:
         _bulk_actions(repository, selected)
         return
@@ -829,6 +889,7 @@ def alerts():
         target = rows[0]
     if target:
         _alert_detail(repository, query, target)
+
 
 
 # --- Evidencia -------------------------------------------------------------------------------------
@@ -860,85 +921,100 @@ def _top_chart(query, table_name: str, column: str, since: str, title: str, name
 
 def access():
     settings, _, query, since = context()
-    hero("🔑 Accesos", "Inicios de sesión, intentos fallidos, RDP y cambios de cuentas.")
+    lang = st.session_state.get("language") or "es"
+    hero("🔑 Accesos", "Inicios de sesión, intentos fallidos, RDP y cambios de cuentas.", page_key="access", lang=lang)
     _section_summary(query, settings, "accesos")
     rows = query.rows("auth_events", since)
     _truncation_note(rows)
     if not rows:
-        empty("Sin eventos de acceso. El registro Security necesita administrador o el grupo «Lectores del registro de eventos» "
-              "(start\\configurar-permisos.bat).")
+        empty("No access events. The Security log requires Administrator or the «Event Log Readers» group (start\\configurar-permisos.bat)."
+              if lang == "en" else
+              "Sin eventos de acceso. El registro Security necesita administrador o el grupo «Lectores del registro de eventos» (start\\configurar-permisos.bat).")
         return
     a, b, c, d = st.columns(4)
-    a.metric("Inicios correctos", sum(row["event_id"] == 4624 for row in rows))
-    b.metric("Intentos fallidos", sum(row["event_id"] == 4625 for row in rows))
+    a.metric("Successful logons" if lang == "en" else "Inicios correctos", sum(row["event_id"] == 4624 for row in rows))
+    b.metric("Failed attempts" if lang == "en" else "Intentos fallidos", sum(row["event_id"] == 4625 for row in rows))
     c.metric("RDP", sum(row["event_id"] == 1149 or (row["event_id"] == 4624 and row.get("logon_type") == 10) for row in rows))
-    d.metric("Cambios de cuentas", sum(row["event_id"] in (4720, 4732) for row in rows))
+    d.metric("Account changes" if lang == "en" else "Cambios de cuentas", sum(row["event_id"] in (4720, 4732) for row in rows))
     _hourly_chart(query, "auth_events", since, "event_id", EVENT_NAMES, key="auth")
     left, right = st.columns(2)
-    with left: _top_chart(query, "auth_events", "source_ip", since, "Orígenes más frecuentes", key="auth-ip")
-    with right: _top_chart(query, "auth_events", "target_user", since, "Cuentas más usadas", key="auth-user")
-    with st.expander("Detalle", icon=":material/table:"):
-        table(rows, key="auth_events", view="auth_events")
+    with left: _top_chart(query, "auth_events", "source_ip", since, "Most frequent sources" if lang == "en" else "Orígenes más frecuentes", key="auth-ip")
+    with right: _top_chart(query, "auth_events", "target_user", since, "Most used accounts" if lang == "en" else "Cuentas más usadas", key="auth-user")
+    with st.expander("Details" if lang == "en" else "Detalle", icon=":material/table:"):
+        table(rows, key="auth_events", view="auth_events", lang=lang)
 
 
 def files():
     settings, _, query, since = context()
-    hero("📁 Archivos", "Creaciones, cambios, renombrados y borrados en las carpetas vigiladas.")
+    lang = st.session_state.get("language") or "es"
+    hero("📁 Archivos", "Creaciones, cambios, renombrados y borrados en las carpetas vigiladas.", page_key="files", lang=lang)
     _section_summary(query, settings, "archivos")
     rows = query.rows("file_events", since)
     _truncation_note(rows)
     if not rows:
-        empty("Sin eventos de archivos. Pulse Recolectar o ejecute start\\vigilar.bat.")
+        empty("No file events. Click Collect or run start\\vigilar.bat." if lang == "en" else "Sin eventos de archivos. Pulse Recolectar o ejecute start\\vigilar.bat.")
     else:
         a, b, c, d = st.columns(4)
-        a.metric("Creados / nuevos", sum(row["action"] in ("created", "observed_new") for row in rows))
-        b.metric("Modificados", sum(row["action"] in ("modified", "observed_changed") for row in rows))
-        c.metric("Renombrados", sum(row["action"] == "moved" for row in rows))
-        d.metric("Borrados", sum(row["action"] == "deleted" for row in rows))
+        a.metric("Created / new" if lang == "en" else "Creados / nuevos", sum(row["action"] in ("created", "observed_new") for row in rows))
+        b.metric("Modified" if lang == "en" else "Modificados", sum(row["action"] in ("modified", "observed_changed") for row in rows))
+        c.metric("Renamed" if lang == "en" else "Renombrados", sum(row["action"] == "moved" for row in rows))
+        d.metric("Deleted" if lang == "en" else "Borrados", sum(row["action"] == "deleted" for row in rows))
         _hourly_chart(query, "file_events", since, "action", key="files")
         left, right = st.columns(2)
-        with left: _top_chart(query, "file_events", "extension", since, "Extensiones", key="files-ext")
-        with right: _top_chart(query, "file_events", "action", since, "Acciones", key="files-action")
-        with st.expander("Detalle", icon=":material/table:"):
-            table(rows, key="file_events", view="file_events")
-    st.subheader("Reputación de ejecutables")
-    st.caption("Inventario completo: no depende de la ventana temporal.")
+        with left: _top_chart(query, "file_events", "extension", since, "Extensions" if lang == "en" else "Extensiones", key="files-ext")
+        with right: _top_chart(query, "file_events", "action", since, "Actions" if lang == "en" else "Acciones", key="files-action")
+        with st.expander("Details" if lang == "en" else "Detalle", icon=":material/table:"):
+            table(rows, key="file_events", view="file_events", lang=lang)
+    st.subheader("Executable reputation" if lang == "en" else "Reputación de ejecutables")
+    st.caption("Complete inventory: independent of time window." if lang == "en" else "Inventario completo: no depende de la ventana temporal.")
     reputations = query.rows("file_reputation", None, 100)
-    table(reputations, key="file_reputation", view="file_reputation", windowed=False)
-    st.caption("Sólo se consulta el SHA-256; nunca se carga el ejecutable. Ejecute "
-               "`main.py reputation inspect RUTA --online` para enriquecer un archivo.")
+    table(reputations, key="file_reputation", view="file_reputation", windowed=False, lang=lang)
+    st.caption("Only SHA-256 is checked; executable is never uploaded. Run `main.py reputation inspect PATH --online` to enrich a file."
+               if lang == "en" else
+               "Sólo se consulta el SHA-256; nunca se carga el ejecutable. Ejecute `main.py reputation inspect RUTA --online` para enriquecer un archivo.")
 
 
 def persistence():
     settings, _, query, since = context()
-    hero("🧩 Persistencia", "Lo que arranca solo: claves Run, carpeta Inicio, tareas programadas y servicios.")
+    lang = st.session_state.get("language") or "es"
+    hero("🔄 Persistencia", "Lo que arranca solo: claves Run, carpeta Inicio, tareas programadas y servicios.", page_key="persistence", lang=lang)
     _section_summary(query, settings, "persistencia")
     rows = query.rows("persistence_items", since)
     _truncation_note(rows)
     if not rows:
-        return empty("Nada nuevo en la ventana. Pulse Recolectar para inventariar Run, Inicio, tareas y servicios.")
-    names = {"run_key": "Claves Run", "startup_folder": "Carpeta Inicio", "scheduled_task": "Tareas", "service": "Servicios"}
+        return empty("Nothing new in this window. Click Collect to inventory Run keys, Startup folder, tasks, and services."
+                     if lang == "en" else
+                     "Nada nuevo en la ventana. Pulse Recolectar para inventariar Run, Inicio, tareas y servicios.")
+    names_es = {"run_key": "Claves Run", "startup_folder": "Carpeta Inicio", "scheduled_task": "Tareas", "service": "Servicios"}
+    names_en = {"run_key": "Run Keys", "startup_folder": "Startup Folder", "scheduled_task": "Tasks", "service": "Services"}
+    names = names_en if lang == "en" else names_es
+    new_sfx = " (new)" if lang == "en" else " (nuevos)"
     for column, (kind, label) in zip(st.columns(4), names.items()):
-        column.metric(f"{label} (nuevos)", sum(row["kind"] == kind for row in rows))
-    _top_chart(query, "persistence_items", "kind", since, "Elementos vistos por primera vez, por tipo", names, key="persistence")
-    with st.expander("Detalle", icon=":material/table:"):
-        table(rows, key="persistence_items", view="persistence_items")
+        column.metric(f"{label}{new_sfx}", sum(row["kind"] == kind for row in rows))
+    top_title = "Items first seen, by type" if lang == "en" else "Elementos vistos por primera vez, por tipo"
+    _top_chart(query, "persistence_items", "kind", since, top_title, names, key="persistence")
+    with st.expander("Details" if lang == "en" else "Detalle", icon=":material/table:"):
+        table(rows, key="persistence_items", view="persistence_items", lang=lang)
 
 
 def firewall():
     settings, _, query, since = context()
-    hero("🧱 Firewall", "Paquetes que el firewall de Windows bloqueó: quién intentó entrar y a qué puertos.")
+    lang = st.session_state.get("language") or "es"
+    hero("🧱 Firewall", "Paquetes que el firewall de Windows bloqueó: quién intentó entrar y a qué puertos.", page_key="firewall", lang=lang)
     _section_summary(query, settings, "firewall")
     rows = query.rows("firewall_events", since)
     _truncation_note(rows)
     if not rows:
-        empty("Sin eventos del firewall. Active el registro de paquetes bloqueados con start\\configurar-permisos.bat.")
+        empty("No firewall events. Enable dropped packet logging with start\\configurar-permisos.bat."
+              if lang == "en" else
+              "Sin eventos del firewall. Active el registro de paquetes bloqueados con start\\configurar-permisos.bat.")
         return
     a, b, c = st.columns(3)
-    a.metric("Bloqueados", sum(row.get("action") == "DROP" for row in rows))
-    b.metric("Orígenes distintos", len({row.get("src_ip") for row in rows}))
-    c.metric("Puertos atacados", len({row.get("dst_port") for row in rows}))
+    a.metric("Blocked" if lang == "en" else "Bloqueados", sum(row.get("action") == "DROP" for row in rows))
+    b.metric("Distinct sources" if lang == "en" else "Orígenes distintos", len({row.get("src_ip") for row in rows}))
+    c.metric("Targeted ports" if lang == "en" else "Puertos atacados", len({row.get("dst_port") for row in rows}))
     _hourly_chart(query, "firewall_events", since, "action", key="firewall")
+
     left, right = st.columns(2)
     with left: _top_chart(query, "firewall_events", "src_ip", since, "Orígenes más insistentes", key="fw-src")
     with right: _top_chart(query, "firewall_events", "dst_port", since, "Puertos más buscados",
@@ -1003,16 +1079,18 @@ def _ai_export_panel(settings):
 
 def reports():
     settings, _, _, _ = context()
-    hero("📄 Informes", "Informes Markdown del comando report y expedientes para analizar con una IA externa.")
+    lang = st.session_state.get("language") or "es"
+    hero("📄 Informes", "Informes Markdown del comando report y expedientes para analizar con una IA externa.", page_key="reports", lang=lang)
     _ai_export_panel(settings)
-    st.subheader(":material/description: Informes generados", divider="gray")
+    st.subheader(":material/description: " + ("Generated Reports" if lang == "en" else "Informes generados"), divider="gray")
     paths = sorted(settings.reports_dir.glob("*.md"), reverse=True) if settings.reports_dir.exists() else []
-    if not paths: return empty("No hay informes. Ejecute start\\recolectar.bat o el comando report.")
-    chosen = st.selectbox("Informe", paths, format_func=lambda p: p.name)
+    if not paths: return empty("No reports yet. Run start\\recolectar.bat or the report command." if lang == "en" else "No hay informes. Ejecute start\\recolectar.bat o el comando report.")
+    chosen = st.selectbox("Report" if lang == "en" else "Informe", paths, format_func=lambda p: p.name)
     content = chosen.read_text(encoding="utf-8")
     # The report embeds LLM text: rendering it as Markdown would let an injected ![](http://...) leak data off the machine
     st.code(content, language="markdown")
-    st.download_button("Descargar", content.encode("utf-8"), chosen.name, "text/markdown", icon=":material/download:")
+    st.download_button("Download" if lang == "en" else "Descargar", content.encode("utf-8"), chosen.name, "text/markdown", icon=":material/download:")
+
 
 
 _plain = plain_label
@@ -1055,29 +1133,34 @@ def _show_message(message: dict):
 
 def chat():
     context(window_applies=False)
+    lang = st.session_state.get("language") or "es"
     hero("💬 Chat", "Pregunte en lenguaje natural sobre la evidencia recolectada y la documentación local. "
-                    "Las conversaciones se guardan en la base local para consultarlas después.")
+                    "Las conversaciones se guardan en la base local para consultarlas después.", page_key="chat", lang=lang)
     from bootstrap import build_chat_history
     history = build_chat_history()
     status = ai_status()
     if status["chat_tools"] is False:
-        st.warning(f"{status['roles'].get('chat')} no admite herramientas: el chat no podrá consultar la evidencia. "
-                   "Elija otro modelo de chat en IA local.", icon=":material/build:")
-        _link(AI_PAGE, "Abrir IA local", ":material/tune:")
+        warn_msg = (f"{status['roles'].get('chat')} does not support tools: chat cannot inspect evidence. Choose another model in Local AI."
+                    if lang == "en" else
+                    f"{status['roles'].get('chat')} no admite herramientas: el chat no podrá consultar la evidencia. Elija otro modelo de chat en IA local.")
+        st.warning(warn_msg, icon=":material/build:")
+        _link(AI_PAGE, "Open Local AI" if lang == "en" else "Abrir IA local", ":material/tune:")
 
     sessions_col, conversation_col = st.columns([1, 3], gap="large")
     with sessions_col:
-        st.markdown("**Conversaciones**")
-        if st.button("Nueva conversación", icon=":material/add_comment:", width="stretch", key="chat-new"):
+        st.markdown("**Conversations**" if lang == "en" else "**Conversaciones**")
+        if st.button("New conversation" if lang == "en" else "Nueva conversación", icon=":material/add_comment:", width="stretch", key="chat-new"):
             st.session_state["chat_session_id"] = None
-        search = st.text_input("Buscar", placeholder="texto en preguntas o respuestas", key="chat-search",
-                               label_visibility="collapsed")
+        search = st.text_input("Buscar" if lang != "en" else "Search",
+                               placeholder="text in questions or answers" if lang == "en" else "texto en preguntas o respuestas",
+                               key="chat-search", label_visibility="collapsed")
         sessions = history.list_sessions(search or None, 50)
         if not sessions:
-            st.caption("Sin conversaciones" + (" que coincidan." if search else " todavía."))
+            st.caption("No conversations" if lang == "en" else "Sin conversaciones" + (" que coincidan." if search else " todavía."))
         current = st.session_state.get("chat_session_id")
         for session in sessions:
-            label = f"{_plain(session['title'])}  \n{_local(session['updated_at'])} · {session['messages']} msj"
+            msg_word = "msg" if lang == "en" else "msj"
+            label = f"{_plain(session['title'])}  \n{_local(session['updated_at'])} · {session['messages']} {msg_word}"
             if st.button(label, key=f"chat-session-{session['id']}", width="stretch",
                          type="primary" if session["id"] == current else "secondary"):
                 st.session_state["chat_session_id"] = session["id"]
@@ -1091,20 +1174,27 @@ def chat():
             st.session_state["chat_session_id"] = current = None
         if session:
             top_left, top_right = st.columns([3, 1])
-            top_left.markdown(f"**#{session['id']}** · creada {_local(session['created_at'])}")
-            with top_right.popover("Opciones", icon=":material/more_horiz:", width="stretch"):
-                st.download_button("Exportar a Markdown", history.export_markdown(session["id"]).encode("utf-8"),
+            created_word = "created" if lang == "en" else "creada"
+            top_left.markdown(f"**#{session['id']}** · {created_word} {_local(session['created_at'])}")
+            with top_right.popover("Options" if lang == "en" else "Opciones", icon=":material/more_horiz:", width="stretch"):
+                st.download_button("Export to Markdown" if lang == "en" else "Exportar a Markdown", history.export_markdown(session["id"]).encode("utf-8"),
                                    f"chat_{session['id']}.md", "text/markdown", icon=":material/download:", key="chat-export")
-                if st.button("Borrar conversación", icon=":material/delete:", type="primary", key="chat-delete"):
+                if st.button("Delete conversation" if lang == "en" else "Borrar conversación", icon=":material/delete:", type="primary", key="chat-delete"):
                     history.delete_session(session["id"])
                     st.session_state["chat_session_id"] = None
                     st.rerun()
             for message in session["messages"]:
                 _show_message(message)
         else:
-            st.info("Escriba una pregunta abajo para empezar una conversación nueva, o abra una anterior a la izquierda.")
+            st.info("Type a question below to start a new conversation, or open a previous one on the left."
+                    if lang == "en" else
+                    "Escriba una pregunta abajo para empezar una conversación nueva, o abra una anterior a la izquierda.")
 
-    prompt = st.chat_input("Pregunta sobre alertas, accesos, conexiones, archivos, persistencia o reputación")
+    chat_input_ph = ("Ask about alerts, access, connections, files, persistence, or reputation"
+                     if lang == "en" else
+                     "Pregunta sobre alertas, accesos, conexiones, archivos, persistencia o reputación")
+    prompt = st.chat_input(chat_input_ph)
+
     if prompt:
         from bootstrap import build_recorded_chat_service
         with conversation_col:
@@ -1123,27 +1213,32 @@ def chat():
 
 def settings_page():
     settings, repository, _, _ = context(window_applies=False)
-    hero("⚙️ Ajustes", "Qué está activado en este equipo, cada cuánto se analiza, la base de datos y la bitácora técnica.")
-    features_tab, cycle_tab, data_tab, log_tab = st.tabs([":material/toggle_on: Funciones", ":material/schedule: Ciclo",
-                                                          ":material/database: Base de datos",
-                                                          ":material/bug_report: Bitácora"])
+    lang = st.session_state.get("language") or "es"
+    hero("⚙️ Ajustes", "Qué está activado en este equipo, cada cuánto se analiza, la base de datos y la bitácora técnica.", page_key="settings", lang=lang)
+    features_tab, cycle_tab, data_tab, log_tab = st.tabs([
+        ":material/toggle_on: " + ("Features" if lang == "en" else "Funciones"),
+        ":material/schedule: " + ("Cycle" if lang == "en" else "Ciclo"),
+        ":material/database: " + ("Database" if lang == "en" else "Base de datos"),
+        ":material/bug_report: " + ("Technical Log" if lang == "en" else "Bitácora"),
+    ])
     with features_tab:
         _features(settings)
     with cycle_tab:
-        _link(LIVE_PAGE, "Estado de las fuentes y ejecuciones recientes: En vivo", ":material/pulse_alert:")
+        _link(LIVE_PAGE, "Source status and recent runs: Live" if lang == "en" else "Estado de las fuentes y ejecuciones recientes: En vivo", ":material/pulse_alert:")
         _automation_settings(settings)
     with data_tab:
         status = repository.status()
         a, b = st.columns(2)
-        a.metric("Tamaño de la base", f"{status['database_bytes'] / 1_048_576:.1f} MB")
-        b.metric("Alertas guardadas", status["tables"].get("alerts", 0))
-        st.markdown("**Filas por tabla**")
+        a.metric("Database size" if lang == "en" else "Tamaño de la base", f"{status['database_bytes'] / 1_048_576:.1f} MB")
+        b.metric("Saved alerts" if lang == "en" else "Alertas guardadas", status["tables"].get("alerts", 0))
+        st.markdown("**Rows per table**" if lang == "en" else "**Filas por tabla**")
         frame = pd.DataFrame([{"tabla": name, "filas": count} for name, count in status["tables"].items()])
         chart(_style(px.bar(frame.sort_values("filas"), x="filas", y="tabla", orientation="h",
                             labels={"tabla": "", "filas": ""}), 380), key="state-tables")
         _state_maintenance(repository, settings)
     with log_tab:
         _error_log()
+
 
 
 @st.cache_data(ttl=30, show_spinner=False)
@@ -1185,6 +1280,20 @@ def _features(settings):
     def save(**changes):
         automation.save(replace(config, **changes))
         st.rerun()
+
+    # Selector de idioma de la interfaz y modelos
+    current_lang = st.session_state.get("language") or config.language or settings.language or "es"
+    lang_options = ["es", "en"]
+    lang_labels = {"es": "Español (Spanish)", "en": "English (Inglés)"}
+    with st.container(border=True):
+        col_l, col_r = st.columns([5, 2], vertical_alignment="center")
+        col_l.markdown("**Language / Idioma**" if current_lang == "en" else "**Idioma / Language**")
+        col_l.caption("Select the user interface language and LLM response instructions." if current_lang == "en" else "Seleccione el idioma para la interfaz de usuario y las instrucciones de los modelos LLM.")
+        selected_lang = col_r.selectbox("Language", lang_options, index=lang_options.index(current_lang) if current_lang in lang_options else 0,
+                                         format_func=lambda x: lang_labels.get(x, x), key="settings-lang-select", label_visibility="collapsed")
+        if selected_lang != current_lang:
+            st.session_state["language"] = selected_lang
+            save(language=selected_lang)
 
     # Periodic analysis: the Windows scheduled task, not a preference
     task = _cycle_task()
@@ -1332,19 +1441,20 @@ def _state_maintenance(repository, settings):
 
 def getting_started():
     settings, _, _, _ = context(window_applies=False)
-    hero("🚀 Primeros pasos", "Qué necesita Atalaya en este equipo, qué falta y cómo resolverlo.")
+    lang = st.session_state.get("language") or "es"
+    hero("🚀 Primeros pasos", "Qué necesita Atalaya en este equipo, qué falta y cómo resolverlo.", page_key="getting_started", lang=lang)
     from bootstrap import build_doctor_service
     doctor = build_doctor_service(settings)
-    with st.spinner("Comprobando el equipo..."):
+    with st.spinner("Checking system prerequisites..." if lang == "en" else "Comprobando el equipo..."):
         checks = doctor.run()
     blocking = [check for check in checks if check.status == "fail"]
     warnings = [check for check in checks if check.status == "warn"]
     if blocking:
-        st.error(f"{len(blocking)} problema(s) impiden usar Atalaya. Resuélvalos primero.")
+        st.error(f"{len(blocking)} issue(s) prevent using Atalaya. Resolve them first." if lang == "en" else f"{len(blocking)} problema(s) impiden usar Atalaya. Resuélvalos primero.")
     elif warnings:
-        st.warning("Atalaya funciona, pero hay mejoras recomendadas.")
+        st.warning("Atalaya is working, but recommended improvements exist." if lang == "en" else "Atalaya funciona, pero hay mejoras recomendadas.")
     else:
-        st.success("Todo listo. Lo marcado como opcional amplía lo que Atalaya puede ver.")
+        st.success("All set. Items marked optional expand what Atalaya can monitor." if lang == "en" else "Todo listo. Lo marcado como opcional amplía lo que Atalaya puede ver.")
     icons = {"ok": ":material/check_circle:", "warn": ":material/warning:", "fail": ":material/error:", "info": ":material/info:"}
     colors = {"ok": "green", "warn": "orange", "fail": "red", "info": "blue"}
     for group in dict.fromkeys(check.group for check in checks):
@@ -1358,9 +1468,16 @@ def getting_started():
                     right.caption(check.fix)
                 if check.id in {"ollama", "model-chat", "model-embed"} and check.status != "ok":
                     with right:
-                        _link(AI_PAGE, "Resolver en IA local", ":material/tune:")
-    with st.expander("Requisitos y recomendaciones", icon=":material/menu_book:"):
+                        _link(AI_PAGE, "Resolve in Local AI" if lang == "en" else "Resolver en IA local", ":material/tune:")
+    with st.expander("Requirements and recommendations" if lang == "en" else "Requisitos y recomendaciones", icon=":material/menu_book:"):
         st.markdown(
+            "- **Windows 10/11 (64-bit).**\n"
+            "- **Ollama** (optional, recommended): without it there are deterministic rules and alerts, but no LLM explanations or chat.\n"
+            "- **Analysis and chat model**: `qwen3.5:4b` (3.4 GB, ~6 GB free RAM). Low memory fallback: `qwen3.5:0.8b`.\n"
+            "- **Embedding model** (optional): `embeddinggemma` (0.6 GB) improves local documentation search.\n"
+            "- **Permissions** (optional): *Configure permissions* in Start Menu allows reading Security log and Firewall events without running Atalaya as Administrator.\n"
+            "- Complete guide: `README/README.instalacion.md`."
+            if lang == "en" else
             "- **Windows 10/11 de 64 bits.**\n"
             "- **Ollama** (opcional, recomendado): sin él hay reglas y alertas, pero no explicaciones ni chat.\n"
             "- **Modelo de análisis y chat**: `qwen3.5:4b` (3,4 GB, ~6 GB de RAM libre). Con poca memoria: `qwen3.5:0.8b`.\n"
@@ -1372,11 +1489,12 @@ def getting_started():
 
 def processes():
     settings, _, query, since = context()
-    hero("🧠 Procesos y RAM", "Consumo actual, evolución y ciclo de vida observados localmente.")
+    lang = st.session_state.get("language") or "es"
+    hero("⚙️ Procesos y RAM", "Consumo actual, evolución y ciclo de vida observados localmente.", page_key="processes", lang=lang)
     _section_summary(query, settings, "procesos")
     current = query.processes_current()
     if not current:
-        empty("Todavía no hay snapshots de procesos. Pulse Recolectar para crear el primero.")
+        empty("No process snapshots yet. Click Collect to create the first one." if lang == "en" else "Todavía no hay snapshots de procesos. Pulse Recolectar para crear el primero.")
         return
     for row in current:
         row["memoria_mb"] = round((row.get("private_bytes") or row.get("rss_bytes") or 0) / 1024 ** 2, 1)
@@ -1385,37 +1503,37 @@ def processes():
     suspicious = [row for row in current if any(part in str(row.get("path") or "").replace("/", "\\").casefold()
                                                    for part in suspicious_dirs)]
     a, b, c, d = st.columns(4)
-    a.metric("Procesos activos", len(current))
-    b.metric("Memoria privada atribuida", f"{sum(row['memoria_mb'] for row in current) / 1024:.1f} GB")
-    c.metric(f"Procesos ≥ {settings.process_high_memory_percent:.0f}% RAM",
+    a.metric("Active processes" if lang == "en" else "Procesos activos", len(current))
+    b.metric("Attributed private memory" if lang == "en" else "Memoria privada atribuida", f"{sum(row['memoria_mb'] for row in current) / 1024:.1f} GB")
+    c.metric(f"Processes ≥ {settings.process_high_memory_percent:.0f}% RAM" if lang == "en" else f"Procesos ≥ {settings.process_high_memory_percent:.0f}% RAM",
              sum(float(row.get("memory_percent") or 0) >= settings.process_high_memory_percent for row in current))
-    d.metric("Rutas a revisar", len(suspicious))
-    st.caption("La memoria privada evita contar páginas compartidas varias veces; RSS se muestra por separado.")
+    d.metric("Paths to review" if lang == "en" else "Rutas a revisar", len(suspicious))
+    st.caption("Private memory avoids double-counting shared pages; RSS is shown separately." if lang == "en" else "La memoria privada evita contar páginas compartidas varias veces; RSS se muestra por separado.")
     if suspicious:
-        with st.expander("Procesos en rutas que requieren revisión", icon=":material/warning:"):
+        with st.expander("Processes in paths requiring review" if lang == "en" else "Procesos en rutas que requieren revisión", icon=":material/warning:"):
             table([{"proceso": row.get("name"), "pid": row.get("pid"), "padre": row.get("parent_name"),
                     "memoria MB": row["memoria_mb"], "ruta": row.get("path")}
-                   for row in suspicious], key="processes-suspicious", windowed=False, columns=MEMORY_COLUMNS)
+                   for row in suspicious], key="processes-suspicious", windowed=False, columns=MEMORY_COLUMNS, lang=lang)
 
     top = pd.DataFrame(current[:20])
     figure = px.bar(top.sort_values("memoria_mb"), x="memoria_mb", y="name", orientation="h",
                     hover_data=["pid", "rss_mb", "memory_percent", "path"],
-                    text="memoria_mb", labels={"memoria_mb": "Memoria privada (MB)", "name": ""})
+                    text="memoria_mb", labels={"memoria_mb": "Private memory (MB)" if lang == "en" else "Memoria privada (MB)", "name": ""})
     figure.update_traces(texttemplate="%{x:,.0f} MB", textposition="outside", cliponaxis=False)
     chart(_style(figure, 520), key="process-memory-top")
 
-    search = st.text_input("Filtrar por nombre, ruta o usuario", key="process-filter").casefold().strip()
+    search = st.text_input("Filter by name, path, or user" if lang == "en" else "Filtrar por nombre, ruta o usuario", key="process-filter").casefold().strip()
     filtered = [row for row in current if not search or search in " ".join(
         str(row.get(key) or "") for key in ("name", "path", "process_user")).casefold()]
     table([{"proceso": row.get("name"), "pid": row.get("pid"), "privada MB": row["memoria_mb"],
             "RSS MB": row["rss_mb"], "% RAM": row.get("memory_percent"), "estado": row.get("status"),
             "usuario": row.get("process_user"), "padre": row.get("parent_name"), "ruta": row.get("path")}
-           for row in filtered], key="processes-current", windowed=False, columns=MEMORY_COLUMNS)
+           for row in filtered], key="processes-current", windowed=False, columns=MEMORY_COLUMNS, lang=lang)
 
-    st.subheader("Historial", divider="gray")
+    st.subheader("History" if lang == "en" else "Historial", divider="gray")
     choices = {f"{row.get('name') or '?'} · PID {row['pid']} · {row['process_key'][:8]}": row["process_key"]
                for row in current}
-    selected = st.selectbox("Proceso", list(choices), key="process-history-choice")
+    selected = st.selectbox("Process" if lang == "en" else "Proceso", list(choices), key="process-history-choice")
     history = query.process_history(since, choices[selected])
     if history:
         frame = pd.DataFrame(history)
@@ -1423,30 +1541,39 @@ def processes():
         frame["privada MB"] = frame["private_bytes"].fillna(frame["rss_bytes"]) / 1024 ** 2
         frame["RSS MB"] = frame["rss_bytes"] / 1024 ** 2
         chart(_time_axis(_style(px.line(frame, x="hora", y=["privada MB", "RSS MB"],
-                                        labels={"value": "MB", "variable": "Métrica", "hora": ""}), 340)),
+                                        labels={"value": "MB", "variable": "Metric" if lang == "en" else "Métrica", "hora": ""}), 340)),
               key="process-memory-history")
 
-    st.subheader("Finalizados recientemente", divider="gray")
+    st.subheader("Recently Ended" if lang == "en" else "Finalizados recientemente", divider="gray")
     ended = query.process_lifecycle(False, 250)
     table([{"proceso": row.get("name"), "pid": row.get("pid"), "inicio observado": row.get("first_seen"),
             "última observación": row.get("last_seen"), "fin inferido": row.get("ended_at"),
             "pico privado MB": round((row.get("peak_private_bytes") or 0) / 1024 ** 2, 1), "ruta": row.get("path")}
-           for row in ended], key="processes-ended", windowed=False, columns=MEMORY_COLUMNS)
+           for row in ended], key="processes-ended", windowed=False, columns=MEMORY_COLUMNS, lang=lang)
+
 
 
 # --- Buscar ----------------------------------------------------------------------------------------
 
-SEARCH_LABELS = {"alerts": "Alertas", "connections": "Conexiones", "firewall_events": "Firewall", "auth_events": "Accesos",
-                 "file_events": "Archivos", "ssh_observations": "SSH", "process_lifecycle": "Procesos",
-                 "persistence_items": "Persistencia", "file_reputation": "Reputación"}
+SEARCH_LABELS_ES = {"alerts": "Alertas", "connections": "Conexiones", "firewall_events": "Firewall", "auth_events": "Accesos",
+                    "file_events": "Archivos", "ssh_observations": "SSH", "process_lifecycle": "Procesos",
+                    "persistence_items": "Persistencia", "file_reputation": "Reputación"}
+SEARCH_LABELS_EN = {"alerts": "Alerts", "connections": "Connections", "firewall_events": "Firewall", "auth_events": "Access",
+                    "file_events": "Files", "ssh_observations": "SSH", "process_lifecycle": "Processes",
+                    "persistence_items": "Persistence", "file_reputation": "Reputation"}
+SEARCH_LABELS = SEARCH_LABELS_ES
 
 
 def search():
     _, _, query, since = context()
-    hero("🔎 Buscar", "Todo lo registrado sobre una IP, un proceso, una ruta, un hash o un usuario, en un solo lugar.")
-    term = st.text_input("Buscar", value=st.query_params.get("q", ""), label_visibility="collapsed",
-                         icon=":material/search:", placeholder="203.0.113.7 · powershell.exe · C:\\Users\\… · SHA-256 · usuario")
-    st.caption("Busca coincidencias parciales, sin distinguir mayúsculas. Los eventos se limitan a la ventana temporal; "
+    lang = st.session_state.get("language") or "es"
+    labels = SEARCH_LABELS_EN if lang == "en" else SEARCH_LABELS_ES
+    hero("🔎 Buscar", "Todo lo registrado sobre una IP, un proceso, una ruta, un hash o un usuario, en un solo lugar.", page_key="search", lang=lang)
+    term = st.text_input("Buscar" if lang != "en" else "Search", value=st.query_params.get("q", ""), label_visibility="collapsed",
+                         icon=":material/search:", placeholder="203.0.113.7 · powershell.exe · C:\\Users\\… · SHA-256 · username" if lang == "en" else "203.0.113.7 · powershell.exe · C:\\Users\\… · SHA-256 · usuario")
+    st.caption("Partial matches, case-insensitive. Events are limited to the time window; processes, persistence, and reputation are full inventories."
+               if lang == "en" else
+               "Busca coincidencias parciales, sin distinguir mayúsculas. Los eventos se limitan a la ventana temporal; "
                "procesos, persistencia y reputación son inventarios y se buscan completos.")
     term = term.strip()
     # Keep the URL shareable, but only touch it when the term changes (rewriting it on load confuses the router)
@@ -1462,21 +1589,24 @@ def search():
         return st.warning(str(exc))
     found = [(name, rows) for name, rows in results.items() if rows]
     if not found:
-        return empty("Nada coincide en la ventana seleccionada. Pruebe con parte del valor o una ventana más larga.")
+        return empty("No matches in the selected window. Try a substring or a longer window."
+                     if lang == "en" else
+                     "Nada coincide en la ventana seleccionada. Pruebe con parte del valor o una ventana más larga.")
     columns = st.columns(min(len(found), 5))
     for index, (name, rows) in enumerate(found):
-        columns[index % len(columns)].metric(SEARCH_LABELS[name], f"{len(rows)}{'+' if len(rows) >= ENTITY_LIMIT else ''}")
-    for tab, (name, rows) in zip(st.tabs([f"{SEARCH_LABELS[name]} ({len(rows)})" for name, rows in found]), found):
+        columns[index % len(columns)].metric(labels.get(name, name), f"{len(rows)}{'+' if len(rows) >= ENTITY_LIMIT else ''}")
+    for tab, (name, rows) in zip(st.tabs([f"{labels.get(name, name)} ({len(rows)})" for name, rows in found]), found):
         with tab:
             if len(rows) >= ENTITY_LIMIT:
-                st.caption(f"Se muestran las {ENTITY_LIMIT} coincidencias más recientes.")
+                st.caption(f"Showing the {ENTITY_LIMIT} most recent matches." if lang == "en" else f"Se muestran las {ENTITY_LIMIT} coincidencias más recientes.")
             if name == "alerts":
                 for row in rows[:10]:
-                    _link("views/03_Alertas.py", f"{_severity_name(row['severity'])} · alerta \\#{row['id']} · "
-                          f"{row['rule_id']} · {_plain(row['title'])}", ":material/open_in_new:",
+                    alert_lbl = f"{_severity_name(row['severity'], lang=lang)} · alert \\#{row['id']} · {row['rule_id']} · {_plain(row['title'])}" if lang == "en" else f"{_severity_name(row['severity'], lang=lang)} · alerta \\#{row['id']} · {row['rule_id']} · {_plain(row['title'])}"
+                    _link("views/03_Alertas.py", alert_lbl, ":material/open_in_new:",
                           query_params={"id": row["id"]})
             table(rows, key=f"search-{name}", view=name if name in VIEWS else None,
-                  windowed=name not in {"process_lifecycle", "persistence_items", "file_reputation"})
+                  windowed=name not in {"process_lifecycle", "persistence_items", "file_reputation"}, lang=lang)
+
 
 
 # --- Historial de análisis -------------------------------------------------------------------------
@@ -1603,25 +1733,30 @@ def _history_card(item: dict):
 
 def analysis_history():
     _, _, query, since = context()
+    lang = st.session_state.get("language") or "es"
     hero("🗂️ Historial de análisis", "Todo lo que concluyó el LLM local: análisis de alertas y resúmenes por sección, "
-                                    "con su riesgo y su evolución.")
+                                    "con su riesgo y su evolución.", page_key="history", lang=lang)
     from application.section_summaries import SECTIONS
 
+    history_kinds_en = {"todos": "All", "alertas": "Alert analyses", "seccion": "Section summaries"}
+    history_kinds = history_kinds_en if lang == "en" else HISTORY_KINDS
+
     a, b, c = st.columns([2, 3, 2], vertical_alignment="bottom")
-    everything = a.toggle("Todo el historial", value=False, key="history-all",
-                          help="Ignora la ventana temporal de la barra lateral y muestra todos los análisis guardados.")
-    kind = b.segmented_control("Tipo", list(HISTORY_KINDS), default="todos", format_func=HISTORY_KINDS.get,
+    everything = a.toggle("Entire history" if lang == "en" else "Todo el historial", value=False, key="history-all",
+                          help="Ignora la ventana temporal de la barra lateral y muestra todos los análisis guardados." if lang != "en" else "Ignore sidebar time window and show all saved analyses.")
+    kind = b.segmented_control("Type" if lang == "en" else "Tipo", list(history_kinds), default="todos", format_func=history_kinds.get,
                                key="history-kind") or "todos"
-    failed = c.toggle("Incluir fallidos", value=True, key="history-failed")
+    failed = c.toggle("Include failed" if lang == "en" else "Incluir fallidos", value=True, key="history-failed")
     d, e, f, g = st.columns([2, 2, 2, 3], vertical_alignment="bottom")
     items = query.analysis_history(None if everything else since)
-    risks = d.multiselect("Riesgo", list(RISK_ORDER), format_func=SEVERITY_NAMES.get, key="history-risk",
-                          placeholder="Todos")
-    sections = e.multiselect("Sección", list(SECTIONS), format_func=SECTIONS.get, key="history-section",
-                             placeholder="Todas", disabled=kind == "alertas")
-    models = f.multiselect("Modelo", sorted({item["model"] for item in items if item["model"]}), key="history-model",
-                           placeholder="Todos")
-    text = g.text_input("Buscar", key="history-text", placeholder="IP, proceso, palabra del resumen…",
+    risks = d.multiselect("Risk" if lang == "en" else "Riesgo", list(RISK_ORDER), format_func=lambda s: _severity_name(s, lang=lang), key="history-risk",
+                          placeholder="All" if lang == "en" else "Todos")
+    sections = e.multiselect("Section" if lang == "en" else "Sección", list(SECTIONS), format_func=SECTIONS.get, key="history-section",
+                             placeholder="All" if lang == "en" else "Todas", disabled=kind == "alertas")
+    models = f.multiselect("Model" if lang == "en" else "Modelo", sorted({item["model"] for item in items if item["model"]}), key="history-model",
+                           placeholder="All" if lang == "en" else "Todos")
+    text = g.text_input("Search" if lang == "en" else "Buscar", key="history-text",
+                        placeholder="IP, process, summary word…" if lang == "en" else "IP, proceso, palabra del resumen…",
                         icon=":material/search:").casefold().strip()
 
     items = [item for item in items
@@ -1633,35 +1768,40 @@ def analysis_history():
              and (not text or text in " ".join(str(value) for value in (item["summary"], item["model"], item["error"],
                                                                          *item["points"])).casefold())]
     if not items:
-        return empty("No hay análisis con estos filtros. Los análisis se generan al pulsar Analizar, en el ciclo "
+        return empty("No analyses with these filters. Analyses are generated by clicking Analyze, in the automated cycle, or via «Summarize now»."
+                     if lang == "en" else
+                     "No hay análisis con estos filtros. Los análisis se generan al pulsar Analizar, en el ciclo "
                      "automático o con «Resumir ahora» en cada sección.")
 
     finished = [item for item in items if item["result"]]
     latest = items[0]
     durations = [item["duration_ms"] / 1000 for item in items if item["duration_ms"]]
     k1, k2, k3, k4, k5 = st.columns(5)
-    k1.metric("Análisis", len(items), help="Análisis de alertas más resúmenes por sección en el periodo.")
-    k2.metric("Último riesgo", _risk_name(next((item["risk"] for item in finished), None)),
-              help=f"{_history_title(latest)} · {_ago(latest['ts'])}")
-    k3.metric("Altos o críticos", sum(item["risk"] in {"high", "critical"} for item in finished))
-    k4.metric("Fallidos", f"{len(items) - len(finished)}",
+    k1.metric("Analyses" if lang == "en" else "Análisis", len(items), help="Análisis de alertas más resúmenes por sección en el periodo.")
+    k2.metric("Latest risk" if lang == "en" else "Último riesgo", _risk_name(next((item["risk"] for item in finished), None)),
+              help=f"{_history_title(latest)} · {_ago(latest['ts'], lang=lang)}")
+    k3.metric("High or critical" if lang == "en" else "Altos o críticos", sum(item["risk"] in {"high", "critical"} for item in finished))
+    k4.metric("Failed" if lang == "en" else "Fallidos", f"{len(items) - len(finished)}",
               help="Intentos en que el LLM no respondió o devolvió un formato inválido.")
-    k5.metric("Duración media", f"{sum(durations) / len(durations):.0f} s" if durations else "—",
+    k5.metric("Avg duration" if lang == "en" else "Duración media", f"{sum(durations) / len(durations):.0f} s" if durations else "—",
               help="Solo análisis de alertas (los resúmenes no registran duración).")
 
     _history_charts(items)
 
-    st.subheader("Cronología", divider="gray")
+    st.subheader("Chronology" if lang == "en" else "Cronología", divider="gray")
     pages = max(1, -(-len(items) // HISTORY_PAGE_SIZE))
     left, right = st.columns([3, 1], vertical_alignment="bottom")
-    page = right.number_input(f"Página (de {pages})", 1, pages, 1, key="history-page") if pages > 1 else 1
-    left.caption(f"{len(items)} análisis, del más reciente al más antiguo"
-                 + (f" · página {page} de {pages}." if pages > 1 else "."))
+    page_lbl = f"Page (of {pages})" if lang == "en" else f"Página (de {pages})"
+    page = right.number_input(page_lbl, 1, pages, 1, key="history-page") if pages > 1 else 1
+    left.caption((f"{len(items)} analyses, from newest to oldest" if lang == "en" else f"{len(items)} análisis, del más reciente al más antiguo")
+                 + ((f" · page {page} of {pages}." if lang == "en" else f" · página {page} de {pages}.") if pages > 1 else "."))
     for item in items[(page - 1) * HISTORY_PAGE_SIZE: page * HISTORY_PAGE_SIZE]:
         _history_card(item)
     export = pd.DataFrame([{"fecha": format_local_datetime(item["ts"]), "tipo": _history_title(item),
                             "riesgo": _risk_name(item["risk"]), "modelo": item["model"], "origen": item["trigger"],
                             "resumen": item["summary"], "puntos": " | ".join(p for p in item["points"] if p),
                             "error": item["error"]} for item in items])
-    st.download_button("Descargar CSV", export.to_csv(index=False).encode("utf-8"), csv_name("historial_analisis", False),
+    st.download_button("Download CSV" if lang == "en" else "Descargar CSV", export.to_csv(index=False).encode("utf-8"),
+                       csv_name("historial_analisis", False),
                        "text/csv", icon=":material/download:", key="history-csv")
+

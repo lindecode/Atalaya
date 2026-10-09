@@ -15,9 +15,13 @@ from interfaces.gui.common import ai_status, context, refresh_ai_status
 from interfaces.gui.components import hero, plain_label
 
 
-ROLE_NAMES = {"chat": "Chat con herramientas", "analysis": "Análisis de alertas", "summary": "Resúmenes",
-              "embedding": "Embeddings"}
-PROVIDER_NAMES = {"auto": "Automático", "llama_cpp": "llama.cpp portable", "ollama": "Ollama", "none": "Sin IA"}
+ROLE_NAMES_ES = {"chat": "Chat con herramientas", "analysis": "Análisis de alertas", "summary": "Resúmenes", "embedding": "Embeddings"}
+ROLE_NAMES_EN = {"chat": "Chat with tools", "analysis": "Alerts analysis", "summary": "Summaries", "embedding": "Embeddings"}
+PROVIDER_NAMES_ES = {"auto": "Automático", "llama_cpp": "llama.cpp portable", "ollama": "Ollama", "none": "Sin IA"}
+PROVIDER_NAMES_EN = {"auto": "Automatic", "llama_cpp": "llama.cpp portable", "ollama": "Ollama", "none": "No AI"}
+
+ROLE_NAMES = ROLE_NAMES_ES
+PROVIDER_NAMES = PROVIDER_NAMES_ES
 
 
 @st.cache_data(ttl=300, show_spinner=False)
@@ -243,9 +247,12 @@ def local_ai():
         refresh_ai_status()
         st.success("Proveedor guardado. Se aplicará en la siguiente operación de IA.")
     selected = provider_name(settings)
-
-    roles_tab, ollama_tab, llama_tab, test_tab = st.tabs([":material/tune: Modelos por función", ":material/download: Ollama",
-                                                          ":material/memory_alt: llama.cpp", ":material/play_arrow: Prueba"])
+    lang = st.session_state.get("language") or "es"
+    tab_roles = ":material/tune: " + ("Models by Role" if lang == "en" else "Modelos por función")
+    tab_ollama = ":material/download: Ollama"
+    tab_llama = ":material/memory_alt: llama.cpp"
+    tab_test = ":material/play_arrow: " + ("Test" if lang == "en" else "Prueba")
+    roles_tab, ollama_tab, llama_tab, test_tab = st.tabs([tab_roles, tab_ollama, tab_llama, tab_test])
     with roles_tab:
         if selected == "none":
             st.info("Sin IA seleccionada: no hay modelos que asignar.")

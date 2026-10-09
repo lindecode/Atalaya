@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from typing import Any, Callable, Iterable, Mapping
 
 from interfaces.gui.table_formatting import to_local_datetime
+from shared.i18n import t, DEFAULT_LANGUAGE
 
 
 # Columns never worth a table cell: internal keys and payloads that belong in the row detail
@@ -109,13 +110,15 @@ def evidence_view(rows) -> str | None:
     return ENTITY_VIEWS.get(kinds.pop()) if len(kinds) == 1 else None
 
 
-def _value(column: Column, value: Any) -> Any:
+def _value(column: Column, value: Any, lang: str = DEFAULT_LANGUAGE) -> Any:
     if value is None:
         return None
     if column.kind == "date":
         return to_local_datetime(value)
     if column.kind == "event":
-        return f"{EVENT_NAMES.get(value, 'Evento')} ({value})"
+        event_dict = t("tables.event_names", lang=lang) if isinstance(t("tables.event_names", lang=lang), dict) else EVENT_NAMES
+        fallback_name = t("tables.headers.event_id", lang=lang, default="Evento")
+        return f"{event_dict.get(value, fallback_name)} ({value})"
     if column.kind == "bool":
         return bool(value)
     if column.kind == "json_list":
@@ -125,31 +128,55 @@ def _value(column: Column, value: Any) -> Any:
             return value
         return " · ".join(map(str, items)) if isinstance(items, list) else value
     if column.labels is not None:
+        # Check if localized enum is available
+        enum_map = None
+        if column.labels is LOGON_TYPES:
+            enum_map = t("tables.logon_types", lang=lang)
+        elif column.labels is FILE_ACTIONS:
+            enum_map = t("tables.file_actions", lang=lang)
+        elif column.labels is PERSISTENCE_KINDS:
+            enum_map = t("tables.persistence_kinds", lang=lang)
+        elif column.labels is VERDICTS:
+            enum_map = t("tables.verdicts", lang=lang)
+        elif column.labels is DIRECTIONS:
+            enum_map = t("charts.direction", lang=lang)
+        elif column.source == "severity":
+            enum_map = t("tables.severity", lang=lang)
+        elif column.source == "status":
+            enum_map = t("tables.alert_status", lang=lang)
+
+        if isinstance(enum_map, dict) and value in enum_map:
+            return enum_map[value]
         return column.labels.get(value, value)
     return value
 
 
-def column_config(columns: Iterable[Column]) -> dict[str, Any]:
+def column_config(columns: Iterable[Column], lang: str = DEFAULT_LANGUAGE) -> dict[str, Any]:
     import streamlit as st
 
     from interfaces.gui.table_formatting import COLUMN_FORMAT
 
+    headers = t("tables.headers", lang=lang) if isinstance(t("tables.headers", lang=lang), dict) else {}
+    def lbl(c: Column) -> str:
+        return headers.get(c.source, c.label)
+
     makers: dict[str, Callable[[Column], Any]] = {
-        "date": lambda c: st.column_config.DatetimeColumn(c.label, format=COLUMN_FORMAT, help=c.help),
-        "int": lambda c: st.column_config.NumberColumn(c.label, format="%d", help=c.help),
-        "bytes": lambda c: st.column_config.NumberColumn(c.label, format="bytes", help=c.help),
-        "percent": lambda c: st.column_config.ProgressColumn(c.label, format="%.1f%%", min_value=0, max_value=100,
+        "date": lambda c: st.column_config.DatetimeColumn(lbl(c), format=COLUMN_FORMAT, help=c.help),
+        "int": lambda c: st.column_config.NumberColumn(lbl(c), format="%d", help=c.help),
+        "bytes": lambda c: st.column_config.NumberColumn(lbl(c), format="bytes", help=c.help),
+        "percent": lambda c: st.column_config.ProgressColumn(lbl(c), format="%.1f%%", min_value=0, max_value=100,
                                                              help=c.help),
-        "ratio": lambda c: st.column_config.ProgressColumn(c.label, format="percent", min_value=0, max_value=1,
+        "ratio": lambda c: st.column_config.ProgressColumn(lbl(c), format="percent", min_value=0, max_value=1,
                                                            help=c.help),
-        "bool": lambda c: st.column_config.CheckboxColumn(c.label, help=c.help),
+        "bool": lambda c: st.column_config.CheckboxColumn(lbl(c), help=c.help),
     }
-    return {c.label: makers[c.kind](c) for c in columns if c.kind in makers}
+    return {lbl(c): makers[c.kind](c) for c in columns if c.kind in makers}
 
 
-def present(rows: Iterable[Mapping[str, Any]], view: str) -> list[dict[str, Any]]:
+def present(rows: Iterable[Mapping[str, Any]], view: str, lang: str = DEFAULT_LANGUAGE) -> list[dict[str, Any]]:
     columns = VIEWS[view]
-    return [{column.label: _value(column, row.get(column.source)) for column in columns} for row in rows]
+    headers = t("tables.headers", lang=lang) if isinstance(t("tables.headers", lang=lang), dict) else {}
+    return [{headers.get(column.source, column.label): _value(column, row.get(column.source), lang=lang) for column in columns} for row in rows]
 
 
 def visible(row: Mapping[str, Any]) -> dict[str, Any]:

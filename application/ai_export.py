@@ -13,6 +13,7 @@ from typing import Any, Iterable
 
 from application.section_summaries import SECTIONS
 from domain.rules.help import RULES
+from shared.i18n import t, DEFAULT_LANGUAGE
 
 SIZES = {  # alerts listed, alerts with sample evidence, evidence rows per alert, characters per string
     "compacto": {"alerts": 25, "with_evidence": 5, "evidence_rows": 2, "text": 160, "indent": None, "items": 6},
