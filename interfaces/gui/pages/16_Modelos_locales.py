@@ -16,6 +16,61 @@ ROLE_NAMES = {"chat": "Chat con herramientas", "analysis": "Análisis", "summary
               "embedding": "Embeddings"}
 
 
+def _ollama_install_panel(settings):
+    from application.ollama_install import install_command, start_install, verify_installation, winget_path
+
+    st.subheader("Instalar Ollama", divider="gray")
+    winget = winget_path()
+    if not winget:
+        st.warning("winget no está disponible. Use la descarga oficial de Ollama.")
+        st.link_button("Abrir descarga oficial", "https://ollama.com/download/windows",
+                       icon=":material/open_in_new:")
+        return
+    command = " ".join(install_command(winget))
+    st.code(command, language="powershell")
+    confirmed = st.checkbox("Confirmo que deseo instalar Ollama y aceptar los acuerdos mostrados por winget.",
+                            key="ollama-install-confirm")
+    if st.button("Instalar Ollama", disabled=not confirmed, icon=":material/download:", key="ollama-install"):
+        try:
+            child = start_install()
+            st.session_state["ollama-install-pid"] = child.pid
+            st.info(f"Instalación iniciada en una consola visible (PID {child.pid}). Al terminar, pulse Verificar.")
+        except Exception as exc:
+            st.error(f"No se pudo iniciar winget: {type(exc).__name__}: {exc}")
+    if st.button("Verificar instalación", icon=":material/fact_check:", key="ollama-verify"):
+        result = verify_installation()
+        if not result["installed"]:
+            st.error(result["error"])
+        elif not result["signature_valid"]:
+            st.error(f"Ollama fue encontrado, pero su firma no es válida ({result.get('signature_status')}).")
+        else:
+            st.success(f"Ejecutable firmado · {result.get('version') or 'versión no disponible'}")
+            st.caption(f"Publicador: {result.get('publisher') or 'no informado'} · Ruta: {result['path']}")
+            if result["api"]:
+                st.success(f"API local disponible · versión {result.get('api_version')}")
+            else:
+                st.warning("La API local todavía no responde. Abra Ollama desde Inicio y vuelva a verificar.")
+
+    if ollama_installed():
+        st.markdown("**Descarga opcional de modelos**")
+        model = st.selectbox("Modelo", ["qwen3.5:4b", "qwen3.5:0.8b", "embeddinggemma:latest"],
+                             key="ollama-pull-model")
+        pull_confirmed = st.checkbox(f"Confirmo la descarga de `{model}` desde el registro de Ollama.",
+                                     key="ollama-pull-confirm")
+        if st.button("Descargar modelo", disabled=not pull_confirmed, icon=":material/cloud_download:",
+                     key="ollama-pull"):
+            from infrastructure.ollama.client import pull_model
+            progress = st.progress(0, text="Iniciando descarga…")
+            try:
+                for status, completed, total in pull_model(settings, model):
+                    value = min(completed / total, 1.0) if total else 0
+                    progress.progress(value, text=status or "Descargando…")
+                progress.progress(1.0, text="Modelo descargado")
+                st.success(f"{model} está disponible.")
+            except Exception as exc:
+                st.error(f"No se pudo descargar el modelo: {type(exc).__name__}: {exc}")
+
+
 def main():
     settings, _, _, _ = context()
     registry = ModelRegistry()
@@ -34,6 +89,11 @@ def main():
             (". Reglas, recolección y alertas siguen activas." if selected == "none" else ""))
     if provider in {"auto", "ollama"}:
         st.caption("Ollama detectado en el equipo." if ollama_installed() else "Ollama no está instalado.")
+        if not ollama_installed():
+            _ollama_install_panel(settings)
+        else:
+            with st.expander("Instalación y modelos de Ollama", icon=":material/download:"):
+                _ollama_install_panel(settings)
 
     st.subheader("Runtime llama.cpp autorizado", divider="gray")
     runtime = registry.runtime()
