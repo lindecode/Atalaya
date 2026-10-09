@@ -7,6 +7,8 @@ import pandas as pd
 import psutil
 import streamlit as st
 
+from application.model_advisor import (CATALOG_VERSION, OLLAMA_CATALOG, detect_hardware, enough_disk,
+                                       functional_test, recommendation)
 from infrastructure.ai_registry import ModelRegistry, ROLES, hardware_recommendations
 from infrastructure.llm_provider import effective_settings, ollama_installed, provider_name
 from interfaces.gui.common import ai_status, context, refresh_ai_status
@@ -16,7 +18,27 @@ from interfaces.gui.components import hero, plain_label
 ROLE_NAMES = {"chat": "Chat con herramientas", "analysis": "Análisis de alertas", "summary": "Resúmenes",
               "embedding": "Embeddings"}
 PROVIDER_NAMES = {"auto": "Automático", "llama_cpp": "llama.cpp portable", "ollama": "Ollama", "none": "Sin IA"}
-OLLAMA_MODELS = ["qwen3.5:4b", "qwen3.5:0.8b", "embeddinggemma:latest"]
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _hardware():
+    return detect_hardware()
+
+
+def _ollama_recommendations():
+    hardware = _hardware()
+    advised = recommendation(hardware)
+    a, b, c, d = st.columns(4)
+    a.metric("RAM", f"{hardware['ram_gb']:.0f} GB")
+    b.metric("VRAM NVIDIA", f"{hardware['vram_gb']:.0f} GB" if hardware["vram_gb"] else "No detectada")
+    c.metric("CPU", f"{hardware['cpu_threads']} hilos")
+    d.metric("Disco libre", f"{hardware['disk_free_gb']:.0f} GB")
+    st.info(f"Recomendación Atalaya (catálogo v{CATALOG_VERSION}): **{advised['analysis']}** para chat/análisis, "
+            f"**{advised['summary']}** para resúmenes y **{advised['embedding']}** para RAG. {advised['reason']}")
+    if not advised["fits_disk"]:
+        st.error(f"El conjunto necesita aproximadamente {advised['required_disk_gb']:.1f} GB con margen y no cabe "
+                 "en el espacio libre actual.")
+    return hardware, advised
 
 
 def _status_header(settings):
@@ -136,13 +158,25 @@ def _ollama_install_panel(settings):
                 refresh_ai_status()
 
     if ollama_installed():
-        st.markdown("**Descargar un modelo**")
-        model = st.selectbox("Modelo", OLLAMA_MODELS, key="ollama-pull-model",
-                             help="qwen3.5:4b (3,4 GB, ~6 GB de RAM libre) para análisis y chat; qwen3.5:0.8b con poca "
-                                  "memoria; embeddinggemma (0,6 GB) mejora la búsqueda en la documentación.")
+        st.markdown("**Recomendación y descarga de modelos**")
+        hardware, advised = _ollama_recommendations()
+        catalog = {spec.name: spec for spec in OLLAMA_CATALOG}
+        names = list(catalog)
+        model = st.selectbox("Modelo revisado", names, key="ollama-pull-model",
+                             index=names.index(advised["analysis"]),
+                             format_func=lambda name: f"{catalog[name].label} · {catalog[name].size_gb:.1f} GB · "
+                                                      + ", ".join(ROLE_NAMES[role] for role in catalog[name].roles))
+        spec = catalog[model]
+        fits, required = enough_disk(model, hardware)
+        st.caption(f"Descarga aproximada: {spec.size_gb:.1f} GB · espacio requerido con margen: {required:.1f} GB · "
+                   f"RAM mínima orientativa: {spec.min_ram_gb:.0f} GB. La recomendación no instala nada por sí sola.")
+        if hardware["ram_gb"] < spec.min_ram_gb:
+            st.warning("Este modelo supera la RAM mínima orientativa del equipo y puede ser muy lento o no cargar.")
+        if not fits:
+            st.error("No hay espacio libre suficiente con el margen de seguridad del 20 %.")
         pull_confirmed = st.checkbox(f"Confirmo la descarga de `{model}` desde el registro de Ollama.",
                                      key="ollama-pull-confirm")
-        if st.button("Descargar modelo", disabled=not pull_confirmed, icon=":material/cloud_download:",
+        if st.button("Descargar y validar", disabled=not pull_confirmed or not fits, icon=":material/cloud_download:",
                      key="ollama-pull"):
             from infrastructure.ollama.client import pull_model
             progress = st.progress(0, text="Iniciando descarga…")
@@ -151,10 +185,13 @@ def _ollama_install_panel(settings):
                     value = min(completed / total, 1.0) if total else 0
                     progress.progress(value, text=status or "Descargando…")
                 progress.progress(1.0, text="Modelo descargado")
+                result = functional_test(settings, model)
                 refresh_ai_status()
-                st.success(f"{model} está disponible.")
+                detail = (f"{result.get('dimensions')} dimensiones" if result["test"] == "embedding"
+                          else "chat, JSON estructurado y capacidad de herramientas")
+                st.success(f"{model} está disponible y superó la prueba: {detail}.")
             except Exception as exc:
-                st.error(f"No se pudo descargar el modelo: {type(exc).__name__}: {exc}")
+                st.error(f"La descarga o validación falló: {type(exc).__name__}: {exc}")
 
 
 def _llama_cpp_panel(registry: ModelRegistry):

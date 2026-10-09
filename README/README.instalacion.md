@@ -21,6 +21,14 @@ Atalaya funciona **en segundo plano**: su icono aparece junto al reloj. Cerrar l
 
 Tras instalar, **Sistema > Primeros pasos** (o `diagnostico.bat`) comprueba todo esto en tu equipo y dice qué falta; los modelos se descargan en **Sistema > IA local**.
 
+En **Sistema > IA local > Ollama**, Atalaya muestra RAM, VRAM NVIDIA si está
+disponible, hilos de CPU y espacio libre. Con un catálogo local versionado
+recomienda modelos para chat/análisis, resúmenes y embeddings. La recomendación
+no descarga ni asigna nada automáticamente: antes de descargar muestra tamaño,
+memoria orientativa y espacio requerido con margen, y exige confirmación. Al
+terminar prueba embeddings o chat, JSON estructurado y soporte de herramientas,
+según corresponda.
+
 ## Opción 1 · Instalador (recomendada)
 
 1. Ejecuta `Atalaya-Setup-<versión>.exe`. **No pide administrador**: se instala solo para tu usuario en `%LOCALAPPDATA%\Programs\Atalaya`.
