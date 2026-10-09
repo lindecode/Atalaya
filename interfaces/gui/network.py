@@ -132,7 +132,7 @@ def _rgba(hex_color: str, alpha: float) -> str:
     return f"rgba({int(h[0:2], 16)},{int(h[2:4], 16)},{int(h[4:6], 16)},{alpha})"
 
 
-def build_flow(rows: list[dict], max_remotes: int = 12, suspicious_ports=()) -> Flow:
+def build_flow(rows: list[dict], max_remotes: int = 12, suspicious_ports=(), names: dict | None = None) -> Flow:
     """Three columns: remote origins (inbound) → local processes → remote destinations (outbound)."""
     flow = Flow()
     index: dict[tuple, int] = {}
@@ -161,7 +161,8 @@ def build_flow(rows: list[dict], max_remotes: int = 12, suspicious_ports=()) -> 
             if remote is None:
                 remote_label, color, hover = f"Otros ({others} IP)", COLORS["other"], "IP agrupadas fuera del top"
             else:
-                remote_label = safe(remote)
+                name = (names or {}).get(remote)
+                remote_label = f"{safe(name, 32)} · {safe(remote)}" if name else safe(remote)
                 color = COLORS["suspicious"] if link["suspicious"] else COLORS.get(link["scope"], COLORS["other"])
                 hover = f"{safe(remote)} · {SCOPE_LABELS.get(link['scope'], link['scope'])}"
             # Keep edge labels inside Plotly's drawing domain. Values too close
@@ -256,3 +257,67 @@ def timeline_rows(rows: list[dict], include_loopback: bool = False, lang: str = 
              "outbound": "Outbound" if lang == "en" else "Salientes"}
     return [{"ts": stamp[run], "sentido": names[direction], "conexiones": count}
             for (run, direction), count in sorted(buckets.items(), key=lambda item: stamp[item[0][0]])]
+
+
+# --- Names and servers -----------------------------------------------------------------------------
+
+NAME_SOURCES = {"label": "Etiqueta", "dns_cache": "Caché DNS", "hosts": "Archivo hosts", "reverse_dns": "DNS inverso"}
+SCOPE_RANK = {"Toda la red": 0, "Una interfaz (LAN/VPN)": 1, "Solo este equipo": 2}
+
+
+def best_name(entry: dict | None) -> tuple[str | None, str | None]:
+    """(name, source) for one IP: the person's label first, then the most recent DNS name, hosts, reverse DNS."""
+    if not entry:
+        return None, None
+    if entry.get("label"):
+        return entry["label"], "label"
+    for source in ("dns_cache", "hosts", "reverse_dns"):
+        for item in entry.get("names", []):  # newest first
+            if item["source"] == source:
+                return item["name"], source
+    return None, None
+
+
+def name_map(entries: dict) -> dict[str, str]:
+    return {ip: name for ip, entry in entries.items() for name, _ in [best_name(entry)] if name}
+
+
+def _reach(address: str | None) -> str:
+    level = scope(address)
+    return "Toda la red" if level == "unspecified" else "Solo este equipo" if level == "loopback" else "Una interfaz (LAN/VPN)"
+
+
+def server_rows(data: dict) -> list[dict]:
+    """One row per server (protocol, port, process): widest reach, clients by origin, live connections, baseline."""
+    servers: dict[tuple, dict] = {}
+    for row in data.get("listening", []):
+        key = (str(row.get("proto") or "?").upper(), int(row["lport"]), row.get("process_name") or "?")
+        entry = servers.setdefault(key, {"protocolo": key[0], "puerto": key[1], "proceso": key[2],
+                                         "servicio": service(key[1]), "alcance": _reach(row.get("laddr")),
+                                         "ruta": row.get("process_path"), "first_seen": row["first_seen"],
+                                         "last_seen": row["last_seen"], "clients": []})
+        reach = _reach(row.get("laddr"))
+        if SCOPE_RANK[reach] < SCOPE_RANK[entry["alcance"]]:
+            entry["alcance"] = reach
+        entry["first_seen"] = min(entry["first_seen"], row["first_seen"])
+        entry["last_seen"] = max(entry["last_seen"], row["last_seen"])
+    for client in data.get("clients", []):
+        for key, entry in servers.items():
+            if key[1] == client["lport"] and key[2] == (client.get("process_name") or "?") and key[0] == "TCP":
+                entry["clients"].append(client)
+    live = {(row["lport"], row.get("process_name") or "?"): row["connections"] for row in data.get("now", [])}
+    approved = set(data.get("approved", []))
+    result = []
+    for (proto, port, process), entry in servers.items():
+        origins = [scope(client["raddr"]) for client in entry["clients"]]
+        internet = sum(origin == "public" for origin in origins)
+        lan = sum(origin in {"private", "link-local"} for origin in origins)
+        local = sum(origin == "loopback" for origin in origins)
+        attention = entry["alcance"] == "Toda la red" and internet > 0
+        result.append({**entry, "clientes_internet": internet, "clientes_red_local": lan, "clientes_locales": local,
+                       "conexiones_ahora": live.get((port, process), 0),
+                       "ultimo_cliente": max((client["last_seen"] for client in entry["clients"]), default=None),
+                       "aprobado": f"{process}|{port}" in approved, "atencion": attention})
+    result.sort(key=lambda row: (not row["atencion"], SCOPE_RANK[row["alcance"]], -row["clientes_internet"]
+                                 - row["clientes_red_local"], row["puerto"]))
+    return result

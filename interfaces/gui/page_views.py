@@ -532,10 +532,12 @@ def _ip_matches(row: dict, needle: str) -> bool:
     return any(needle in str(row.get(field) or "") for field in ("raddr", "laddr"))
 
 
-def _ip_profile(query, ip: str, since: str):
-    """What this computer knows about one IP: scope, local DNS names, processes, ports and related evidence."""
+def _ip_profile(query, ip: str, since: str, key: str = "profile"):
+    """What this computer knows about one IP: names (history, label, reverse DNS), scope, processes, ports, evidence."""
     from infrastructure.windows.dns_cache import names_for
 
+    lang = st.session_state.get("language") or "es"
+    tr = lambda es, en: en if lang == "en" else es
     found = query.entity_search(ip, since)
     exact = lambda rows, *fields: [row for row in rows if any(str(row.get(field) or "") == ip for field in fields)]
     conns = exact(found["connections"], "raddr", "laddr")
@@ -543,35 +545,76 @@ def _ip_profile(query, ip: str, since: str):
     logons = exact(found["auth_events"], "source_ip")
     ssh = exact(found["ssh_observations"], "remote_address", "local_address")
     alerts = [row for row in found["alerts"] if f'"{ip}"' in str(row.get("evidence") or "") or ip == str(row.get("title"))]
-    names = names_for(ip, _dns_records())
+    entry = query.ip_names([ip]).get(ip, {"label": None, "names": []})
+    live = [name for name in names_for(ip, _dns_records()) if name not in {item["name"] for item in entry["names"]}]
     with st.container(border=True):
         # `ip` went through ipaddress.ip_address: only digits, hex, dots and colons reach the Markdown
-        st.markdown(f"#### :material/lan: {ip} · {network.SCOPE_LABELS.get(network.scope(ip), 'Desconocido')}")
-        if names:
-            st.text("Nombres que este equipo resolvió a esta IP: " + ", ".join(names[:8])
-                    + (f" (+{len(names) - 8})" if len(names) > 8 else ""))
+        title = f"#### :material/lan: {ip} · {network.SCOPE_LABELS.get(network.scope(ip), 'Desconocido')}"
+        st.markdown(title + (f" · {_plain(entry['label'])}" if entry["label"] else ""))
+        known = [(item["name"], network.NAME_SOURCES.get(item["source"], item["source"]), item["last_seen"])
+                 for item in entry["names"]] + [(name, network.NAME_SOURCES["dns_cache"], None) for name in live]
+        if known:
+            st.text(tr("Nombres conocidos: ", "Known names: ")
+                    + ", ".join(f"{name} ({source})" for name, source, _ in known[:8])
+                    + (f" (+{len(known) - 8})" if len(known) > 8 else ""))
         else:
-            st.caption("Sin nombres en la caché DNS local de Windows (se vacía con el tiempo y al reiniciar). "
-                       "Atalaya no consulta servidores externos.")
+            st.caption(tr("Sin nombres guardados: nadie en este equipo resolvió esta IP mientras Atalaya recolectaba.",
+                          "No stored names: nothing on this computer resolved this IP while Atalaya was collecting."))
         a, b, c, d, e = st.columns(5)
-        a.metric("Conexiones", len(conns))
-        b.metric("Procesos", len({network.process_label(row) for row in conns}))
-        c.metric("Bloqueos del firewall", len(blocked))
-        d.metric("Inicios de sesión", len(logons))
-        e.metric("Alertas", len(alerts))
+        a.metric(tr("Conexiones", "Connections"), len(conns))
+        b.metric(tr("Procesos", "Processes"), len({network.process_label(row) for row in conns}))
+        c.metric(tr("Bloqueos del firewall", "Firewall blocks"), len(blocked))
+        d.metric(tr("Inicios de sesión", "Logons"), len(logons))
+        e.metric(tr("Alertas", "Alerts"), len(alerts))
         if conns:
             ports = sorted({row.get("rport") if row.get("raddr") == ip else row.get("lport") for row in conns} - {None})
             seen = sorted(str(row["ts"]) for row in conns)
-            st.text("Procesos: " + ", ".join(sorted({network.process_label(row) for row in conns}))[:400])
-            st.text("Puertos y servicios: " + ", ".join(f"{port} ({network.service(port)})" for port in ports[:15]))
-            st.text(f"Primera vez: {format_local_datetime(seen[0])} · última vez: {format_local_datetime(seen[-1])} "
-                    "(en la ventana temporal)")
+            st.text(tr("Procesos: ", "Processes: ") + ", ".join(sorted({network.process_label(row) for row in conns}))[:400])
+            st.text(tr("Puertos y servicios: ", "Ports and services: ")
+                    + ", ".join(f"{port} ({network.service(port)})" for port in ports[:15]))
+            st.text(tr(f"Primera vez: {format_local_datetime(seen[0])} · última vez: {format_local_datetime(seen[-1])} "
+                       "(en la ventana temporal)", f"First seen: {format_local_datetime(seen[0])} · last seen: "
+                       f"{format_local_datetime(seen[-1])} (within the time window)"))
         if ssh:
-            st.text(f"SSH: {len(ssh)} observación(es) con esta IP.")
+            st.text(tr(f"SSH: {len(ssh)} observación(es) con esta IP.", f"SSH: {len(ssh)} observation(s) with this IP."))
         for alert in alerts[:5]:
             _link("views/03_Alertas.py", f"{_severity_name(alert['severity'])} · alerta \\#{alert['id']} · {alert['rule_id']} · "
                   f"{_plain(alert['title'])}", ":material/notification_important:", query_params={"id": alert["id"]})
-        _link("views/10_Buscar.py", f"Ver todo lo registrado sobre {ip}", ":material/search:", query_params={"q": ip})
+        _link("views/10_Buscar.py", tr(f"Ver todo lo registrado sobre {ip}", f"Everything recorded about {ip}"),
+              ":material/search:", query_params={"q": ip})
+
+        label_col, button_col = st.columns([3, 1], vertical_alignment="bottom")
+        label = label_col.text_input(tr("Etiqueta para esta IP", "Label for this IP"), value=entry["label"] or "",
+                                     max_chars=80, key=f"label-{key}-{ip}",
+                                     placeholder=tr("Router de casa, NAS, Oficina…", "Home router, NAS, Office…"),
+                                     help=tr("Se guarda en este equipo y se muestra en todas las tablas.",
+                                             "Stored on this computer and shown in every table."))
+        if button_col.button(tr("Guardar etiqueta", "Save label"), key=f"label-save-{key}-{ip}", width="stretch",
+                             icon=":material/label:"):
+            from bootstrap import build_repository
+            build_repository().set_ip_label(ip, label, SystemClock().now_iso())
+            refresh_data()
+            st.rerun()
+        with st.expander(tr("Consultar el nombre por DNS inverso", "Look up the name by reverse DNS"),
+                         icon=":material/travel_explore:"):
+            st.caption(tr("Envía esta IP a su servidor DNS (normalmente el router o su proveedor): sale del equipo. "
+                          "Solo se consulta al pulsar.", "Sends this IP to your DNS server (usually the router or your "
+                          "provider): it leaves the computer. It only runs when you click."))
+            if st.button(tr("Consultar ahora", "Look up now"), key=f"rdns-{key}-{ip}", icon=":material/dns:"):
+                from bootstrap import build_repository
+                from infrastructure.windows.ip_names import reverse_lookup
+                try:
+                    found_names = reverse_lookup(ip)
+                except (TimeoutError, OSError, ValueError) as exc:
+                    st.warning(str(exc))
+                else:
+                    if found_names:
+                        build_repository().save_ip_names(ip, found_names, "reverse_dns", SystemClock().now_iso())
+                        refresh_data()
+                        st.success(tr("Encontrado: ", "Found: ") + plain_label(", ".join(found_names)))
+                    else:
+                        st.info(tr("El servidor DNS no tiene un nombre para esta IP.",
+                                   "The DNS server has no name for this IP."))
 
 
 # --- Conexiones ------------------------------------------------------------------------------------
@@ -579,95 +622,89 @@ def _ip_profile(query, ip: str, since: str):
 def connections():
     settings, _, query, since = context()
     lang = st.session_state.get("language") or "es"
+    tr = lambda es, en: en if lang == "en" else es
     hero("🌐 Conexiones", "Quién habla con este equipo (entrantes), con quién habla él (salientes) y qué puertos deja abiertos.", page_key="connections", lang=lang)
     _section_summary(query, settings, "conexiones")
     controls = st.columns([2, 1, 1, 1])
-    mode = controls[0].segmented_control("Datos" if lang != "en" else "Data",
-                                         ["Última recolección", "Toda la ventana"] if lang != "en" else ["Latest collection", "Entire window"],
-                                         default="Última recolección" if lang != "en" else "Latest collection",
-                                         key="net-mode")
-    dir_options = ["Ambos", "Entrantes", "Salientes"] if lang != "en" else ["Both", "Inbound", "Outbound"]
-    direction = controls[1].selectbox("Sentido" if lang != "en" else "Direction", dir_options, key="net-direction")
-    include_loopback = controls[2].toggle("Tráfico interno" if lang != "en" else "Internal traffic", value=False, key="net-loopback",
-                                          help="Conexiones entre programas del propio equipo (127.0.0.1)" if lang != "en" else "Loopback traffic between local applications (127.0.0.1)")
-    include_closing = controls[3].toggle("Cerrándose" if lang != "en" else "Closing", value=False, key="net-closing",
-                                          help="Incluye TIME_WAIT, CLOSE_WAIT y similares" if lang != "en" else "Includes TIME_WAIT, CLOSE_WAIT, etc.")
-    ip_filter = st.text_input("Filtrar por IP" if lang != "en" else "Filter by IP", value=st.query_params.get("ip", ""), icon=":material/filter_alt:",
-                              placeholder="203.0.113.7 · 192.168." if lang == "en" else "Una IP completa (203.0.113.7) o parte de ella (192.168.)",
-                              help="Filtra todas las pestañas por IP remota o local. Con una IP completa se muestra su perfil." if lang != "en" else "Filters all tabs by IP.")
+    mode = controls[0].segmented_control(tr("Datos", "Data"), [tr("Última recolección", "Latest collection"),
+                                                                tr("Toda la ventana", "Entire window")],
+                                         default=tr("Última recolección", "Latest collection"), key="net-mode")
+    direction = controls[1].selectbox(tr("Sentido", "Direction"), [tr("Ambos", "Both"), tr("Entrantes", "Inbound"),
+                                                                    tr("Salientes", "Outbound")], key="net-direction")
+    include_loopback = controls[2].toggle(tr("Tráfico interno", "Internal traffic"), value=False, key="net-loopback",
+                                          help=tr("Conexiones entre programas del propio equipo (127.0.0.1)",
+                                                  "Loopback traffic between local applications (127.0.0.1)"))
+    include_closing = controls[3].toggle(tr("Cerrándose", "Closing"), value=False, key="net-closing",
+                                         help=tr("Incluye TIME_WAIT, CLOSE_WAIT y similares", "Includes TIME_WAIT, CLOSE_WAIT, etc."))
+    ip_filter = st.text_input(tr("Filtrar por IP", "Filter by IP"), value=st.query_params.get("ip", ""),
+                              icon=":material/filter_alt:",
+                              placeholder=tr("Una IP completa (203.0.113.7) o parte de ella (192.168.)", "203.0.113.7 · 192.168."),
+                              help=tr("Filtra todas las pestañas por IP remota o local. Con una IP completa se muestra su perfil.",
+                                      "Filters every tab by remote or local IP. A full IP opens its profile."))
     needle = ip_filter.strip()
     if needle != st.query_params.get("ip", ""):
         if needle:
             st.query_params["ip"] = needle
         elif "ip" in st.query_params:
             del st.query_params["ip"]
-    is_entire_window = (mode == "Toda la ventana" or mode == "Entire window")
-    rows = query.connections(since, latest_only=not is_entire_window)
+    entire_window = mode == tr("Toda la ventana", "Entire window")
+    rows = query.connections(since, latest_only=not entire_window)
     if needle:
         total = len(rows)
         rows = [row for row in rows if _ip_matches(row, needle)]
-        st.caption(f"Filtrando por «{_plain(needle)}»: {len(rows)} de {total} conexiones." if lang != "en" else f"Filtering by «{_plain(needle)}»: {len(rows)} of {total} connections.")
+        st.caption(tr(f"Filtrando por «{_plain(needle)}»: {len(rows)} de {total} conexiones.",
+                      f"Filtering by «{_plain(needle)}»: {len(rows)} of {total} connections."))
     if _valid_ip(needle):
-        _ip_profile(query, _valid_ip(needle), since)
-    if not rows:
-        return empty("No hay conexiones que coincidan. Pruebe con «Toda la ventana» o quite el filtro de IP."
-                     if needle else "No hay conexiones en la ventana. Pulse Recolectar en la barra lateral.")
+        _ip_profile(query, _valid_ip(needle), since, key="filter")
+    names = network.name_map(query.ip_names())
+    directory = query.ip_directory(since)
+    servers = network.server_rows(query.servers(since))
     flows = network.active_flows(rows, include_loopback, include_closing)
-    if direction not in ("Ambos", "Both"):
-        is_inbound = (direction in ("Entrantes", "Inbound"))
-        flows = [row for row in flows if row["direction"] == ("inbound" if is_inbound else "outbound")]
+    if direction != tr("Ambos", "Both"):
+        wanted = "inbound" if direction == tr("Entrantes", "Inbound") else "outbound"
+        flows = [row for row in flows if row["direction"] == wanted]
     suspicious = [row for row in flows if network.is_suspicious(row, settings.suspicious_ports)]
-    exposure = network.exposure(rows)
 
+    named = sum(row["ip"] in names for row in directory)
     a, b, c, d, e = st.columns(5)
-    a.metric("Outbound" if lang == "en" else "Salientes", sum(row["direction"] == "outbound" for row in flows))
-    b.metric("Inbound" if lang == "en" else "Entrantes", sum(row["direction"] == "inbound" for row in flows))
-    c.metric("Processes with network" if lang == "en" else "Procesos con red", len({network.process_label(row) for row in flows}))
-    d.metric("Open to entire network" if lang == "en" else "Abiertos a toda la red", sum(item["alcance"] == "Toda la red" for item in exposure))
-    e.metric("Suspicious" if lang == "en" else "Sospechosas", len(suspicious))
+    a.metric(tr("Salientes", "Outbound"), sum(row["direction"] == "outbound" for row in flows))
+    b.metric(tr("Entrantes", "Inbound"), sum(row["direction"] == "inbound" for row in flows))
+    c.metric(tr("Puertos abiertos a la red", "Ports open to the network"),
+             sum(row["alcance"] == "Toda la red" for row in servers),
+             help=tr("Servidores que aceptan conexiones de cualquier equipo de la red, en la ventana.",
+                     "Servers accepting connections from any host on the network, within the window."))
+    d.metric(tr("IPs remotas", "Remote IPs"), len(directory),
+             help=tr(f"{named} con nombre ({named * 100 // max(len(directory), 1)} %).",
+                     f"{named} with a name ({named * 100 // max(len(directory), 1)}%)."))
+    e.metric(tr("Sospechosas", "Suspicious"), len(suspicious))
 
-    tab_flow, tab_exposure, tab_services, tab_time, tab_table = st.tabs([
-        ":material/hub: " + ("Flow Map" if lang == "en" else "Mapa de flujo"),
-        ":material/shield: " + ("Exposure" if lang == "en" else "Exposición"),
-        ":material/donut_large: " + ("Services" if lang == "en" else "Servicios"),
-        ":material/timeline: " + ("Timeline" if lang == "en" else "Evolución"),
-        ":material/table: " + ("Table Details" if lang == "en" else "Detalle"),
-    ])
+    tab_flow, tab_servers, tab_ips, tab_time, tab_table = st.tabs([
+        ":material/hub: " + tr("Mapa", "Map"), ":material/dns: " + tr("Servidores", "Servers"),
+        ":material/contacts: " + "IPs", ":material/timeline: " + tr("Evolución", "Timeline"),
+        ":material/table: " + tr("Detalle", "Details")])
 
     with tab_flow:
         if flows:
             legend(FLOW_LEGEND)
-            top = st.slider("IPs remotas por sentido", 4, 30, 12, key="net-top")
-            flow = network.build_flow(flows, max_remotes=top, suspicious_ports=settings.suspicious_ports)
+            top = st.slider(tr("IPs remotas por sentido", "Remote IPs per direction"), 4, 30, 12, key="net-top")
+            flow = network.build_flow(flows, max_remotes=top, suspicious_ports=settings.suspicious_ports, names=names)
             chart(network.flow_figure(flow, height=max(460, 22 * len(flow.labels))), key="net-flow")
-            st.caption("El grosor de cada banda es el número de conexiones. Las IP que no entran en el top se agrupan en «Otros». "
-                       "Pase el ratón por una banda para ver puertos y servicios.")
+            st.caption(tr("El grosor de cada banda es el número de conexiones. Las IP que no entran en el top se agrupan en "
+                          "«Otros». Pase el ratón por una banda para ver puertos y servicios.",
+                          "Band width is the number of connections; IPs outside the top are grouped as «Others». "
+                          "Hover a band for ports and services."))
         else:
-            empty("No hay conversaciones con esos filtros. Pruebe a activar «Tráfico interno» o «Toda la ventana».")
-    with tab_exposure:
-        if exposure:
-            legend([("Toda la red: cualquier equipo puede intentar conectar", network.COLORS["suspicious"]),
-                    ("Una interfaz (LAN/VPN)", network.COLORS["inbound"]), ("Solo este equipo", network.COLORS["loopback"])])
-            chart(network.exposure_figure(exposure), key="net-exposure")
-            st.caption("Puertos TCP en escucha y UDP abiertos, agrupados por alcance y proceso. Haga clic para ampliar un grupo.")
-        else:
-            empty("No hay puertos en escucha en estos datos.")
-    with tab_services:
-        outbound = [row for row in flows if row["direction"] == "outbound"]
-        if outbound:
-            left, right = st.columns([3, 2])
-            with left:
-                chart(network.destinations_figure(outbound), key="net-services")
-            with right:
-                st.markdown("**Destinos más frecuentes**")
-                top_dest = pd.DataFrame([{"destino": row["raddr"], "servicio": network.service(row.get("rport")),
-                                          "alcance": network.SCOPE_LABELS.get(network.scope(row["raddr"]), "?")} for row in outbound])
-                top_dest = top_dest.value_counts().reset_index(name="conexiones").head(12)
-                st.dataframe(top_dest, hide_index=True, width="stretch")
-        else:
-            empty("No hay conexiones salientes con estos filtros.")
+            empty(tr("No hay conversaciones con esos filtros. Pruebe a activar «Tráfico interno» o «Toda la ventana».",
+                     "No conversations with these filters. Try «Internal traffic» or «Entire window»."))
+
+    with tab_servers:
+        _servers_tab(query, servers, names, since, tr)
+
+    with tab_ips:
+        _ips_tab(query, directory, names, flows, since, tr)
+
     with tab_time:
-        all_rows = query.connections(since) if mode != "Toda la ventana" else rows
+        all_rows = query.connections(since) if not entire_window else rows
         if needle:
             all_rows = [row for row in all_rows if _ip_matches(row, needle)]
         points = network.timeline_rows(all_rows, include_loopback)
@@ -676,33 +713,143 @@ def connections():
             frame["ts"] = local_series(frame["ts"])
             figure = px.area(frame, x="ts", y="conexiones", color="sentido", markers=True,
                              color_discrete_map={"Entrantes": network.COLORS["inbound"], "Salientes": network.COLORS["outbound"]},
-                             labels={"ts": "", "conexiones": "conexiones abiertas", "sentido": ""})
+                             labels={"ts": "", "conexiones": tr("conexiones abiertas", "open connections"), "sentido": ""})
             chart(_time_axis(_style(figure, 360)), key="net-timeline")
-            st.caption("Cada punto es una recolección. Un salto brusco de salientes merece una mirada al mapa de flujo.")
+            st.caption(tr("Cada punto es una recolección. Un salto brusco de salientes merece una mirada al mapa.",
+                          "Each point is one collection. A sudden jump in outbound deserves a look at the map."))
         else:
-            empty("Hace falta más de una recolección en la ventana para ver la evolución.")
+            empty(tr("Hace falta más de una recolección en la ventana para ver la evolución.",
+                     "More than one collection in the window is needed to see the timeline."))
+
     with tab_table:
-        detail = [{"sentido": {"inbound": "⬅ entrante", "outbound": "➡ saliente"}[row["direction"]],
-                   "proceso": network.process_label(row), "remoto": row["raddr"], "puerto remoto": row.get("rport"),
+        detail = [{"sentido": {"inbound": tr("⬅ entrante", "⬅ inbound"), "outbound": tr("➡ saliente", "➡ outbound")}[row["direction"]],
+                   "proceso": network.process_label(row), "remoto": row["raddr"], "nombre": names.get(row["raddr"]),
+                   "puerto remoto": row.get("rport"),
                    "servicio": network.service(row.get("rport") if row["direction"] == "outbound" else row.get("lport")),
                    "alcance": network.SCOPE_LABELS.get(network.scope(row["raddr"]), "?"), "local": f"{row.get('laddr')}:{row.get('lport')}",
                    "estado": row.get("state"), "sospechosa": "⚠" if network.is_suspicious(row, settings.suspicious_ports) else "",
                    "ruta": row.get("process_path"), "hora": row.get("ts")} for row in flows]
-        st.caption("Seleccione una conexión para ver el perfil de su IP remota.")
+        st.caption(tr("Seleccione una conexión para ver el perfil de su IP remota.",
+                      "Select a connection to see the profile of its remote IP."))
         table(detail, key="connections",
-              on_pick=lambda row: _valid_ip(row.get("remoto")) and _ip_profile(query, _valid_ip(row["remoto"]), since))
-    with st.expander("Sesiones y agentes SSH", icon=":material/terminal:"):
+              on_pick=lambda row: _valid_ip(row.get("remoto")) and _ip_profile(query, _valid_ip(row["remoto"]), since, key="pick"))
+
+    with st.expander(tr("Sesiones y agentes SSH", "SSH sessions and agents"), icon=":material/terminal:"):
         ssh_rows = query.rows("ssh_observations", since, 1000)
         if ssh_rows:
             sessions = [row for row in ssh_rows if row["kind"] == "session"]
             services = [row for row in ssh_rows if row["kind"] == "service"]
             a, b, c = st.columns(3)
-            a.metric("Sesiones observadas", len(sessions))
-            b.metric("Túneles", sum(bool(row.get("tunnel_types")) for row in sessions))
-            c.metric("Reenvío de agente", sum(row.get("agent_forwarding") == 1 for row in sessions))
+            a.metric(tr("Sesiones observadas", "Observed sessions"), len(sessions))
+            b.metric(tr("Túneles", "Tunnels"), sum(bool(row.get("tunnel_types")) for row in sessions))
+            c.metric(tr("Reenvío de agente", "Agent forwarding"), sum(row.get("agent_forwarding") == 1 for row in sessions))
             table(services + sessions, key="ssh_observations", view="ssh_observations")
         else:
-            st.caption("Sin observaciones SSH. Pulse Recolectar para consultar sesiones, sshd y ssh-agent.")
+            st.caption(tr("Sin observaciones SSH. Pulse Recolectar para consultar sesiones, sshd y ssh-agent.",
+                          "No SSH observations. Click Collect to check sessions, sshd and ssh-agent."))
+
+
+REACH_ICONS = {"Toda la red": "🔴", "Una interfaz (LAN/VPN)": "🟠", "Solo este equipo": "⚪"}
+REACH_EN = {"Toda la red": "Entire network", "Una interfaz (LAN/VPN)": "One interface (LAN/VPN)",
+            "Solo este equipo": "This computer only"}
+
+
+def _servers_tab(query, servers: list[dict], names: dict, since: str, tr):
+    if not servers:
+        return empty(tr("No hay puertos en escucha en la ventana.", "No listening ports in the window."))
+    reaches = list(REACH_ICONS)
+    network_open = [row for row in servers if row["alcance"] == "Toda la red"]
+    external = sum(row["clientes_internet"] + row["clientes_red_local"] for row in servers)
+    st.markdown(tr(f"**{len(servers)} puertos abiertos** · {len(network_open)} a toda la red · "
+                   f"{external} cliente(s) de fuera de este equipo",
+                   f"**{len(servers)} open ports** · {len(network_open)} to the whole network · "
+                   f"{external} client(s) from outside this computer"))
+    attention = [row for row in servers if row["atencion"]]
+    if attention:
+        st.error(tr(f"{len(attention)} servidor(es) abiertos a toda la red recibieron clientes de Internet: revíselos "
+                    "primero.", f"{len(attention)} server(s) open to the whole network received Internet clients: "
+                    "review them first."), icon=":material/public:")
+    a, b, c = st.columns([3, 1, 1], vertical_alignment="bottom")
+    chosen = a.multiselect(tr("Alcance", "Reach"), reaches, default=reaches[:2], key="servers-reach",
+                           format_func=lambda reach: f"{REACH_ICONS[reach]} " + tr(reach, REACH_EN[reach]),
+                           placeholder=tr("Todos", "All"),
+                           help=tr("«Solo este equipo» son servicios internos de los programas; se ocultan por defecto.",
+                                   "«This computer only» are programs' internal services; hidden by default."))
+    with_clients = b.toggle(tr("Solo con clientes", "Only with clients"), key="servers-clients")
+    only_new = c.toggle(tr("Solo nuevos", "Only new"), key="servers-new",
+                        help=tr("No aprobados en la baseline.", "Not approved in the baseline."))
+    shown = [row for row in servers if (not chosen or row["alcance"] in chosen)
+             and (not with_clients or row["clients"]) and (not only_new or not row["aprobado"])]
+    table_rows = [{"Atención": "🔴 " + tr("Clientes de Internet", "Internet clients") if row["atencion"] else "",
+                   "Puerto": row["puerto"], "Protocolo": row["protocolo"], "Servicio": row["servicio"],
+                   "Proceso": row["proceso"], "Alcance": f"{REACH_ICONS[row['alcance']]} " + tr(row["alcance"], REACH_EN[row["alcance"]]),
+                   "Clientes de Internet": row["clientes_internet"], "Clientes de la red local": row["clientes_red_local"],
+                   "Clientes de este equipo": row["clientes_locales"], "Conexiones ahora": row["conexiones_ahora"],
+                   "Último cliente": row["ultimo_cliente"], "Visto por primera vez": row["first_seen"],
+                   "Estado": tr("Aprobado", "Approved") if row["aprobado"] else tr("Nuevo", "New"),
+                   "Ruta": row["ruta"]} for row in shown]
+    st.caption(tr("Seleccione un servidor para ver quién se conectó a él.", "Select a server to see who connected to it."))
+    by_key = {(row["puerto"], row["protocolo"], row["proceso"]): row for row in shown}
+
+    def clients_of(picked: dict):
+        server = by_key.get((picked.get("Puerto"), picked.get("Protocolo"), picked.get("Proceso")))
+        if not server:
+            return
+        process = _plain(server["proceso"])  # collected text: escaped before it reaches Markdown
+        st.markdown(tr(f"**Clientes de {process} en el puerto {server['puerto']}**",
+                       f"**Clients of {process} on port {server['puerto']}**"))
+        if not server["clients"]:
+            return st.caption(tr("Nadie se conectó a este servidor en la ventana.",
+                                 "Nobody connected to this server in the window."))
+        rows = [{"IP": client["raddr"], "Nombre": names.get(client["raddr"]),
+                 "Origen": network.SCOPE_LABELS.get(network.scope(client["raddr"]), "?"),
+                 "Observaciones": client["observations"], "Primera vez": client["first_seen"],
+                 "Última vez": client["last_seen"]} for client in server["clients"]]
+        table(rows, key=f"server-clients-{server['protocolo']}-{server['puerto']}", windowed=True, searchable=False,
+              on_pick=lambda client: _valid_ip(client.get("IP")) and _ip_profile(query, _valid_ip(client["IP"]), since,
+                                                                                  key="server"))
+
+    table(table_rows, key="servers", columns={"Puerto": st.column_config.NumberColumn(format="%d")}, on_pick=clients_of)
+
+
+def _ips_tab(query, directory: list[dict], names: dict, flows: list[dict], since: str, tr):
+    if not directory:
+        return empty(tr("No hay IPs remotas en la ventana.", "No remote IPs in the window."))
+    entries = query.ip_names([row["ip"] for row in directory])
+    named = sum(row["ip"] in names for row in directory)
+    left, right = st.columns([3, 2])
+    with left:
+        outbound = [row for row in flows if row["direction"] == "outbound"]
+        if outbound:
+            st.markdown(tr("**Servicios a los que se conecta el equipo**", "**Services this computer connects to**"))
+            chart(network.destinations_figure(outbound), key="net-services")
+    with right:
+        st.markdown(tr("**Nombres**", "**Names**"))
+        st.metric(tr("IPs con nombre", "IPs with a name"), f"{named} / {len(directory)}")
+        st.caption(tr("Los nombres salen de la caché DNS de Windows (guardada en cada recolección), del archivo hosts, "
+                      "de sus etiquetas y, si lo pide en el perfil de una IP, del DNS inverso.",
+                      "Names come from the Windows DNS cache (saved on every collection), the hosts file, your labels "
+                      "and, when you ask in an IP profile, reverse DNS."))
+    rows = []
+    for row in directory:
+        name, source = network.best_name(entries.get(row["ip"]))
+        ports = row["ports"]
+        rows.append({"IP": row["ip"], "Nombre": name, "Origen del nombre": network.NAME_SOURCES.get(source) if source else None,
+                     "Alcance": network.SCOPE_LABELS.get(network.scope(row["ip"]), "?"),
+                     "Sentido": " · ".join({"inbound": tr("entrante", "inbound"), "outbound": tr("saliente", "outbound")}
+                                           .get(item, item) for item in row["directions"]),
+                     "Procesos": ", ".join(row["processes"][:3]) + (f" (+{len(row['processes']) - 3})"
+                                                                   if len(row["processes"]) > 3 else ""),
+                     "Puertos": ", ".join(f"{port} {network.service(int(port))}" if port.isdigit() else port
+                                          for port in ports[:4]) + (f" (+{len(ports) - 4})" if len(ports) > 4 else ""),
+                     "Observaciones": row["observations"], "Primera vez": row["first_seen"], "Última vez": row["last_seen"],
+                     "Bloqueos FW": row["firewall_blocks"]})
+    st.caption(tr("Busque por IP, nombre, proceso o servicio. Seleccione una IP para ver su perfil, etiquetarla o "
+                  "consultar su nombre.", "Search by IP, name, process or service. Select an IP to see its profile, "
+                  "label it or look up its name."))
+    table(rows, key="ip-directory",
+          on_pick=lambda picked: _valid_ip(picked.get("IP")) and _ip_profile(query, _valid_ip(picked["IP"]), since,
+                                                                              key="directory"))
 
 
 # --- Alertas ---------------------------------------------------------------------------------------

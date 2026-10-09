@@ -81,6 +81,8 @@ def test_connections_filter_by_ip_shows_its_profile(tmp_path, monkeypatch):
     _seed(tmp_path, monkeypatch)
     monkeypatch.setattr(dns_cache, "dns_cache_records",
                         lambda timeout=15: [{"Entry": "c2.example.test", "Data": "203.0.113.7", "Type": 1}])
+    from interfaces.gui import page_views
+    page_views._dns_records.clear()  # another test may have cached the real DNS cache for two minutes
     app = AppTest.from_file(ROOT / "interfaces/gui/views/11_Conexiones.py", default_timeout=30)
     app.query_params["ip"] = "203.0.113.7"
     app.run()
