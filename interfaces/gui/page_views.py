@@ -24,6 +24,7 @@ from interfaces.gui.table_views import EVENT_NAMES, FILE_ACTIONS, VIEWS, evidenc
 
 LIVE_PAGE = "views/02_En_vivo.py"
 HISTORY_PAGE = "views/20_Historial.py"
+SETTINGS_PAGE = "views/32_Ajustes.py"
 FLOW_LEGEND = [("Entrante", network.COLORS["inbound"]), ("Saliente", network.COLORS["outbound"]),
                ("Proceso local", network.COLORS["process"]), ("IP de Internet", network.COLORS["public"]),
                ("IP de red local/VPN", network.COLORS["private"]), ("Sospechosa", network.COLORS["suspicious"])]
@@ -285,7 +286,7 @@ def _live_health(runs: list[dict]):
         beat, state = _age_label(current.get("heartbeat_at") or current["started_at"])
         if state == "stale":
             st.error(f"La {RUN_KINDS.get(current['kind'], current['kind']).lower()} #{current['id']} lleva sin dar "
-                     f"señales desde {beat}: puede haberse quedado bloqueada. Revise Estado o reinicie Atalaya.",
+                     f"señales desde {beat}: puede haberse quedado bloqueada. Revise la bitácora en Ajustes o reinicie Atalaya.",
                      icon=":material/error:")
         else:
             st.info(f"{RUN_KINDS.get(current['kind'], current['kind'])} en curso (#{current['id']}) · última señal {beat}.",
@@ -305,8 +306,9 @@ def _live_health(runs: list[dict]):
                    icon=":material/schedule:")
     else:
         st.error(f"Sin recolecciones recientes: la última fue {age}. El ciclo automático no parece estar activo; "
-                 "lo que ve abajo no es el estado actual. Pulse «Recolectar» en la barra lateral o active el ciclo en "
-                 "Sistema → Estado → Ciclo automático.", icon=":material/warning:")
+                 "lo que ve abajo no es el estado actual. Pulse «Recolectar» en la barra lateral o active el "
+                 "análisis periódico en Ajustes.", icon=":material/warning:")
+        _link(SETTINGS_PAGE, "Activar el análisis periódico", ":material/toggle_on:")
 
 
 def _live_event_links(row: dict):
@@ -427,7 +429,7 @@ def live_operations():
 # --- Bitácora de errores -------------------------------------------------------------------------
 
 def _error_log():
-    """Technical log of Atalaya itself (shown as a tab of Estado)."""
+    """Technical log of Atalaya itself (shown as a tab of Ajustes)."""
     from infrastructure.log_reader import read_application_logs
     from infrastructure.logging_config import logs_dir
 
@@ -1119,15 +1121,19 @@ def chat():
         st.rerun()
 
 
-def state():
-    settings, repository, query, _ = context(window_applies=False)
-    hero("⚙️ Estado", "Ciclo automático, base de datos, mantenimiento y bitácora técnica.")
-    config_tab, data_tab, log_tab = st.tabs([":material/schedule: Ciclo automático", ":material/database: Base de datos",
-                                             ":material/bug_report: Bitácora"])
-    with log_tab:
-        _error_log()
-    status = repository.status()
+def settings_page():
+    settings, repository, _, _ = context(window_applies=False)
+    hero("⚙️ Ajustes", "Qué está activado en este equipo, cada cuánto se analiza, la base de datos y la bitácora técnica.")
+    features_tab, cycle_tab, data_tab, log_tab = st.tabs([":material/toggle_on: Funciones", ":material/schedule: Ciclo",
+                                                          ":material/database: Base de datos",
+                                                          ":material/bug_report: Bitácora"])
+    with features_tab:
+        _features(settings)
+    with cycle_tab:
+        _link(LIVE_PAGE, "Estado de las fuentes y ejecuciones recientes: En vivo", ":material/pulse_alert:")
+        _automation_settings(settings)
     with data_tab:
+        status = repository.status()
         a, b = st.columns(2)
         a.metric("Tamaño de la base", f"{status['database_bytes'] / 1_048_576:.1f} MB")
         b.metric("Alertas guardadas", status["tables"].get("alerts", 0))
@@ -1136,13 +1142,134 @@ def state():
         chart(_style(px.bar(frame.sort_values("filas"), x="filas", y="tabla", orientation="h",
                             labels={"tabla": "", "filas": ""}), 380), key="state-tables")
         _state_maintenance(repository, settings)
-    with config_tab:
-        _link(LIVE_PAGE, "Estado de las fuentes y ejecuciones recientes: En vivo", ":material/pulse_alert:")
-        _automation_settings(settings)
+    with log_tab:
+        _error_log()
+
+
+@st.cache_data(ttl=30, show_spinner=False)
+def _cycle_task() -> dict:
+    from infrastructure.windows.system_features import cycle_task_status
+    return cycle_task_status()
+
+
+def _feature(title: str, description: str, status: str, value: bool, key: str, disabled: bool = False) -> bool | None:
+    """One switch tied to the real state: returns the new value when the person flips it, else None.
+
+    The key includes the current state, so after an action (or a change made outside Atalaya) the switch shows
+    what is really configured, not what was last clicked.
+    """
+    with st.container(border=True):
+        left, right = st.columns([6, 1], vertical_alignment="center")
+        left.markdown(f"**{title}**")
+        left.caption(description)
+        left.markdown(status)
+        widget = f"feature-{key}-{value}"
+        new = right.toggle(title, value=value, key=widget, label_visibility="collapsed", disabled=disabled)
+    if new == value:
+        return None
+    # Forget the click: the next run redraws the switch from the real state, so an action that reports success
+    # without taking effect cannot make the page repeat it forever
+    del st.session_state[widget]
+    return new
+
+
+def _features(settings):
+    from dataclasses import replace
+
+    from bootstrap import build_automation_config_service
+    from infrastructure.windows import system_features as system
+
+    automation = build_automation_config_service(settings)
+    config = automation.load()
+
+    def save(**changes):
+        automation.save(replace(config, **changes))
+        st.rerun()
+
+    # Periodic analysis: the Windows scheduled task, not a preference
+    task = _cycle_task()
+    if task.get("enabled"):
+        next_run = to_local_datetime(task.get("next")) if task.get("next") else None
+        status = (f":green[● Activo] · cada {task.get('minutes') or config.cycle_minutes} min"
+                  + (f" · próxima ejecución {next_run:%d/%m %H:%M}" if isinstance(next_run, datetime) else ""))
+        if not task.get("windowless"):
+            status += " · :orange[la tarea abre una consola: desactive y vuelva a activar para corregirlo]"
+    else:
+        status = ":orange[● Desactivado]: Atalaya solo recolecta cuando pulsa «Recolectar»." + (
+            f" ({task['error']})" if task.get("error") else "")
+    changed = _feature("Análisis periódico", f"Una tarea programada de Windows recolecta y analiza cada "
+                       f"{config.cycle_minutes} min mientras haya sesión iniciada (el intervalo se cambia en Ciclo).",
+                       status, bool(task.get("enabled")), "cycle")
+    if changed is not None:
+        with st.spinner("Actualizando la tarea programada…"):
+            ok, message = system.set_cycle_task(changed, config.cycle_minutes)
+        _cycle_task.clear()
+        (st.success if ok else st.error)(message or ("Hecho" if ok else "No se pudo cambiar la tarea"))
+        if ok:
+            st.rerun()
+
+    startup = system.startup_enabled()
+    monitor = system.file_monitor_running()
+    changed = _feature("Iniciar con Windows", "Al iniciar sesión, Atalaya arranca junto al reloj con la vigilancia de "
+                       "archivos (detecta cambios masivos al momento, sin esperar al ciclo).",
+                       (":green[● Activado]" if startup else ":gray[● Desactivado]")
+                       + " · vigilancia de archivos " + (":green[en marcha ahora]" if monitor else
+                                                         ":gray[apagada ahora] (se enciende desde el icono junto al reloj)"),
+                       startup, "startup")
+    if changed is not None:
+        ok, message = system.set_startup(changed)
+        (st.success if ok else st.error)(message or ("Hecho" if ok else "No se pudo cambiar el inicio automático"))
+        if ok:
+            st.rerun()
+
+    changed = _feature("Analizar cuando haya novedades", "Tras cada recolección con datos nuevos, aplica las reglas "
+                       "R01–R16 y crea alertas.", ":green[● Activado]" if config.automatic_analysis else
+                       ":orange[● Desactivado]: se recolecta, pero no se crean alertas hasta pulsar «Analizar».",
+                       config.automatic_analysis, "rules")
+    if changed is not None:
+        save(automatic_analysis=changed)
+
+    changed = _feature("Explicar alertas con IA", "La IA local agrupa y explica las alertas nuevas. Sin ella, las reglas "
+                       "siguen funcionando.", ":green[● Activado]" if config.use_llm else ":gray[● Desactivado]",
+                       config.use_llm, "llm")
+    if changed is not None:
+        save(use_llm=changed)
+
+    changed = _feature("Resúmenes automáticos por sección", "Un resumen de la IA por turno, para no saturar la GPU; "
+                       "también se pueden pedir con «Resumir ahora».",
+                       (":green[● Activado]" if config.section_summaries else ":gray[● Desactivado]")
+                       + ("" if config.use_llm else " · requiere «Explicar alertas con IA»"),
+                       config.section_summaries, "summaries", disabled=not config.use_llm)
+    if changed is not None:
+        save(section_summaries=changed)
+
+    changed = _feature("Backup diario", "Una copia consistente de la base de datos al día, en la carpeta de backups.",
+                       ":green[● Activado]" if config.backup_daily else ":gray[● Desactivado]", config.backup_daily,
+                       "backup")
+    if changed is not None:
+        save(backup_daily=changed)
+
+    from application.doctor import _security_log_readable
+    readable, _ = _security_log_readable()
+    firewall = settings.firewall_log_path.exists()
+    with st.container(border=True):
+        left, right = st.columns([5, 2], vertical_alignment="center")
+        left.markdown("**Permisos ampliados**")
+        left.caption("Leer los accesos (registro Security) y el log del firewall sin ejecutar Atalaya como "
+                     "administrador. Se configura una vez y Windows pide confirmación.")
+        left.markdown(f"Accesos: {':green[legibles]' if readable else ':orange[sin permiso]'} · "
+                      f"Firewall: {':green[registro activo]' if firewall else ':orange[sin registro]'}")
+        if right.button("Configurar permisos", icon=":material/admin_panel_settings:", width="stretch",
+                        key="feature-permissions", disabled=readable and firewall):
+            from infrastructure.windows.system_features import open_permissions_setup
+            ok, message = open_permissions_setup()
+            (st.info if ok else st.error)("Acepte el aviso de Windows y siga la consola que se abre."
+                                          if ok else message)
 
 
 def _automation_settings(settings):
-    from application.automation import AutomationConfig
+    from dataclasses import replace
+
     from bootstrap import build_automation_config_service, build_cycle_service
     automation = build_automation_config_service(settings)
     current = automation.load()
@@ -1152,21 +1279,25 @@ def _automation_settings(settings):
                                  index=["quick", "standard", "deep"].index(current.profile),
                                  help="quick evita escaneos costosos; standard incluye archivos y persistencia.")
         window = middle.number_input("Ventana de análisis (horas)", 1, 720, current.analysis_window_hours)
-        interval = right.number_input("Intervalo recomendado (minutos)", 1, 1440, current.cycle_minutes)
-        automatic = left.checkbox("Analizar cuando haya novedades", current.automatic_analysis)
-        use_llm = middle.checkbox("Usar la IA local para explicar alertas", current.use_llm)
-        backup_daily = right.checkbox("Backup diario recomendado", current.backup_daily)
+        interval = right.number_input("Intervalo (minutos)", 1, 1440, current.cycle_minutes,
+                                      help="Cada cuánto ejecuta la tarea programada el ciclo de recolección y análisis.")
         standard_every = left.number_input("Perfil standard cada N ciclos", 1, 10_000, current.standard_every_cycles)
         deep_every = middle.number_input("Perfil deep cada N ciclos", 1, 100_000, current.deep_every_cycles)
         retention = right.number_input("Retención (días)", 1, 3650, current.retention_days)
-        if st.form_submit_button("Guardar configuración", icon=":material/save:"):
+        if st.form_submit_button("Guardar", icon=":material/save:"):
             try:
-                automation.save(AutomationConfig(profile, int(window), automatic, use_llm, int(interval),
-                                                   int(standard_every), int(deep_every), int(retention), backup_daily))
+                automation.save(replace(current, profile=profile, analysis_window_hours=int(window),
+                                        cycle_minutes=int(interval), standard_every_cycles=int(standard_every),
+                                        deep_every_cycles=int(deep_every), retention_days=int(retention)))
             except ValueError as exc:
                 st.error(str(exc))
             else:
-                st.success("Configuración guardada. Las tareas futuras usarán estos valores.")
+                st.success("Guardado. Los próximos ciclos usarán estos valores.")
+                if int(interval) != current.cycle_minutes and _cycle_task().get("enabled"):
+                    from infrastructure.windows.system_features import set_cycle_task
+                    ok, message = set_cycle_task(True, int(interval))
+                    _cycle_task.clear()
+                    (st.success if ok else st.error)(f"Tarea programada: cada {int(interval)} min. {message}")
     col_run, col_note = st.columns([1, 3])
     if col_run.button("Ejecutar ciclo ahora", icon=":material/play_arrow:", width="stretch"):
         try:
@@ -1178,8 +1309,8 @@ def _automation_settings(settings):
             analyzed = cycle_result.get("analyzed")
             st.success(f"Perfil {cycle_result['profile']}: {cycle_result['collected']['inserted']} filas nuevas; "
                        + (f"{analyzed['new_alerts']} alertas nuevas." if analyzed else "análisis omitido."))
-    col_note.caption("Para periodicidad sin la GUI, Task Scheduler debe ejecutar `main.py cycle`; "
-                     "el bloqueo interno impide ciclos simultáneos.")
+    col_note.caption("El ciclo periódico lo ejecuta una tarea programada de Windows (Funciones → Análisis "
+                     "periódico); el bloqueo interno impide ciclos simultáneos.")
 
 
 def _state_maintenance(repository, settings):

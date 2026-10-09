@@ -24,6 +24,7 @@ class AutomationConfig:
     deep_every_cycles: int = 288
     retention_days: int = 30
     backup_daily: bool = True
+    section_summaries: bool = True  # one LLM section summary per cycle (see application/section_summaries.py)
 
     def validated(self) -> "AutomationConfig":
         if self.profile not in {"quick", "standard", "deep"}: raise ValueError("Perfil inválido")
@@ -86,7 +87,7 @@ class CycleService:
 
     def _summary(self, config, analyzed, use_llm: bool) -> dict | None:
         """At most one section summary per cycle, and none when this cycle's analysis already used the LLM."""
-        if not self.summary_step or not use_llm:
+        if not self.summary_step or not use_llm or not config.section_summaries:
             return None
         if analyzed and analyzed.get("llm_alerts"):
             return {"skipped": "El LLM ya analizó alertas en este ciclo"}

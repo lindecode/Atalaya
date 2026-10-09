@@ -8,7 +8,8 @@ $TaskName = 'Atalaya - ciclo automatico'
 
 switch ($Accion) {
     'activar' {
-        $python = Get-Python
+        # pythonw.exe: sin ventana de consola, que si no apareceria en cada ciclo
+        $python = Get-PythonW
         $action = New-ScheduledTaskAction -Execute $python -Argument 'main.py cycle' -WorkingDirectory $Root
         $trigger = New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) `
             -RepetitionInterval (New-TimeSpan -Minutes $Minutos)

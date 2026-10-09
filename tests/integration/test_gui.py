@@ -30,7 +30,7 @@ PAGES = [
     "interfaces/gui/views/22_Informes.py",
     "interfaces/gui/views/30_Primeros_pasos.py",
     "interfaces/gui/views/31_IA_local.py",
-    "interfaces/gui/views/32_Estado.py",
+    "interfaces/gui/views/32_Ajustes.py",
 ]
 ROOT = Path(__file__).resolve().parents[2]
 

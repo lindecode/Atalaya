@@ -48,6 +48,7 @@ Name: "spanish"; MessagesFile: "compiler:Languages\Spanish.isl"
 [Tasks]
 Name: "desktopicon"; Description: "Crear un acceso directo en el escritorio"; GroupDescription: "Accesos directos:"
 Name: "autostart"; Description: "Iniciar Atalaya en segundo plano al entrar en Windows (icono junto al reloj, con el monitor de archivos)"; GroupDescription: "Inicio automático:"; Flags: unchecked
+Name: "cycle"; Description: "Analizar el equipo automáticamente cada 5 minutos (recomendado; se cambia en Sistema > Ajustes)"; GroupDescription: "Análisis periódico:"
 
 [Files]
 Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
@@ -87,7 +88,9 @@ Name: "{autodesktop}\{#AppName}"; Filename: "{app}\runtime\pythonw.exe"; Paramet
 Name: "{userstartup}\{#AppName}"; Filename: "{app}\runtime\pythonw.exe"; Parameters: "main.py tray --no-browser --monitor"; WorkingDir: "{app}"; IconFilename: "{app}\assets\icon.ico"; Tasks: autostart
 
 [Run]
-Filename: "{app}\runtime\pythonw.exe"; Parameters: "main.py tray"; WorkingDir: "{app}"; Description: "Abrir Atalaya (vaya a Herramientas > Primeros pasos)"; Flags: postinstall nowait skipifsilent
+; Same script as start\automatizacion.bat and the Ajustes switch; desinstalar.ps1 removes the task on uninstall
+Filename: "powershell.exe"; Parameters: "-NoProfile -ExecutionPolicy Bypass -File ""{app}\start\lib\automatizacion.ps1"" -Accion activar -Minutos 5"; WorkingDir: "{app}\start"; StatusMsg: "Programando el análisis periódico..."; Flags: runhidden waituntilterminated; Tasks: cycle
+Filename: "{app}\runtime\pythonw.exe"; Parameters: "main.py tray"; WorkingDir: "{app}"; Description: "Abrir Atalaya (vaya a Sistema > Primeros pasos)"; Flags: postinstall nowait skipifsilent
 
 ; La limpieza al desinstalar esta en [Code] (CurUninstallStepChanged) y no en [UninstallRun]: alli los
 ; Check se evaluan al INSTALAR, y hace falta saber al desinstalar si es silenciosa o interactiva.
@@ -109,7 +112,7 @@ begin
     'Atalaya usa Ollama para explicar las alertas y para el chat.',
     'No se encontró Ollama en este equipo. Sin él, Atalaya funciona (reglas, alertas, panel) pero sin ' +
     'explicaciones del LLM ni chat. Los modelos (unos 4 GB) se descargan después desde ' +
-    'Herramientas > Primeros pasos.',
+    'Sistema > IA local.',
     True, False);
   OllamaPage.Add('Instalar Ollama ahora con winget (recomendado)');
   OllamaPage.Add('Abrir la página de descarga de Ollama al terminar');

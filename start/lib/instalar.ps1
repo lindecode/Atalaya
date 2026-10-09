@@ -4,6 +4,7 @@ param(
     [switch]$Si,                 # aceptar todas las preguntas con su valor por defecto
     [switch]$SinAccesos,         # no crear accesos directos (escritorio / menu Inicio)
     [switch]$SinInicioAutomatico,
+    [switch]$SinCiclo,           # no programar el analisis periodico (se puede activar despues en Ajustes)
     [switch]$SinModelos,         # no descargar modelos de Ollama
     [switch]$SinPermisos,        # no ofrecer la configuracion de permisos (requiere administrador)
     [switch]$SinRed,             # no instalar paquetes, Ollama ni descargar modelos
@@ -155,7 +156,21 @@ if (-not $SinInicioAutomatico) {
     }
 }
 
-# 7. Permisos -----------------------------------------------------------------------------------
+# 7. Analisis periodico (activado por defecto) --------------------------------------------------
+if (-not $SinCiclo) {
+    Write-Paso "Analisis periodico"
+    if (Confirm-Paso "Analizar el equipo automaticamente cada 5 minutos (recomendado)?" $true $Si) {
+        try {
+            & (Join-Path $PSScriptRoot 'automatizacion.ps1') -Accion activar -Minutos 5
+        } catch {
+            Write-Aviso "No se pudo programar la tarea: $($_.Exception.Message). Activela despues en Ajustes."
+        }
+    } else {
+        Write-Host "  Sin analisis periodico: Atalaya solo recolecta al pulsar Recolectar. Activelo en Ajustes."
+    }
+}
+
+# 8. Permisos -----------------------------------------------------------------------------------
 if (-not $SinPermisos) {
     Write-Paso "Permisos (opcional, una sola vez, pide administrador)"
     Write-Host "  Permite leer accesos/RDP (registro Security) y el log del firewall sin ejecutar como administrador."

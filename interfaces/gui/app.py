@@ -39,7 +39,7 @@ navigation = st.navigation({
         st.Page("views/30_Primeros_pasos.py", title="Primeros pasos", icon=":material/rocket_launch:",
                 url_path="primeros-pasos"),  # fixed URL: the tray menu links to it
         st.Page("views/31_IA_local.py", title="IA local", icon=":material/smart_toy:", url_path="ia-local"),
-        st.Page("views/32_Estado.py", title="Estado", icon=":material/settings:", url_path="estado"),
+        st.Page("views/32_Ajustes.py", title="Ajustes", icon=":material/settings:", url_path="ajustes"),
     ],
 }, expanded=True)
 navigation.run()

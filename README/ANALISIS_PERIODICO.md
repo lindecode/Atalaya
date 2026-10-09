@@ -43,7 +43,7 @@ política externa. Antes de reducir la retención, cree y pruebe una copia.
 
 ## Configuración y ejecución
 
-La configuración está en **Sistema → Estado → Ciclo automático**. El
+La configuración está en **Sistema → Ajustes** (pestañas Funciones y Ciclo). El
 campo «Intervalo recomendado» documenta la frecuencia esperada, pero la frecuencia
 real pertenece a Task Scheduler. Para mantenerlas sincronizadas, vuelva a activar
 la tarea con el mismo valor:

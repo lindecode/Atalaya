@@ -122,7 +122,7 @@ def _actions(settings):
             status.update(label=f"Análisis {result['status']}", state="complete")
         st.cache_data.clear()
     if not is_admin():
-        st.sidebar.caption(":material/info: Sin administrador: algunas fuentes pueden omitirse (ver Estado).")
+        st.sidebar.caption(":material/info: Sin administrador: algunas fuentes pueden omitirse (ver Ajustes → Permisos ampliados).")
 
 
 def context(window_applies: bool = True):

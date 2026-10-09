@@ -328,7 +328,7 @@ contraseña y ejecuta el ciclo sólo mientras el usuario tiene una sesión:
 Cada ejecución llama a `main.py cycle`: selecciona el perfil configurado,
 impide ciclos simultáneos y sólo inicia el análisis cuando hubo evidencia
 nueva. La ventana temporal, el uso del LLM, las frecuencias de perfiles y la
-retención se editan en **Sistema → Estado → Ciclo automático**.
+retención se editan en **Sistema → Ajustes** (pestañas Funciones y Ciclo).
 
 La opción recomendada para `watch` es crear la tarea manualmente desde
 **Task Scheduler**:

@@ -204,7 +204,7 @@ análisis cuando ingresó evidencia nueva:
 ```
 
 Los perfiles `standard` y `deep` se intercalan con la frecuencia configurada
-en **Sistema → Estado → Ciclo automático**. El ciclo profundo crea el
+en **Sistema → Ajustes** (pestañas Funciones y Ciclo). El ciclo profundo crea el
 backup diario antes de aplicar la retención.
 
 El backup usa la API consistente de SQLite. La purga conserva las alertas
