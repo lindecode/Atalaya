@@ -62,10 +62,12 @@ def test_assistant_and_tool_messages_are_openai_compatible():
     assert tool["tool_call_id"] == "call-7" and "tool_name" not in tool
 
 
-def test_auto_provider_uses_llama_cpp_only_when_runtime_and_model_exist(tmp_path):
+def test_auto_provider_uses_llama_cpp_only_when_runtime_and_model_exist(tmp_path, monkeypatch):
+    monkeypatch.setattr("infrastructure.llm_provider.ollama_installed", lambda: False)
+    monkeypatch.setattr("infrastructure.ai_registry.registry_path", lambda: tmp_path / "empty-registry.json")
     executable, model = tmp_path / "llama-server.exe", tmp_path / "model.gguf"
     settings = replace(Settings(), llama_cpp_executable=executable, llama_cpp_model_path=model, llm_provider="auto")
-    assert provider_name(settings) == "ollama"
+    assert provider_name(settings) == "none"
     executable.write_bytes(b"exe"); model.write_bytes(b"gguf")
     assert provider_name(settings) == "llama_cpp"
     assert provider_name(replace(settings, llm_provider="ollama")) == "ollama"

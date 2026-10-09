@@ -36,6 +36,8 @@ navigation = st.navigation({
         st.Page("pages/9_Chat.py", title="Chat", icon=":material/forum:"),
         st.Page("pages/8_Informes.py", title="Informes", icon=":material/description:"),
         st.Page("pages/10_Estado.py", title="Estado", icon=":material/settings:"),
+        st.Page("pages/16_Modelos_locales.py", title="Modelos locales", icon=":material/memory_alt:",
+                url_path="modelos-locales"),
         st.Page("pages/15_Bitacora.py", title="Bitácora", icon=":material/bug_report:", url_path="bitacora"),
     ],
 }, expanded=True)

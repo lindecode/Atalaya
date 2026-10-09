@@ -123,7 +123,7 @@ Variables de entorno admitidas:
 | `ATALAYA_FIREWALL_LOG` | Indica otro registro del Firewall de Windows |
 | `OLLAMA_HOST` | Endpoint local de Ollama; sólo se aceptan direcciones loopback |
 | `OLLAMA_EMBEDDING_MODEL` | Modelo local para embeddings RAG |
-| `ATALAYA_LLM_PROVIDER` | `auto`, `ollama` o `llama_cpp` |
+| `ATALAYA_LLM_PROVIDER` | `auto`, `ollama`, `llama_cpp` o `none` |
 | `ATALAYA_LLAMA_CPP_SERVER` | Ruta a `llama-server.exe` |
 | `ATALAYA_LLAMA_CPP_MODEL` | Ruta al modelo GGUF |
 | `ATALAYA_LLAMA_CPP_EMBEDDING_MODEL` | Ruta al GGUF dedicado de embeddings |

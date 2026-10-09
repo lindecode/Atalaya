@@ -95,6 +95,7 @@ class Settings:
     ollama_model: str = "qwen3.5:4b"
     ollama_embedding_model: str = field(default_factory=lambda: os.environ.get("OLLAMA_EMBEDDING_MODEL", "embeddinggemma:latest"))
     llm_provider: str = field(default_factory=lambda: os.environ.get("ATALAYA_LLM_PROVIDER", "auto").casefold())
+    llm_role: str = "chat"  # internal routing hint; not an environment setting
     llama_cpp_host: str = field(default_factory=lambda: os.environ.get("ATALAYA_LLAMA_CPP_HOST", "http://127.0.0.1:11435"))
     llama_cpp_embedding_host: str = field(default_factory=lambda: os.environ.get(
         "ATALAYA_LLAMA_CPP_EMBEDDING_HOST", "http://127.0.0.1:11436"))
@@ -135,8 +136,8 @@ class Settings:
         return self.ollama_host.rstrip("/")
 
     def validated_llama_cpp_host(self) -> str:
-        if self.llm_provider not in {"auto", "ollama", "llama_cpp"}:
-            raise ValueError("ATALAYA_LLM_PROVIDER debe ser auto, ollama o llama_cpp")
+        if self.llm_provider not in {"auto", "ollama", "llama_cpp", "none"}:
+            raise ValueError("ATALAYA_LLM_PROVIDER debe ser auto, ollama, llama_cpp o none")
         return _validated_local_http(self.llama_cpp_host, "ATALAYA_LLAMA_CPP_HOST")
 
     def validated_llama_cpp_embedding_host(self) -> str:

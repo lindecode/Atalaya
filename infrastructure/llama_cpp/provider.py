@@ -12,6 +12,8 @@ class LlamaCppAnalyzer(OllamaAnalyzer):
     """Reuses Atalaya's validated analysis schema with the llama.cpp transport."""
 
     def __init__(self, settings):
+        from infrastructure.llm_provider import effective_settings
+        settings = effective_settings(settings)
         super().__init__(settings)
         self.model = _model_name(settings.llama_cpp_model_path)
 
@@ -22,6 +24,8 @@ class LlamaCppAnalyzer(OllamaAnalyzer):
 
 class LlamaCppEmbeddingProvider:
     def __init__(self, settings, model: str | None = None, client=None):
+        from infrastructure.llm_provider import effective_settings
+        settings = effective_settings(settings)
         self.settings = settings
         self.model = model or _model_name(settings.llama_cpp_embedding_model_path)
         self.client = client
@@ -43,7 +47,8 @@ class LlamaCppEmbeddingProvider:
 
 class LlamaCppModelCatalog:
     def __init__(self, settings):
-        self.settings = settings
+        from infrastructure.llm_provider import effective_settings
+        self.settings = effective_settings(settings)
 
     def list_models(self):
         client = LlamaCppClient(runtime_host(self.settings, "chat"), 10,

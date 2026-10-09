@@ -64,7 +64,7 @@ def model_selector() -> dict | None:
         return None
     usable = [model for model in models if model["chat"]]
     if not usable:
-        st.sidebar.warning("No hay modelos de chat en Ollama. Ejemplo: ollama pull qwen3.5:4b")
+        st.sidebar.warning("No hay modelos de chat disponibles en el proveedor local. Revise Modelos locales.")
         return None
     names = [model["name"] for model in usable]
     by_name = {model["name"]: model for model in usable}

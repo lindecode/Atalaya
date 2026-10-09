@@ -88,10 +88,17 @@ class DoctorService:
 
     def _llm(self) -> list[Check]:
         from infrastructure.llm_provider import provider_name
-        return self._llama_cpp() if provider_name(self.settings) == "llama_cpp" else self._ollama()
+        selected = provider_name(self.settings)
+        if selected == "none":
+            return [Check("llm-none", "LLM local", "Inteligencia artificial", "info",
+                          "Sin proveedor: reglas, recolección y alertas continúan disponibles",
+                          "Configure Ollama o autorice llama.cpp y un GGUF en Modelos locales")]
+        return self._llama_cpp() if selected == "llama_cpp" else self._ollama()
 
     def _llama_cpp(self) -> list[Check]:
-        executable, model = self.settings.llama_cpp_executable, self.settings.llama_cpp_model_path
+        from infrastructure.llm_provider import effective_settings
+        effective = effective_settings(self.settings)
+        executable, model = effective.llama_cpp_executable, effective.llama_cpp_model_path
         if not executable.is_file() or not model.is_file():
             missing = executable if not executable.is_file() else model
             return [Check("llama-cpp", "LLM local", "llama.cpp integrado", "warn",
@@ -105,7 +112,7 @@ class DoctorService:
         size = model.stat().st_size / 1e9
         checks = [Check("llama-cpp", "LLM local", "llama.cpp integrado", "ok",
                         f"En marcha · {model.name} · {size:.1f} GB · {len(installed)} modelo(s)")]
-        embedding = self.settings.llama_cpp_embedding_model_path
+        embedding = effective.llama_cpp_embedding_model_path
         if not embedding.is_file():
             checks.append(Check("llama-cpp-embedding", "LLM local", "Embeddings llama.cpp", "info",
                                 "Sin modelo dedicado: RAG usa búsqueda léxica",

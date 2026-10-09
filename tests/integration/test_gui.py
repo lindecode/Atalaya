@@ -32,6 +32,7 @@ PAGES = [
     "interfaces/gui/pages/16_Historial.py",
     "interfaces/gui/pages/14_En_vivo.py",
     "interfaces/gui/pages/15_Bitacora.py",
+    "interfaces/gui/pages/16_Modelos_locales.py",
 ]
 ROOT = Path(__file__).resolve().parents[2]
 

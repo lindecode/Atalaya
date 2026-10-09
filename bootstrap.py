@@ -23,7 +23,7 @@ from infrastructure.ollama.analyzer import OllamaAnalyzer
 from infrastructure.ollama.client import build_chat_client, pull_model
 from infrastructure.ollama.models import OllamaModelCatalog
 from infrastructure.ollama.embeddings import OllamaEmbeddingProvider
-from infrastructure.llm_provider import build_components, provider_name
+from infrastructure.llm_provider import build_components, effective_settings, provider_name
 from infrastructure.llm_summary import ChatSectionSummarizer
 from infrastructure.sqlite.section_summaries import SQLiteSectionDigests, SQLiteSectionSummaryStore
 from infrastructure.sqlite.queries import SQLiteQueryRepository
@@ -92,12 +92,15 @@ def build_status_service(settings: Settings | None = None) -> StatusService:
 
 
 def build_model_service(settings: Settings | None = None) -> ModelService:
-    effective = settings or Settings()
+    effective = effective_settings(settings or Settings())
     selected = provider_name(effective)
     if selected == "llama_cpp":
         from infrastructure.llama_cpp.provider import LlamaCppModelCatalog
         effective = replace(effective, ollama_model=effective.llama_cpp_model_path.stem)
         catalog = LlamaCppModelCatalog(effective)
+    elif selected == "none":
+        from infrastructure.disabled_llm import DisabledModelCatalog
+        catalog = DisabledModelCatalog(effective)
     else:
         catalog = OllamaModelCatalog(effective)
     return ModelService(build_repository(effective), catalog, SystemClock(), effective)
@@ -105,12 +108,12 @@ def build_model_service(settings: Settings | None = None) -> ModelService:
 
 def _with_model(settings: Settings | None, model: str | None, role: str = "chat") -> Settings:
     """Explicit --model wins, then the model chosen in the GUI/`models use`, then the default in settings.py."""
-    effective = settings or Settings()
+    effective = effective_settings(replace(settings or Settings(), llm_role=role), role)
     return replace(effective, ollama_model=model or build_model_service(effective).current(role))
 
 
 def build_analyze_service(settings: Settings | None = None, model: str | None = None) -> AnalyzeService:
-    effective = _with_model(settings, model)
+    effective = _with_model(settings, model, "analysis")
     effective, analyzer, _, _, _ = build_components(effective)
     return AnalyzeService(build_repository(effective), analyzer, SystemClock(),
                           WindowsSystemInfo(), effective)
@@ -136,7 +139,7 @@ def build_chat_service(settings: Settings | None = None, model: str | None = Non
 
 def build_doctor_service(settings: Settings | None = None) -> DoctorService:
     effective = settings or Settings()
-    puller = None if provider_name(effective) == "llama_cpp" else lambda name: pull_model(effective, name)
+    puller = (lambda name: pull_model(effective, name)) if provider_name(effective) == "ollama" else None
     return DoctorService(effective, build_model_service(effective), webview2_version=webview2_version,
                          model_puller=puller)
 
@@ -158,7 +161,7 @@ def build_recorded_chat_service(settings: Settings | None = None, model: str | N
 
 def build_rag_service(settings: Settings | None = None, embedding_model: str | None = None,
                       lexical_only: bool = False) -> RagService:
-    effective = settings or Settings()
+    effective = effective_settings(replace(settings or Settings(), llm_role="embedding"), "embedding")
     if lexical_only:
         return RagService(SQLiteKnowledgeStore(effective), SystemClock(), effective, None)
     effective, _, _, embedder_class, _ = build_components(effective)

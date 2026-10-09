@@ -25,6 +25,15 @@ Valores admitidos para `ATALAYA_LLM_PROVIDER`:
   `models\atalaya.gguf`; en otro caso conserva Ollama.
 - `llama_cpp`: exige el ejecutable, el modelo y un servidor validado.
 - `ollama`: utiliza exclusivamente Ollama.
+- `none`: mantiene recolección, reglas y alertas sin iniciar ninguna IA.
+
+La página **Herramientas > Modelos locales** permite autorizar un
+`llama-server.exe` y archivos GGUF sin usar variables de entorno. Atalaya no
+escanea el disco: el usuario proporciona cada ruta, elige las funciones
+permitidas y confirma su asignación. Antes de registrar se valida la cabecera,
+se calcula SHA-256 y, antes de cada arranque, se vuelve a comprobar que el
+ejecutable y el modelo no hayan cambiado. Encontrar o registrar un archivo no
+lo ejecuta; la prueba de compatibilidad requiere pulsar el botón correspondiente.
 
 Atalaya usa dos procesos separados: chat/análisis en `11435` y, si existe un
 modelo dedicado, embeddings en `11436`. Solo el segundo recibe `--embedding`;

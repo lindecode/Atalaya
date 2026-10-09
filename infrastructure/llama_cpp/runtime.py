@@ -13,6 +13,8 @@ from infrastructure.windows_job import terminate_with_parent
 
 
 def _role_config(settings, role: str):
+    from infrastructure.llm_provider import effective_settings
+    settings = effective_settings(settings)
     if role == "chat":
         return runtime_host(settings, role), settings.llama_cpp_model_path
     if role == "embedding":
@@ -21,11 +23,15 @@ def _role_config(settings, role: str):
 
 
 def configured(settings, role: str = "chat") -> bool:
+    from infrastructure.llm_provider import effective_settings
+    settings = effective_settings(settings)
     _, model = _role_config(settings, role)
     return settings.llama_cpp_executable.is_file() and model.is_file()
 
 
 def server_command(settings, role: str) -> list[str]:
+    from infrastructure.llm_provider import effective_settings
+    settings = effective_settings(settings)
     host, model = _role_config(settings, role)
     parsed = urlparse(host)
     command = [str(settings.llama_cpp_executable), "--model", str(model),
@@ -39,6 +45,8 @@ def server_command(settings, role: str) -> list[str]:
 def expected_server(settings, role: str = "chat") -> bool:
     """The listener must be the configured executable with the configured model."""
     import psutil
+    from infrastructure.llm_provider import effective_settings
+    settings = effective_settings(settings)
     host, model_path = _role_config(settings, role)
     parsed = urlparse(host)
     port = parsed.port or (11435 if role == "chat" else 11436)
@@ -61,6 +69,10 @@ def expected_server(settings, role: str = "chat") -> bool:
 
 def start_if_needed(settings, popen=subprocess.Popen, role: str = "chat"):
     """Start a bundled llama-server only when explicitly selected/configured."""
+    from infrastructure.llm_provider import effective_settings
+    from infrastructure.ai_registry import ModelRegistry
+    settings = effective_settings(settings)
+    ModelRegistry().verify_execution(role)
     host = configured_host(settings, role)
     api_key = load_or_create_key(settings, role)
     client = LlamaCppClient(host, 1, api_key)
@@ -92,6 +104,8 @@ def start_if_needed(settings, popen=subprocess.Popen, role: str = "chat"):
 
 
 def ensure_running(settings, timeout: float = 45.0, role: str = "chat") -> None:
+    from infrastructure.llm_provider import effective_settings
+    settings = effective_settings(settings)
     host, _ = _role_config(settings, role)
     client = LlamaCppClient(host, 1, load_or_create_key(settings, role))
     if client.health() and expected_server(settings, role):
