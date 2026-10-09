@@ -28,6 +28,12 @@ def _parser() -> argparse.ArgumentParser:
     analyze = commands.add_parser("analyze", help="Ejecuta reglas y correlación local opcional")
     analyze.add_argument("--model", help="Modelo de Ollama solo para esta ejecución")
     commands.add_parser("report", help="Genera un informe Markdown")
+    export_ai = commands.add_parser("export-ia", help="Expediente Markdown para analizar con una IA externa (no envía nada)")
+    export_ai.add_argument("--horas", type=int, default=24, help="Ventana en horas (por defecto 24)")
+    export_ai.add_argument("--tamano", choices=["compacto", "completo"], default="compacto")
+    export_ai.add_argument("--sin-seudonimos", action="store_true", help="No reemplazar cuentas, equipo, correos ni IP privadas")
+    export_ai.add_argument("--ocultar-ip-publicas", action="store_true", help="Seudonimizar también las IP públicas")
+    export_ai.add_argument("--salida", help="Archivo .md de destino (por defecto, en la carpeta de informes)")
     gui = commands.add_parser("gui", help="Abre la interfaz local Streamlit")
     gui.add_argument("--port", type=int, help="Puerto loopback; si se omite se elige uno libre desde 8501")
     gui.add_argument("--instance-token", help=argparse.SUPPRESS)
@@ -257,6 +263,29 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
     if args.command == "report":
         print(build_report_service().execute())
+        return 0
+    if args.command == "export-ia":
+        from datetime import datetime as _datetime
+        from pathlib import Path as _Path
+        from bootstrap import build_ai_report_service
+        from settings import Settings as _Settings
+        if not 1 <= args.horas <= 24 * 30:
+            print("La ventana debe estar entre 1 y 720 horas", file=sys.stderr)
+            return 2
+        report = build_ai_report_service().build(args.horas, args.tamano, not args.sin_seudonimos, args.ocultar_ip_publicas)
+        target = _Path(args.salida) if args.salida else (
+            _Settings().reports_dir / f"atalaya_expediente_ia_{_datetime.now():%Y%m%d-%H%M}.md")
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(report["markdown"], encoding="utf-8")
+        print(f"Expediente: {target}")
+        print(f"{report['chars']:,} caracteres (~{report['tokens']:,} tokens) · {report['alerts']:,} alertas en la ventana")
+        if report["mapping"]:
+            print("Seudónimos (este mapa no se incluye en el archivo):")
+            for alias, real in report["mapping"].items():
+                print(f"  {alias} = {real}")
+        else:
+            print("Aviso: el expediente NO está seudonimizado.")
+        print("Atalaya no envía el archivo a ningún sitio; revíselo antes de compartirlo.")
         return 0
     if args.command == "tray":
         from interfaces.tray import run_tray

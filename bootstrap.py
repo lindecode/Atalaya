@@ -16,6 +16,7 @@ from application.rag import RagService
 from application.reputation import FileReputationService
 from application.automation import AutomationConfigService, CycleService
 from application.section_summaries import SectionSummaryService
+from application.ai_export import AiReportService
 from application.tool_router import SecureToolRouter
 from infrastructure.clock import SystemClock
 from infrastructure.ollama.analyzer import OllamaAnalyzer
@@ -25,6 +26,7 @@ from infrastructure.ollama.embeddings import OllamaEmbeddingProvider
 from infrastructure.llm_provider import build_components, provider_name
 from infrastructure.llm_summary import ChatSectionSummarizer
 from infrastructure.sqlite.section_summaries import SQLiteSectionDigests, SQLiteSectionSummaryStore
+from infrastructure.sqlite.queries import SQLiteQueryRepository
 from infrastructure.sqlite.repositories import SQLiteRepository
 from infrastructure.sqlite.chat_history import SQLiteChatHistory
 from infrastructure.sqlite.chat_tools import SQLiteQueryTools
@@ -197,3 +199,11 @@ def build_cycle_service(settings: Settings | None = None) -> CycleService:
                         lambda profile: build_collect_service(effective, profile),
                         lambda configured: build_analyze_service(configured), pid_alive,
                         lambda window_hours: build_section_summary_service(effective).run_next(window_hours))
+
+
+def build_ai_report_service(settings: Settings | None = None) -> AiReportService:
+    import os
+    effective = settings or Settings()
+    build_repository(effective).initialize()
+    identity = {"user": os.environ.get("USERNAME", ""), "host": os.environ.get("COMPUTERNAME", "")}
+    return AiReportService(SQLiteQueryRepository(effective), SQLiteSectionDigests(effective), SystemClock(), identity)

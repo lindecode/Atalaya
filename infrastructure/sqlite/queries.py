@@ -261,6 +261,25 @@ class SQLiteQueryRepository:
                               f"WHERE ts>=? GROUP BY hora{split} ORDER BY hora", (since,))
             return [{"hora": row[0], **({"serie": str(row[1])} if by else {}), "total": int(row[-1])} for row in rows]
 
+    def export_identities(self, since: str) -> dict[str, set[str]]:
+        """Account and computer names seen in the window, so an export can replace them with pseudonyms."""
+        users, hosts = set(), set()
+        with connect(self.settings.database_path, readonly=True) as db:
+            for (value,) in db.execute("SELECT DISTINCT target_user FROM auth_events WHERE ts>=?", (since,)):
+                users.add(value)
+            for table in ("connections", "process_snapshots", "ssh_observations"):
+                for (value,) in db.execute(f"SELECT DISTINCT process_user FROM {table} WHERE ts>=?", (since,)):
+                    users.add(value)
+            for (value,) in db.execute("SELECT DISTINCT source_host FROM auth_events WHERE ts>=?", (since,)):
+                hosts.add(value)
+            for (value,) in db.execute("SELECT DISTINCT path FROM file_events WHERE ts>=? LIMIT 5000", (since,)):
+                parts = str(value or "").replace("/", "\\").split("\\")
+                lowered = [part.casefold() for part in parts]
+                if "users" in lowered and lowered.index("users") + 1 < len(parts):
+                    users.add(parts[lowered.index("users") + 1])
+        clean = lambda values: {str(value).split("\\")[-1].strip() for value in values if value and str(value).strip()}
+        return {"users": clean(users), "hosts": clean(hosts)}
+
     def analysis_history(self, since: str | None, limit: int = HISTORY_LIMIT) -> list[dict]:
         """Alert analyses and section summaries as one newest-first list (since=None: everything)."""
         limit = min(max(int(limit), 1), HISTORY_LIMIT)

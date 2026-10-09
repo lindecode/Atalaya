@@ -971,9 +971,63 @@ def firewall():
 
 # --- Herramientas ----------------------------------------------------------------------------------
 
+AI_SIZES = {"compacto": "Compacto · 25 alertas", "completo": "Completo · 100 alertas"}
+
+
+def _ai_export_panel(settings):
+    """A Markdown dossier for a more capable AI. Atalaya does not send it anywhere: the person downloads it."""
+    from bootstrap import build_ai_report_service
+    from interfaces.gui.common import WINDOW_HOURS
+
+    st.subheader(":material/smart_toy: Expediente para una IA externa", divider="gray")
+    st.caption("Un Markdown con instrucciones, contexto, alertas, conclusiones del LLM local y datos de cada sección, "
+               "listo para pegar en una IA más capaz y pedirle un análisis completo.")
+    a, b, c = st.columns([2, 3, 3], vertical_alignment="bottom")
+    window = a.selectbox("Ventana", list(WINDOW_HOURS), index=1, key="ai-window")
+    size = b.segmented_control("Tamaño", list(AI_SIZES), default="compacto", format_func=AI_SIZES.get,
+                               key="ai-size") or "compacto"
+    pseudonymize = c.toggle("Seudonimizar", value=True, key="ai-pseudo",
+                            help="Cambia cuentas, nombre del equipo, correos e IP privadas por USUARIO_1, EQUIPO_1, "
+                                 "CORREO_1, IP_LOCAL_1… El mapa queda solo en este equipo.")
+    public_ips = c.toggle("Ocultar también IP públicas", value=False, key="ai-public", disabled=not pseudonymize,
+                          help="Las IP públicas ayudan a la IA a reconocer servicios conocidos; ocúltelas si prefiere "
+                               "no revelar con quién se comunica el equipo.")
+    if st.button("Preparar expediente", icon=":material/assignment:", key="ai-build"):
+        with st.spinner("Reuniendo la evidencia…"):
+            st.session_state["ai-export"] = build_ai_report_service(settings).build(
+                WINDOW_HOURS[window], size, pseudonymize, public_ips)
+    report = st.session_state.get("ai-export")
+    if not report:
+        return
+    m1, m2, m3 = st.columns(3)
+    m1.metric("Caracteres", f"{report['chars']:,}")
+    m2.metric("Tokens aproximados", f"{report['tokens']:,}", help="Estimación: 4 caracteres por token.")
+    m3.metric("Alertas en la ventana", f"{report['alerts']:,}")
+    if report["mapping"]:
+        st.warning("Al pegarlo en un servicio en la nube, este contenido sale del equipo. Está seudonimizado, pero "
+                   "contiene rutas, procesos e IP públicas: revíselo antes de compartirlo.", icon=":material/shield:")
+    else:
+        st.error("Este expediente NO está seudonimizado: incluye nombres de cuentas, del equipo e IP privadas.",
+                 icon=":material/warning:")
+    stamp = datetime.now().strftime("%Y%m%d-%H%M")
+    st.download_button("Descargar expediente (.md)", report["markdown"].encode("utf-8"),
+                       f"atalaya_expediente_ia_{stamp}.md", "text/markdown", icon=":material/download:",
+                       type="primary", key="ai-download")
+    with st.expander("Vista previa y copiar", icon=":material/content_copy:"):
+        st.caption("Use el icono de copiar de la esquina para llevar todo el texto al portapapeles.")
+        st.code(report["markdown"], language="markdown")  # shown as text: never rendered
+    if report["mapping"]:
+        with st.expander("Mapa de seudónimos (solo en este equipo, no va en el archivo)", icon=":material/key:"):
+            st.dataframe(pd.DataFrame([{"Seudónimo": alias, "Valor real": real}
+                                       for alias, real in report["mapping"].items()]),
+                         hide_index=True, width="stretch", key="ai-mapping")
+
+
 def reports():
     settings, _, _, _ = context()
-    hero("📄 Informes", "Informes Markdown generados por recolectar.bat o el comando report.")
+    hero("📄 Informes", "Informes Markdown del comando report y expedientes para analizar con una IA externa.")
+    _ai_export_panel(settings)
+    st.subheader(":material/description: Informes generados", divider="gray")
     paths = sorted(settings.reports_dir.glob("*.md"), reverse=True) if settings.reports_dir.exists() else []
     if not paths: return empty("No hay informes. Ejecute start\\recolectar.bat o el comando report.")
     chosen = st.selectbox("Informe", paths, format_func=lambda p: p.name)

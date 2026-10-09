@@ -34,6 +34,7 @@ funciones que pueden generar tráfico externo son explícitas:
 | Ollama | Sólo `localhost`, validado por la aplicación | Prompts y contexto al modelo local |
 | llama.cpp integrado | Sólo `127.0.0.1`, proceso y modelo validados | Prompts y contexto al modelo local |
 | Reputación en línea | VirusTotal, sólo al solicitar `--online` o `lookup` | Hash SHA-256; no se carga el archivo |
+| Expediente para IA externa | Ninguno: se descarga y usted decide dónde pegarlo | Alertas, resúmenes y cifras agregadas; seudonimizado por defecto (cuentas, equipo, correos e IP privadas) |
 | Instalación y modelos | PyPI, Python.org y Ollama | Descargas de dependencias o modelos |
 
 La clave opcional de VirusTotal se toma de `VIRUSTOTAL_API_KEY`; no debe
@@ -147,6 +148,7 @@ No coloque claves reales en scripts, archivos `.env`, capturas o reportes.
 .\.venv\Scripts\python.exe main.py status
 .\.venv\Scripts\python.exe main.py analyze
 .\.venv\Scripts\python.exe main.py report
+.\.venv\Scripts\python.exe main.py export-ia --horas 24 --tamano compacto
 .\.venv\Scripts\python.exe main.py gui
 .\.venv\Scripts\python.exe main.py tray --monitor
 .\.venv\Scripts\python.exe main.py backup
