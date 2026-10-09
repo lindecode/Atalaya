@@ -70,6 +70,6 @@ def test_each_rule_has_trigger(rule, view, rule_id):
 
 @pytest.mark.parametrize("rule", [catalog.r02, catalog.r03, catalog.r04, catalog.r05, catalog.r06,
                                    catalog.r07, catalog.r08, catalog.r09, catalog.r10, catalog.r11,
-                                   catalog.r12, catalog.r13, catalog.r14, catalog.r15, catalog.r16])
+                                   catalog.r12, catalog.r13, catalog.r14, catalog.r15, catalog.r16, catalog.r17])
 def test_each_rule_has_negative_case(rule):
     assert rule(EvidenceView(), CFG) == []

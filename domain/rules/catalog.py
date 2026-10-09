@@ -210,4 +210,24 @@ def r16(view, cfg):
                  or float(row.get("memory_percent") or 0) >= cfg.process_high_memory_percent)]
 
 
-ALL_RULES: tuple[Rule, ...] = (r01, r02, r03, r04, r05, r06, r07, r08, r09, r10, r11, r12, r13, r14, r15, r16)
+def r17(view, cfg):
+    """A client on the Internet connected to a port this computer serves (first time per IP and port)."""
+    alerts, seen = [], set()
+    for r in view.connections:
+        if r.get("direction") != "inbound" or not r.get("raddr"):
+            continue
+        try:
+            public = ipaddress.ip_address(str(r["raddr"]).split("%")[0]).is_global
+        except ValueError:
+            continue
+        key = baseline_key("R17", r)
+        if not public or key in view.baseline or key in seen:
+            continue
+        seen.add(key)
+        alerts.append(candidate("R17", "high", "Cliente de Internet en un puerto abierto", key[1], [r], "connection",
+                                {"remote": r["raddr"], "port": r.get("lport"), "process": r.get("process_name")},
+                                r["ts"], "first"))
+    return alerts
+
+
+ALL_RULES: tuple[Rule, ...] = (r01, r02, r03, r04, r05, r06, r07, r08, r09, r10, r11, r12, r13, r14, r15, r16, r17)

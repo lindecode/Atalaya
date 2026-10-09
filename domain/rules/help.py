@@ -44,6 +44,8 @@ RULES: dict[str, RuleHelp] = {
                     "Confirme que el cambio fue intencional, sobre todo si el grupo es Administradores."),
     "R15": RuleHelp("La memoria de un proceso creció más de lo habitual durante la ventana.",
                     "Puede ser una fuga de memoria o un programa legítimo bajo carga; revise su historial en Procesos y RAM."),
+    "R17": RuleHelp("Un equipo de Internet se conectó a un puerto que este equipo ofrece (un servidor): la primera vez por IP y puerto.",
+                    "¿Ese servicio debe ser accesible desde Internet? Si no, ciérrelo o limítelo en el firewall; si sí, apruebe el cliente como normal."),
     "R16": RuleHelp("Un proceso activo se ejecuta desde una ruta sospechosa y lo lanzó un intérprete (PowerShell, cmd, "
                     "wscript…) o consume mucha memoria.", "Revise su línea de comandos, su proceso padre y su firma."),
 }

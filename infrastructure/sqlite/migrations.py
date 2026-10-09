@@ -345,4 +345,22 @@ MIGRATIONS: tuple[str, ...] = (
     );
     CREATE INDEX idx_section_summaries_section ON section_summaries(section, created_at);
     """,
+    """
+    CREATE TABLE ip_names (
+      ip TEXT NOT NULL,
+      name TEXT NOT NULL,
+      source TEXT NOT NULL,
+      first_seen TEXT NOT NULL,
+      last_seen TEXT NOT NULL,
+      PRIMARY KEY (ip, name, source)
+    );
+    CREATE INDEX idx_ip_names_name ON ip_names(name);
+    CREATE INDEX idx_ip_names_last_seen ON ip_names(last_seen);
+    CREATE TABLE ip_labels (
+      ip TEXT PRIMARY KEY,
+      label TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_conn_direction_ts ON connections(direction, ts);
+    """,
 )

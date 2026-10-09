@@ -12,6 +12,7 @@ ALLOWED_TABLES = {"connections", "auth_events", "file_events", "file_reputation"
 ROWS_LIMIT = 5000  # most recent rows per table and window that the GUI loads
 ENTITY_LIMIT = 200
 HISTORY_LIMIT = 2000
+DIRECTORY_LIMIT = 3000
 # Live timeline: one fixed SELECT per event type, each naming its columns (a UNION takes the names of
 # whichever SELECT comes first) and binding `since`
 LIVE_SOURCES = {
@@ -260,6 +261,67 @@ class SQLiteQueryRepository:
             rows = db.execute(f"SELECT substr(ts,1,13) || ':00:00+00:00' hora{split}, COUNT(*) FROM {table} "
                               f"WHERE ts>=? GROUP BY hora{split} ORDER BY hora", (since,))
             return [{"hora": row[0], **({"serie": str(row[1])} if by else {}), "total": int(row[-1])} for row in rows]
+
+    def ip_names(self, ips=None) -> dict[str, dict]:
+        """{ip: {'label': str | None, 'names': [{'name', 'source', 'last_seen'}]}}, newest names first."""
+        wanted = None if ips is None else {str(ip) for ip in ips if ip}
+        result: dict[str, dict] = {}
+        with connect(self.settings.database_path, readonly=True) as db:
+            tables = {row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+            if "ip_names" not in tables:
+                return result
+            for row in db.execute("SELECT ip, name, source, last_seen FROM ip_names ORDER BY last_seen DESC"):
+                if wanted is None or row["ip"] in wanted:
+                    entry = result.setdefault(row["ip"], {"label": None, "names": []})
+                    entry["names"].append({"name": row["name"], "source": row["source"], "last_seen": row["last_seen"]})
+            for row in db.execute("SELECT ip, label FROM ip_labels"):
+                if wanted is None or row["ip"] in wanted:
+                    result.setdefault(row["ip"], {"label": None, "names": []})["label"] = row["label"]
+        return result
+
+    def ip_directory(self, since: str, limit: int = DIRECTORY_LIMIT) -> list[dict]:
+        """Every remote IP in the window with direction, processes, ports, counts and firewall blocks."""
+        with connect(self.settings.database_path, readonly=True) as db:
+            rows = [dict(row) for row in db.execute("""
+                SELECT raddr ip,
+                       GROUP_CONCAT(DISTINCT direction) directions,
+                       GROUP_CONCAT(DISTINCT process_name) processes,
+                       GROUP_CONCAT(DISTINCT CASE WHEN direction='inbound' THEN lport ELSE rport END) ports,
+                       COUNT(*) observations, MIN(ts) first_seen, MAX(ts) last_seen
+                FROM connections
+                WHERE ts>=? AND raddr IS NOT NULL AND raddr NOT IN ('', '0.0.0.0', '::', '*', '::1')
+                  AND raddr NOT LIKE '127.%' AND direction IN ('inbound', 'outbound')
+                GROUP BY raddr ORDER BY observations DESC LIMIT ?""", (since, min(max(int(limit), 1), DIRECTORY_LIMIT)))]
+            blocks = {row[0]: int(row[1]) for row in db.execute(
+                "SELECT src_ip, COUNT(*) FROM firewall_events WHERE ts>=? AND action='DROP' GROUP BY src_ip", (since,))}
+        for row in rows:
+            row["firewall_blocks"] = blocks.get(row["ip"], 0)
+            for key in ("directions", "processes", "ports"):
+                row[key] = sorted({value for value in str(row[key] or "").split(",") if value and value != "None"},
+                                  key=lambda value: (len(value), value))
+        return rows
+
+    def servers(self, since: str) -> dict[str, list[dict]]:
+        """Listening sockets in the window, their inbound clients, and what is connected right now."""
+        with connect(self.settings.database_path, readonly=True) as db:
+            listening = [dict(row) for row in db.execute("""
+                SELECT proto, laddr, lport, process_name, MAX(process_path) process_path, MIN(ts) first_seen, MAX(ts) last_seen
+                FROM connections
+                WHERE ts>=? AND lport IS NOT NULL
+                  -- UDP sockets on Windows' ephemeral range (49152+) are clients waiting for replies, not servers
+                  AND (direction='listen' OR (proto='udp' AND raddr IS NULL AND lport < 49152))
+                GROUP BY proto, laddr, lport, process_name""", (since,))]
+            clients = [dict(row) for row in db.execute("""
+                SELECT lport, process_name, raddr, COUNT(*) observations, MIN(ts) first_seen, MAX(ts) last_seen
+                FROM connections WHERE ts>=? AND direction='inbound' AND raddr IS NOT NULL
+                GROUP BY lport, process_name, raddr""", (since,))]
+            run = db.execute("SELECT MAX(run_id) FROM connections WHERE source='psutil' AND ts>=?", (since,)).fetchone()[0]
+            now = [dict(row) for row in db.execute("""
+                SELECT lport, process_name, COUNT(*) connections FROM connections
+                WHERE run_id=? AND direction='inbound' AND state='ESTABLISHED' GROUP BY lport, process_name""",
+                (run if run is not None else -1,))]
+            approved = {row[0] for row in db.execute("SELECT value FROM baseline WHERE kind='listen_port' AND approved=1")}
+        return {"listening": listening, "clients": clients, "now": now, "approved": sorted(approved)}
 
     def export_identities(self, since: str) -> dict[str, set[str]]:
         """Account and computer names seen in the window, so an export can replace them with pseudonyms."""

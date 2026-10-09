@@ -708,7 +708,7 @@ def connections():
 # --- Alertas ---------------------------------------------------------------------------------------
 
 MAX_ALERTS_SHOWN = 100
-BASELINE_RULES = {"R03", "R04", "R05", "R06", "R07", "R10"}
+BASELINE_RULES = {"R03", "R04", "R05", "R06", "R07", "R10", "R17"}
 
 
 def _bulk_learn(repository):
@@ -1332,7 +1332,7 @@ def _features(settings):
             st.rerun()
 
     changed = _feature("Analizar cuando haya novedades", "Tras cada recolección con datos nuevos, aplica las reglas "
-                       "R01–R16 y crea alertas.", ":green[● Activado]" if config.automatic_analysis else
+                       f"R01–R{len(ALL_RULES):02d} y crea alertas.", ":green[● Activado]" if config.automatic_analysis else
                        ":orange[● Desactivado]: se recolecta, pero no se crean alertas hasta pulsar «Analizar».",
                        config.automatic_analysis, "rules")
     if changed is not None:

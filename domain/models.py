@@ -132,6 +132,15 @@ class ProcessSnapshot:
 
 
 @dataclass(frozen=True, slots=True)
+class IpName:
+    """A name this computer associated with an IP (DNS client cache, hosts file or an explicit reverse lookup)."""
+    ts: str
+    ip: str
+    name: str
+    source: str  # dns_cache | hosts | reverse_dns
+
+
+@dataclass(frozen=True, slots=True)
 class CollectionRequest:
     now: str
     cursor: dict[str, Any] | None = None

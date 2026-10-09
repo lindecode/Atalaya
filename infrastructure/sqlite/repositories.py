@@ -19,9 +19,9 @@ TABLES = (
     "runs", "connections", "auth_events", "file_events", "firewall_events",
     "persistence_items", "baseline", "alerts", "llm_analyses", "cursors", "sysmon_events", "preferences",
     "knowledge_chunks", "rag_audit", "file_reputation", "ssh_observations", "conversation_chunks", "analysis_cache",
-    "process_snapshots", "process_lifecycle",
+    "process_snapshots", "process_lifecycle", "ip_names", "ip_labels",
 )
-BASELINE_RULES = ("R03", "R04", "R05", "R06", "R07", "R10")
+BASELINE_RULES = ("R03", "R04", "R05", "R06", "R07", "R10", "R17")
 
 
 class SQLiteRepository:
@@ -191,6 +191,16 @@ class SQLiteRepository:
                         (v["first_seen"], v["last_seen"], v["kind"], v["location"], v["name"] or "", v["command"]),
                     )
                     inserted += int(not existed)
+            elif result.item_kind == "ip_names":
+                for item in result.items:
+                    v = asdict(item)
+                    cursor = db.execute("""INSERT OR IGNORE INTO ip_names(ip, name, source, first_seen, last_seen)
+                                           VALUES (?, ?, ?, ?, ?)""", (v["ip"], v["name"], v["source"], v["ts"], v["ts"]))
+                    if cursor.rowcount > 0:
+                        inserted += 1
+                    else:
+                        db.execute("UPDATE ip_names SET last_seen=? WHERE ip=? AND name=? AND source=?",
+                                   (v["ts"], v["ip"], v["name"], v["source"]))
             else:
                 raise ValueError(f"Tipo de colección desconocido: {result.item_kind}")
 
@@ -202,6 +212,25 @@ class SQLiteRepository:
                 )
             db.execute("UPDATE runs SET heartbeat_at=? WHERE id=?", (now, run_id))
         return inserted
+
+    def save_ip_names(self, ip: str, names: list[str], source: str, ts: str) -> None:
+        """Names obtained on request (reverse DNS); same table as the collected ones."""
+        with self._connect() as db:
+            for name in names:
+                db.execute("""INSERT INTO ip_names(ip, name, source, first_seen, last_seen) VALUES (?, ?, ?, ?, ?)
+                              ON CONFLICT(ip, name, source) DO UPDATE SET last_seen=excluded.last_seen""",
+                           (ip, name, source, ts, ts))
+
+    def set_ip_label(self, ip: str, label: str | None, ts: str) -> None:
+        """A name the person gives to an IP ("Router", "NAS"); an empty label removes it."""
+        label = " ".join(str(label or "").split())[:80]
+        with self._connect() as db:
+            if label:
+                db.execute("""INSERT INTO ip_labels(ip, label, updated_at) VALUES (?, ?, ?)
+                              ON CONFLICT(ip) DO UPDATE SET label=excluded.label, updated_at=excluded.updated_at""",
+                           (ip, label, ts))
+            else:
+                db.execute("DELETE FROM ip_labels WHERE ip=?", (ip,))
 
     def finish_run(self, run_id: int, finished_at: str, status: str, collectors: dict[str, Any]) -> None:
         with self._connect() as db:
@@ -356,6 +385,8 @@ class SQLiteRepository:
                 observed.add(baseline_key("R03", dict(row)))
             for row in db.execute("SELECT kind, location, name FROM persistence_items WHERE active=1"):
                 observed.add(baseline_key("R10", dict(row)))
+            for row in db.execute("SELECT DISTINCT raddr, lport FROM connections WHERE direction='inbound'"):
+                observed.add(baseline_key("R17", dict(row)))
             observed.discard(None)
             counts: dict[str, int] = {}
             for kind, value in observed:
@@ -477,6 +508,7 @@ class SQLiteRepository:
             "rag_audit": "DELETE FROM rag_audit WHERE ts<?",
             "file_reputation": "DELETE FROM file_reputation WHERE checked_at<?",
             "ssh_observations": "DELETE FROM ssh_observations WHERE ts<?",
+            "ip_names": "DELETE FROM ip_names WHERE last_seen<?",
             "process_lifecycle": "DELETE FROM process_lifecycle WHERE active=0 AND last_seen<?",
             "runs": "DELETE FROM runs WHERE started_at<? AND id NOT IN (SELECT run_id FROM llm_analyses WHERE run_id IS NOT NULL)",
             "alerts": "DELETE FROM alerts WHERE ts<? AND status!='confirmed'",
