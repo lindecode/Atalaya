@@ -160,7 +160,7 @@ def test_page_shows_the_latest_summary_as_plain_text(tmp_path, monkeypatch):
     SQLiteSectionSummaryStore(settings).save("firewall", datetime.now(timezone.utc).isoformat(), "auto", 24, "qwen",
                                              "h", {}, {**RESULT, "summary": payload}, None)
 
-    app = AppTest.from_file(ROOT / "interfaces/gui/pages/7_Firewall.py", default_timeout=30).run()
+    app = AppTest.from_file(ROOT / "interfaces/gui/views/16_Firewall.py", default_timeout=30).run()
     assert not app.exception
     assert any(element.value == payload for element in app.text)  # st.text: never rendered as Markdown
     assert any(button.label == "Resumir ahora" for button in app.button)

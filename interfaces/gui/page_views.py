@@ -13,7 +13,7 @@ from domain.rules.catalog import ALL_RULES
 from infrastructure.clock import SystemClock
 from infrastructure.sqlite.queries import ENTITY_LIMIT, ROWS_LIMIT, since_hours
 from interfaces.gui import network
-from interfaces.gui.common import context, refresh_data, selected_window_hours
+from interfaces.gui.common import AI_PAGE, ai_status, context, refresh_data, selected_window_hours
 from interfaces.gui.components import (SEVERITY_COLORS, SEVERITY_ICONS, SEVERITY_NAMES, chart, empty, hero, legend,
                                        csv_name, page_link, plain_label, risk_banner, search_links, severity_label, table)
 from interfaces.gui.chart_data import hourly_frame
@@ -22,6 +22,8 @@ from interfaces.gui.table_formatting import COLUMN_FORMAT, format_local_datetime
 from interfaces.gui.table_views import EVENT_NAMES, FILE_ACTIONS, VIEWS, evidence_view
 
 
+LIVE_PAGE = "views/02_En_vivo.py"
+HISTORY_PAGE = "views/20_Historial.py"
 FLOW_LEGEND = [("Entrante", network.COLORS["inbound"]), ("Saliente", network.COLORS["outbound"]),
                ("Proceso local", network.COLORS["process"]), ("IP de Internet", network.COLORS["public"]),
                ("IP de red local/VPN", network.COLORS["private"]), ("Sospechosa", network.COLORS["suspicious"])]
@@ -127,13 +129,14 @@ def overview():
     _section_summary(query, settings, "panel")
     severities = query.open_alerts_by_severity()
     analysis = query.latest_analysis()
-    last_collect = query.last_run("collect")
     rank = {"low": 1, "medium": 2, "high": 3, "critical": 4}
     worst = next((level for level in ("critical", "high", "medium", "low") if severities.get(level)), "low")
     llm_level = analysis["result_json"]["overall_risk"] if analysis and analysis.get("result_json") else "low"
     level = max(worst, llm_level, key=rank.get)
     open_total = sum(severities.values())
-    risk_banner(level, f"{open_total} alerta(s) abierta(s) · última recolección: {_local((last_collect or {}).get('started_at'))}")
+    risk_banner(level, f"{open_total} alerta(s) abierta(s)" + (" · según reglas y el último análisis del LLM"
+                                                              if analysis and analysis.get("result_json") else ""))
+    _live_health(query.live_runs(15))
 
     snapshot = query.connections(since, latest_only=True)
     flows = network.active_flows(snapshot)
@@ -152,7 +155,7 @@ def overview():
             legend(FLOW_LEGEND[:3])
             chart(network.flow_figure(network.build_flow(flows, max_remotes=8, suspicious_ports=settings.suspicious_ports), height=420),
                   key="overview-flow")
-            _link("pages/3_Conexiones.py", "Ver el mapa completo de conexiones", ":material/hub:")
+            _link("views/11_Conexiones.py", "Ver el mapa completo de conexiones", ":material/hub:")
         else:
             empty("Sin conexiones activas con el exterior en la última recolección. Pulse Recolectar.")
     with right:
@@ -168,14 +171,15 @@ def overview():
             figure.update_xaxes(showticklabels=False, showgrid=False)
             chart(_style(figure, 50 + 42 * len(frame)).update_layout(showlegend=False), key="overview-severity")
             for alert in query.open_alerts(6):
-                _link("pages/2_Alertas.py", f"{_severity_name(alert['severity'])} · \\#{alert['id']} {alert['rule_id']} · "
+                _link("views/03_Alertas.py", f"{_severity_name(alert['severity'])} · \\#{alert['id']} {alert['rule_id']} · "
                       f"{_plain(alert['title'])}", ":material/chevron_right:", query_params={"id": alert["id"]})
-            _link("pages/2_Alertas.py", "Revisar alertas", ":material/notification_important:")
+            _link("views/03_Alertas.py", "Revisar alertas", ":material/notification_important:")
         else:
             st.success("No hay alertas abiertas.")
-        if analysis and analysis.get("result_json"):
-            with st.expander(f"Resumen del LLM ({analysis['model']})", icon=":material/psychology:"):
-                st.text(analysis["result_json"]["summary"])
+        _link(HISTORY_PAGE, "Conclusiones del LLM en el historial", ":material/history_edu:")
+
+    st.subheader("Actividad por hora", divider="gray")
+    _activity_chart(query, since)
 
 
 # --- Operaciones en vivo -------------------------------------------------------------------------
@@ -270,7 +274,13 @@ def _cycle_seconds() -> int:
 def _live_health(runs: list[dict]):
     """One sentence that says whether Atalaya is watching, and what to do if it is not."""
     cycle_min = _cycle_seconds() // 60
-    current = next((run for run in runs if run["status"] == "running"), None)
+    # File watching runs for hours and only beats when it saves events: it is not a collection in progress
+    watch = next((run for run in runs if run["kind"] == "watch" and run["status"] == "running"), None)
+    if watch:
+        beat, _ = _age_label(watch.get("heartbeat_at") or watch["started_at"])
+        st.caption(f":material/visibility: Vigilancia de archivos activa desde {format_local_datetime(watch['started_at'])}"
+                   f" · último cambio registrado {beat}. Si sabe que hubo cambios y no aparecen, reinicie Atalaya.")
+    current = next((run for run in runs if run["status"] == "running" and run["kind"] != "watch"), None)
     last_collect = next((run for run in runs if run["kind"] == "collect" and run["status"] != "running"), None)
     if current:
         beat, state = _age_label(current.get("heartbeat_at") or current["started_at"])
@@ -304,15 +314,15 @@ def _live_event_links(row: dict):
     """From a selected event to the page that explains it."""
     kind, summary = row.get("tipo"), str(row.get("resumen") or "")
     if kind == "alerta":
-        _link("pages/2_Alertas.py", f"Abrir la alerta \\#{row['entidad_id']}", ":material/notification_important:",
+        _link("views/03_Alertas.py", f"Abrir la alerta \\#{row['entidad_id']}", ":material/notification_important:",
               query_params={"id": row["entidad_id"]})
     address = summary.split("→")[-1].strip().rsplit(":", 1)[0] if "→" in summary else ""
     if kind in {"conexión", "ssh"} and _valid_ip(address):
-        _link("pages/3_Conexiones.py", f"Ver la IP {_valid_ip(address)} en Conexiones", ":material/hub:",
+        _link("views/11_Conexiones.py", f"Ver la IP {_valid_ip(address)} en Conexiones", ":material/hub:",
               query_params={"ip": _valid_ip(address)})
     term = _valid_ip(address) or (summary if kind == "archivo" else summary.split(" desde ")[-1])
     if term and len(term) >= 2:
-        _link("pages/13_Buscar.py", f"Buscar «{_plain(term[:60])}»", ":material/search:", query_params={"q": term[:200]})
+        _link("views/10_Buscar.py", f"Buscar «{_plain(term[:60])}»", ":material/search:", query_params={"q": term[:200]})
 
 
 def live_operations():
@@ -331,10 +341,7 @@ def live_operations():
         runs = query.live_runs(15)
         _live_health(runs)
         status = query.live_status()
-        alerts = status["alerts"]
-        a, b, c, d, e = st.columns(5)
-        a.metric("Alertas graves", alerts.get("critical", 0) + alerts.get("high", 0),
-                 help="Alertas nuevas o analizadas de severidad crítica o alta. Revíselas en Alertas.")
+        b, c, d, e = st.columns(4)
         b.metric("Procesos", status["processes"], help="Procesos activos en la última foto de procesos.")
         c.metric("Memoria privada", f"{status['memory_bytes'] / (1024 ** 3):.1f} GB",
                  help="Suma de la memoria privada de todos los procesos en la última foto (incluye memoria paginada, "
@@ -428,12 +435,11 @@ def _span_since(hours: float | None, window_since: str) -> str:
 
 # --- Bitácora de errores -------------------------------------------------------------------------
 
-def error_log():
-    context()
+def _error_log():
+    """Technical log of Atalaya itself (shown as a tab of Estado)."""
     from infrastructure.log_reader import read_application_logs
     from infrastructure.logging_config import logs_dir
 
-    hero("🐞 Bitácora", "Errores y actividad técnica de Atalaya. Los archivos rotan automáticamente.")
     directory = logs_dir()
     entries = read_application_logs(directory, 1000)
     levels = st.multiselect("Niveles", ["CRITICAL", "ERROR", "WARNING", "INFO"],
@@ -469,43 +475,21 @@ def error_log():
 
 # --- Actividad (antes Resumen) ---------------------------------------------------------------------
 
-def summary():
-    _, _, query, since = context()
-    hero("📈 Actividad", "Volumen de eventos por hora y lo que concluyó el último análisis.")
-    counts = query.counts(since)
-    names = {"alerts": "Alertas", "auth_events": "Accesos", "connections": "Conexiones", "file_events": "Archivos",
-             "persistence_items": "Persistencia nueva"}
-    for column, (key, value) in zip(st.columns(len(counts)), counts.items()):
-        column.metric(names.get(key, key), value)
+def _activity_chart(query, since: str):
+    """Events per hour, one row per type with its own scale (connections would otherwise flatten the alerts)."""
     timeline = query.timeline(since)
-    st.subheader("Eventos por hora", divider="gray")
-    if timeline:
-        # One row per event type with its own scale: hundreds of connections would otherwise flatten the alerts
-        frame = hourly_frame(timeline, since, time_key="bucket", value_key="count", series_key="type")
-        figure = px.bar(frame, x="bucket", y="count", color="type", facet_row="type",
-                        labels={"bucket": "", "count": "", "type": ""})
-        figure.update_yaxes(matches=None, title=None)
-        figure.for_each_annotation(lambda note: note.update(text=note.text.split("=")[-1].capitalize(), textangle=0,
-                                                            x=0, xanchor="left", y=note.y + 0.02, yanchor="bottom"))
-        figure.update_traces(hovertemplate="%{x|%d/%m %H:%M} · %{y} eventos<extra>%{fullData.name}</extra>")
-        types = frame["type"].nunique()
-        chart(_time_axis(_style(figure, 70 + 120 * types), hourly_bars=True).update_layout(showlegend=False),
-              key="activity-timeline")
-    else:
-        empty("Recolecte datos para ver la línea de tiempo.")
-    analysis = query.latest_analysis()
-    st.subheader("Último análisis del LLM", divider="gray")
-    if analysis and analysis.get("result_json"):
-        result = analysis["result_json"]
-        risk_banner(result["overall_risk"], f"Modelo {analysis['model']} · {len(result.get('incidents', []))} incidente(s)")
-        st.text(result["summary"])
-        for incident in result.get("incidents", []):
-            with st.expander(f"{severity_label(incident['severity'])} · {incident['title']}"):
-                st.text(incident["narrative"])
-                if incident.get("recommended_actions"):
-                    st.text("Recomendaciones: " + "; ".join(incident["recommended_actions"]))
-    else:
-        empty("Todavía no hay un análisis del LLM. Pulse Analizar en la barra lateral.")
+    if not timeline:
+        return empty("Recolecte datos para ver la actividad por hora.")
+    frame = hourly_frame(timeline, since, time_key="bucket", value_key="count", series_key="type")
+    figure = px.bar(frame, x="bucket", y="count", color="type", facet_row="type",
+                    labels={"bucket": "", "count": "", "type": ""})
+    figure.update_yaxes(matches=None, title=None)
+    figure.for_each_annotation(lambda note: note.update(text=note.text.split("=")[-1].capitalize(), textangle=0,
+                                                        x=0, xanchor="left", y=note.y + 0.02, yanchor="bottom"))
+    figure.update_traces(hovertemplate="%{x|%d/%m %H:%M} · %{y} eventos<extra>%{fullData.name}</extra>")
+    types = frame["type"].nunique()
+    chart(_time_axis(_style(figure, 70 + 110 * types), hourly_bars=True).update_layout(showlegend=False),
+          key="activity-timeline")
 
 
 @st.cache_data(ttl=120, show_spinner=False)
@@ -562,9 +546,9 @@ def _ip_profile(query, ip: str, since: str):
         if ssh:
             st.text(f"SSH: {len(ssh)} observación(es) con esta IP.")
         for alert in alerts[:5]:
-            _link("pages/2_Alertas.py", f"{_severity_name(alert['severity'])} · alerta \\#{alert['id']} · {alert['rule_id']} · "
+            _link("views/03_Alertas.py", f"{_severity_name(alert['severity'])} · alerta \\#{alert['id']} · {alert['rule_id']} · "
                   f"{_plain(alert['title'])}", ":material/notification_important:", query_params={"id": alert["id"]})
-        _link("pages/13_Buscar.py", f"Ver todo lo registrado sobre {ip}", ":material/search:", query_params={"q": ip})
+        _link("views/10_Buscar.py", f"Ver todo lo registrado sobre {ip}", ":material/search:", query_params={"q": ip})
 
 
 # --- Conexiones ------------------------------------------------------------------------------------
@@ -1081,9 +1065,11 @@ def chat():
                     "Las conversaciones se guardan en la base local para consultarlas después.")
     from bootstrap import build_chat_history
     history = build_chat_history()
-    model = st.session_state.get("llm_model_info")
-    if model and not model["tools"]:
-        st.warning(f"{model['name']} no admite tool calling; elija en la barra lateral un modelo con tools para el chat.")
+    status = ai_status()
+    if status["chat_tools"] is False:
+        st.warning(f"{status['roles'].get('chat')} no admite herramientas: el chat no podrá consultar la evidencia. "
+                   "Elija otro modelo de chat en IA local.", icon=":material/build:")
+        _link(AI_PAGE, "Abrir IA local", ":material/tune:")
 
     sessions_col, conversation_col = st.columns([1, 3], gap="large")
     with sessions_col:
@@ -1142,53 +1128,28 @@ def chat():
 
 
 def state():
-    settings, repository, query, _ = context()
-    hero("⚙️ Estado", "Base de datos, ejecuciones y mantenimiento.")
+    settings, repository, query, _ = context(window_applies=False)
+    hero("⚙️ Estado", "Ciclo automático, base de datos, mantenimiento y bitácora técnica.")
+    config_tab, data_tab, log_tab = st.tabs([":material/schedule: Ciclo automático", ":material/database: Base de datos",
+                                             ":material/bug_report: Bitácora"])
+    with log_tab:
+        _error_log()
     status = repository.status()
-    a, b, c = st.columns(3)
-    a.metric("Tamaño de la base", f"{status['database_bytes'] / 1_048_576:.1f} MB")
-    b.metric("Alertas guardadas", status["tables"].get("alerts", 0))
-    last = status.get("last_run") or {}
-    c.metric("Última ejecución", f"{last.get('kind', '—')} · {_local(last.get('started_at'))}")
-    collect = query.last_run("collect")
-    if collect and collect.get("collectors"):
-        import json
-        st.subheader("Fuentes en la última recolección", divider="gray")
-        detail = json.loads(collect["collectors"])
-        icons = {"ok": "✅", "partial": "🟡", "skipped": "⏭️", "error": "❌"}
-        table([{"fuente": name, "estado": f"{icons.get(info.get('status'), '')} {info.get('status')}",
-                "nuevos": info.get("inserted"), "avisos": " · ".join(info.get("warnings", []))[:300]}
-               for name, info in detail.items()], key="collectors", windowed=False, detail=False)
-    st.subheader("Filas por tabla", divider="gray")
-    frame = pd.DataFrame([{"tabla": name, "filas": count} for name, count in status["tables"].items()])
-    chart(_style(px.bar(frame.sort_values("filas"), x="filas", y="tabla", orientation="h", labels={"tabla": "", "filas": ""}), 380),
-          key="state-tables")
-    st.subheader("Ejecuciones", divider="gray")
-    table(query.rows("runs", None, 100), key="runs", view="runs", windowed=False)
-    st.subheader("Modelos por función", divider="gray")
-    from bootstrap import build_model_service
-    model_service = build_model_service(settings)
-    try:
-        installed = model_service.available()
-    except Exception as exc:
-        st.warning(f"Ollama no disponible: {exc}")
-    else:
-        usable = [item for item in installed if item["chat"]]
-        names = [item["name"] for item in usable]
-        recommendations = model_service.recommendations()
-        if names:
-            columns = st.columns(3)
-            for column, role, label in zip(columns, ("analysis", "chat", "summary"),
-                                           ("Análisis estructurado", "Chat con herramientas", "Resúmenes")):
-                current_model = model_service.current(role)
-                selected = column.selectbox(label, names, index=names.index(current_model) if current_model in names else 0,
-                                            key=f"model-role-{role}")
-                recommended = recommendations.get(role)
-                column.caption("Recomendado localmente: " + (recommended["name"] if recommended else "ninguno"))
-                if selected != current_model: model_service.select(selected, role)
-        embedding = recommendations.get("embedding")
-        if embedding: st.caption(f"Embeddings recomendados: `{embedding['name']}`. La recomendación usa capacidades y tamaño instalados; valide con los evals locales.")
-    st.subheader("Configuración de análisis automático", divider="gray")
+    with data_tab:
+        a, b = st.columns(2)
+        a.metric("Tamaño de la base", f"{status['database_bytes'] / 1_048_576:.1f} MB")
+        b.metric("Alertas guardadas", status["tables"].get("alerts", 0))
+        st.markdown("**Filas por tabla**")
+        frame = pd.DataFrame([{"tabla": name, "filas": count} for name, count in status["tables"].items()])
+        chart(_style(px.bar(frame.sort_values("filas"), x="filas", y="tabla", orientation="h",
+                            labels={"tabla": "", "filas": ""}), 380), key="state-tables")
+        _state_maintenance(repository, settings)
+    with config_tab:
+        _link(LIVE_PAGE, "Estado de las fuentes y ejecuciones recientes: En vivo", ":material/pulse_alert:")
+        _automation_settings(settings)
+
+
+def _automation_settings(settings):
     from application.automation import AutomationConfig
     from bootstrap import build_automation_config_service, build_cycle_service
     automation = build_automation_config_service(settings)
@@ -1201,7 +1162,7 @@ def state():
         window = middle.number_input("Ventana de análisis (horas)", 1, 720, current.analysis_window_hours)
         interval = right.number_input("Intervalo recomendado (minutos)", 1, 1440, current.cycle_minutes)
         automatic = left.checkbox("Analizar cuando haya novedades", current.automatic_analysis)
-        use_llm = middle.checkbox("Usar Ollama para explicar alertas", current.use_llm)
+        use_llm = middle.checkbox("Usar la IA local para explicar alertas", current.use_llm)
         backup_daily = right.checkbox("Backup diario recomendado", current.backup_daily)
         standard_every = left.number_input("Perfil standard cada N ciclos", 1, 10_000, current.standard_every_cycles)
         deep_every = middle.number_input("Perfil deep cada N ciclos", 1, 100_000, current.deep_every_cycles)
@@ -1227,7 +1188,12 @@ def state():
                        + (f"{analyzed['new_alerts']} alertas nuevas." if analyzed else "análisis omitido."))
     col_note.caption("Para periodicidad sin la GUI, Task Scheduler debe ejecutar `main.py cycle`; "
                      "el bloqueo interno impide ciclos simultáneos.")
-    st.subheader("Mantenimiento", divider="gray")
+
+
+def _state_maintenance(repository, settings):
+    from bootstrap import build_automation_config_service
+    current = build_automation_config_service(settings).load()
+    st.markdown("**Mantenimiento**")
     if st.button("Crear backup", icon=":material/backup:"):
         from datetime import timezone
         stamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
@@ -1267,12 +1233,9 @@ def getting_started():
                 left.text(check.detail)
                 if check.fix:
                     right.caption(check.fix)
-                if check.id in {"model-chat", "model-embed"} and check.status != "ok":
-                    model = settings.ollama_embedding_model if check.id == "model-embed" else doctor.models.current()
-                    if right.button(f"Descargar {model}", key=f"pull-{check.id}", icon=":material/download:"):
-                        _pull_with_progress(doctor, model)
-                if check.id == "ollama" and check.status != "ok" and "No instalado" in check.detail:
-                    right.link_button("Descargar Ollama", "https://ollama.com/download/windows", icon=":material/open_in_new:")
+                if check.id in {"ollama", "model-chat", "model-embed"} and check.status != "ok":
+                    with right:
+                        _link(AI_PAGE, "Resolver en IA local", ":material/tune:")
     with st.expander("Requisitos y recomendaciones", icon=":material/menu_book:"):
         st.markdown(
             "- **Windows 10/11 de 64 bits.**\n"
@@ -1348,20 +1311,6 @@ def processes():
            for row in ended], key="processes-ended", windowed=False, columns=MEMORY_COLUMNS)
 
 
-def _pull_with_progress(doctor, model: str):
-    bar = st.progress(0.0, text=f"Descargando {model}...")
-    try:
-        for status, completed, total in doctor.pull_model(model):
-            bar.progress(min(completed / total, 1.0) if total else 0.0, text=f"{model}: {status}")
-    except Exception as exc:
-        bar.empty()
-        st.error(f"No se pudo descargar {model}: {exc}")
-        return
-    bar.progress(1.0, text=f"{model} descargado")
-    st.cache_data.clear()
-    st.rerun()
-
-
 # --- Buscar ----------------------------------------------------------------------------------------
 
 SEARCH_LABELS = {"alerts": "Alertas", "connections": "Conexiones", "firewall_events": "Firewall", "auth_events": "Accesos",
@@ -1400,7 +1349,7 @@ def search():
                 st.caption(f"Se muestran las {ENTITY_LIMIT} coincidencias más recientes.")
             if name == "alerts":
                 for row in rows[:10]:
-                    _link("pages/2_Alertas.py", f"{_severity_name(row['severity'])} · alerta \\#{row['id']} · "
+                    _link("views/03_Alertas.py", f"{_severity_name(row['severity'])} · alerta \\#{row['id']} · "
                           f"{row['rule_id']} · {_plain(row['title'])}", ":material/open_in_new:",
                           query_params={"id": row["id"]})
             table(rows, key=f"search-{name}", view=name if name in VIEWS else None,
@@ -1521,7 +1470,7 @@ def _history_card(item: dict):
                     if incident.get("recommended_actions"):
                         st.text("Recomendaciones: " + "; ".join(incident["recommended_actions"]))
                     for alert_id in incident.get("alert_ids", [])[:6]:
-                        _link("pages/2_Alertas.py", f"Abrir la alerta \\#{int(alert_id)}", ":material/notification_important:",
+                        _link("views/03_Alertas.py", f"Abrir la alerta \\#{int(alert_id)}", ":material/notification_important:",
                               query_params={"id": int(alert_id)})
                 if not item["result"].get("incidents"):
                     st.caption("El modelo no agrupó las alertas en incidentes.")

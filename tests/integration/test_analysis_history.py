@@ -57,7 +57,7 @@ def test_history_merges_both_sources_newest_first_and_respects_the_period(tmp_pa
 
 def test_history_page_draws_charts_and_cards_with_llm_text_as_plain_text(tmp_path, monkeypatch):
     _seed(tmp_path, monkeypatch)
-    app = AppTest.from_file(ROOT / "interfaces/gui/pages/16_Historial.py", default_timeout=30).run()
+    app = AppTest.from_file(ROOT / "interfaces/gui/views/20_Historial.py", default_timeout=30).run()
     assert not app.exception
     metrics = {metric.label: metric.value for metric in app.metric}
     assert metrics["Análisis"] == "4" and metrics["Fallidos"] == "2" and metrics["Altos o críticos"] == "1"

@@ -43,47 +43,66 @@ def refresh_data() -> None:
     _cached_query.clear()
 
 
+AI_PAGE = "views/31_IA_local.py"
+
+
 @st.cache_data(ttl=60, show_spinner=False)
-def _installed_models() -> tuple[list[dict], str | None]:
+def ai_status() -> dict:
+    """Provider in use, the model of each role and whether it answers; feeds the sidebar badge and IA local.
+
+    With llama.cpp only the registry is read: probing it could start llama-server every minute.
+    """
     from bootstrap import build_model_service
+    from infrastructure.ai_registry import ModelRegistry
+    from infrastructure.llm_provider import provider_name
+
+    settings = Settings()
     try:
-        return build_model_service().available(), None
+        provider = provider_name(settings)
+    except Exception as exc:
+        return {"provider": "?", "ready": False, "roles": {}, "error": f"{type(exc).__name__}: {exc}", "chat_tools": None}
+    if provider == "none":
+        return {"provider": "none", "ready": False, "roles": {}, "error": None, "chat_tools": None}
+    if provider == "llama_cpp":
+        registry = ModelRegistry()
+        roles = {role: (registry.assigned(role).name if registry.assigned(role) else None)
+                 for role in ("analysis", "chat", "summary", "embedding")}
+        ready = bool(registry.runtime()) and bool(roles["chat"])
+        return {"provider": provider, "ready": ready, "roles": roles, "chat_tools": None,
+                "error": None if ready else "Falta autorizar el runtime o asignar el modelo de chat"}
+    service = build_model_service(settings)
+    roles = {role: service.current(role) for role in ("analysis", "chat", "summary")}
+    roles["embedding"] = settings.ollama_embedding_model
+    try:
+        available = {item["name"]: item for item in service.available()}
     except Exception as exc:  # Ollama down or unreachable: the rest of the GUI still works
-        return [], f"{type(exc).__name__}: {exc}"
+        return {"provider": provider, "ready": False, "roles": roles, "error": f"{type(exc).__name__}: {exc}",
+                "chat_tools": None}
+    chat = available.get(roles["chat"])
+    return {"provider": provider, "ready": chat is not None, "roles": roles, "chat_tools": chat["tools"] if chat else None,
+            "error": None if chat else f"{roles['chat']} no está descargado"}
 
 
-def model_selector() -> dict | None:
-    """Sidebar picker for the local LLM; the choice is stored in SQLite and used by analyze and chat."""
-    from bootstrap import build_model_service
-    service = build_model_service()
-    current = service.current()
-    models, error = _installed_models()
-    st.sidebar.markdown("**LLM local**")
-    if error:
-        st.sidebar.error(f"Ollama no disponible. Modelo configurado: {current}")
-        return None
-    usable = [model for model in models if model["chat"]]
-    if not usable:
-        st.sidebar.warning("No hay modelos de chat disponibles en el proveedor local. Revise Modelos locales.")
-        return None
-    names = [model["name"] for model in usable]
-    by_name = {model["name"]: model for model in usable}
-    if current not in by_name:
-        st.sidebar.warning(f"{current} no está instalado; elija otro.")
+def refresh_ai_status() -> None:
+    ai_status.clear()
 
-    def label(name: str) -> str:
-        model = by_name[name]
-        return f"{name} · {model['parameters'] or '?'} · {model['size_gb']} GB" + ("" if model["tools"] else " · sin tools")
 
-    chosen = st.sidebar.selectbox("Modelo para chat", names, index=names.index(current) if current in by_name else 0,
-                                  format_func=label, key="llm_model")
-    if chosen != current:
-        service.select(chosen)
-        st.sidebar.success(f"Modelo guardado: {chosen}")
-    if not by_name[chosen]["tools"]:
-        st.sidebar.caption("Este modelo no admite tool calling: sirve para Analizar, no para el Chat.")
-    st.session_state["llm_model_info"] = by_name[chosen]
-    return by_name[chosen]
+def _ai_badge():
+    """Sidebar: which model answers and whether it is ready; choosing happens only in IA local."""
+    status = ai_status()
+    names = {"ollama": "Ollama", "llama_cpp": "llama.cpp", "none": "Sin IA"}
+    if status["provider"] == "none":
+        line = ":gray[●] Sin IA: solo reglas y alertas"
+    elif status["ready"]:
+        line = f":green[●] {status['roles'].get('chat')} · {names.get(status['provider'], status['provider'])}"
+    else:
+        line = f":orange[●] {names.get(status['provider'], status['provider'])} no disponible"
+    st.sidebar.markdown("**IA local**")
+    st.sidebar.caption(line)
+    try:
+        st.sidebar.page_link(AI_PAGE, label="Configurar IA local", icon=":material/tune:")
+    except Exception:  # a page run on its own (tests) has no navigation to link to
+        pass
 
 
 def _actions(settings):
@@ -106,7 +125,8 @@ def _actions(settings):
         st.sidebar.caption(":material/info: Sin administrador: algunas fuentes pueden omitirse (ver Estado).")
 
 
-def context():
+def context(window_applies: bool = True):
+    """Shared page frame. `window_applies=False` greys out the sidebar window on pages that do not use it."""
     from interfaces.gui.components import about_dialog, apply_style
     from shared.about import ICON_PATH, WORDMARK_PATHS
 
@@ -122,10 +142,12 @@ def context():
     elif ICON_PATH.exists():
         st.logo(str(ICON_PATH), size="large")
     options = WINDOW_HOURS
-    label = st.sidebar.selectbox("Ventana temporal", list(options), index=1, key="window")
+    label = st.sidebar.selectbox("Ventana temporal", list(options), index=1, key="window", disabled=not window_applies,
+                                 help="Periodo que muestran las páginas de evidencia, alertas e historial."
+                                 if window_applies else "Esta página no depende de la ventana temporal.")
     _actions(settings)
     st.sidebar.divider()
-    model_selector()
+    _ai_badge()
     st.sidebar.divider()
     st.sidebar.caption(":material/notifications_active: Atalaya sigue en segundo plano aunque cierre esta ventana. "
                        "Para salir: icono junto al reloj > Salir de Atalaya.")

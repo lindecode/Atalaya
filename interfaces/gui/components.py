@@ -101,7 +101,7 @@ def empty(message: str):
 
 
 MARKDOWN_SPECIAL = set("\\`*_{}[]()#+-.!|~<>")
-SEARCH_PAGE = "pages/13_Buscar.py"
+SEARCH_PAGE = "views/10_Buscar.py"
 # Row fields worth pivoting on (raw names and the Spanish labels of table_views)
 ENTITY_FIELDS = {"raddr", "laddr", "src_ip", "dst_ip", "source_ip", "source_host", "remote_address", "process_name",
                  "process_path", "path", "dest_path", "sha256", "target_user", "process_user", "name", "remote",

@@ -26,3 +26,18 @@ def test_sources_are_judged_by_when_they_were_checked_not_by_new_data(monkeypatc
     assert checks["Archivos"] == "ok"       # 49 min is fine for the hourly standard profile
     assert checks["Conexiones"] == "none"   # not checked in these runs
     assert checks["Alertas"] == "stale"     # no analysis in 5 h
+
+
+def test_a_long_running_file_watch_does_not_hide_a_stalled_collection_cycle(monkeypatch):
+    shown = []
+    monkeypatch.setattr(page_views, "_cycle_config", lambda: (300, 3600))
+    for kind in ("caption", "info", "success", "warning", "error"):
+        monkeypatch.setattr(page_views.st, kind, lambda text, *a, _kind=kind, **k: shown.append((_kind, text)))
+    runs = [
+        {"id": 18, "kind": "collect", "status": "partial", "started_at": _ago(36), "finished_at": _ago(35)},
+        {"id": 17, "kind": "watch", "status": "running", "started_at": _ago(1200), "heartbeat_at": _ago(38)},
+    ]
+    page_views._live_health(runs)
+    kinds = [kind for kind, _ in shown]
+    assert kinds == ["caption", "error"]  # watch as a note; the stalled 5-minute cycle is the real problem
+    assert "bloqueada" not in " ".join(text for _, text in shown)

@@ -85,7 +85,7 @@ def test_compact_is_smaller_and_pseudonymization_can_be_disabled(tmp_path):
 
 def test_reports_page_prepares_and_offers_the_dossier(tmp_path, monkeypatch):
     _seed(tmp_path, monkeypatch)
-    app = AppTest.from_file(ROOT / "interfaces/gui/pages/8_Informes.py", default_timeout=30).run()
+    app = AppTest.from_file(ROOT / "interfaces/gui/views/22_Informes.py", default_timeout=30).run()
     assert not app.exception
     app.button(key="ai-build").click().run()
     assert not app.exception

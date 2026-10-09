@@ -15,24 +15,22 @@ from settings import Settings
 
 PAGES = [
     "interfaces/gui/app.py",
-    "interfaces/gui/pages/0_Panel.py",
-    "interfaces/gui/pages/1_Resumen.py",
-    "interfaces/gui/pages/2_Alertas.py",
-    "interfaces/gui/pages/3_Conexiones.py",
-    "interfaces/gui/pages/4_Accesos.py",
-    "interfaces/gui/pages/5_Archivos.py",
-    "interfaces/gui/pages/6_Persistencia.py",
-    "interfaces/gui/pages/7_Firewall.py",
-    "interfaces/gui/pages/8_Informes.py",
-    "interfaces/gui/pages/9_Chat.py",
-    "interfaces/gui/pages/10_Estado.py",
-    "interfaces/gui/pages/11_Primeros_pasos.py",
-    "interfaces/gui/pages/12_Procesos.py",
-    "interfaces/gui/pages/13_Buscar.py",
-    "interfaces/gui/pages/16_Historial.py",
-    "interfaces/gui/pages/14_En_vivo.py",
-    "interfaces/gui/pages/15_Bitacora.py",
-    "interfaces/gui/pages/16_Modelos_locales.py",
+    "interfaces/gui/views/01_Panel.py",
+    "interfaces/gui/views/02_En_vivo.py",
+    "interfaces/gui/views/03_Alertas.py",
+    "interfaces/gui/views/10_Buscar.py",
+    "interfaces/gui/views/11_Conexiones.py",
+    "interfaces/gui/views/12_Procesos.py",
+    "interfaces/gui/views/13_Accesos.py",
+    "interfaces/gui/views/14_Archivos.py",
+    "interfaces/gui/views/15_Persistencia.py",
+    "interfaces/gui/views/16_Firewall.py",
+    "interfaces/gui/views/20_Historial.py",
+    "interfaces/gui/views/21_Chat.py",
+    "interfaces/gui/views/22_Informes.py",
+    "interfaces/gui/views/30_Primeros_pasos.py",
+    "interfaces/gui/views/31_IA_local.py",
+    "interfaces/gui/views/32_Estado.py",
 ]
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -63,7 +61,7 @@ def test_alert_workflow_and_xss_literal(tmp_path, monkeypatch):
         {"path": payload}, (EvidenceRef("file_event", 1, {"id": 1, "path": payload}),), "fixture",
     )])[0]
 
-    alert_app = AppTest.from_file(ROOT / "interfaces/gui/pages/2_Alertas.py", default_timeout=30).run()
+    alert_app = AppTest.from_file(ROOT / "interfaces/gui/views/03_Alertas.py", default_timeout=30).run()
     assert not alert_app.exception
     # Shown literally inside a dataframe cell (never rendered as HTML)
     assert payload in alert_app.dataframe(key="alerts-table").value["Resumen"].iloc[0]
@@ -73,7 +71,7 @@ def test_alert_workflow_and_xss_literal(tmp_path, monkeypatch):
         assert db.execute("SELECT status FROM alerts WHERE id=?", (alert_id,)).fetchone()[0] == "confirmed"
 
 
-@pytest.mark.parametrize("page", ["interfaces/gui/pages/0_Panel.py", "interfaces/gui/pages/3_Conexiones.py"])
+@pytest.mark.parametrize("page", ["interfaces/gui/views/01_Panel.py", "interfaces/gui/views/11_Conexiones.py"])
 def test_network_pages_draw_the_flow_map(page, tmp_path, monkeypatch):
     from domain.models import CollectionResult, NetworkConnection
 
@@ -122,7 +120,7 @@ def test_chat_page_lists_and_opens_saved_conversations(tmp_path, monkeypatch):
     history.add_message(session, now, "user", title)
     history.add_message(session, now, "assistant", "Hubo 2 conexiones RDP [K:1]", "qwen3.5:4b", [{"name": "get_auth_events", "ids": [7]}], 1200)
 
-    app = AppTest.from_file(ROOT / "interfaces/gui/pages/9_Chat.py", default_timeout=30).run()
+    app = AppTest.from_file(ROOT / "interfaces/gui/views/21_Chat.py", default_timeout=30).run()
     assert not app.exception
     button = next(b for b in app.button if b.key == f"chat-session-{session}")
     assert button.label.startswith(r"\!\[x\]\(http://evil\.example") and "](http" not in button.label  # image escaped
@@ -138,7 +136,7 @@ def test_about_dialog_shows_author(tmp_path, monkeypatch):
     monkeypatch.setenv("ATALAYA_REPORTS", str(tmp_path / "reports"))
     SQLiteRepository(replace(Settings(), database_path=database)).initialize()
 
-    app = AppTest.from_file(ROOT / "interfaces/gui/pages/0_Panel.py", default_timeout=30).run()
+    app = AppTest.from_file(ROOT / "interfaces/gui/views/01_Panel.py", default_timeout=30).run()
     app.sidebar.button(key="action-about").click().run()
 
     assert not app.exception

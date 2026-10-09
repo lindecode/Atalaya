@@ -57,7 +57,7 @@ def test_entity_search_spans_tables_respects_the_window_and_escapes_wildcards(tm
 
 def test_search_page_reads_the_query_from_the_url(tmp_path, monkeypatch):
     _seed(tmp_path, monkeypatch)
-    app = AppTest.from_file(ROOT / "interfaces/gui/pages/13_Buscar.py", default_timeout=30)
+    app = AppTest.from_file(ROOT / "interfaces/gui/views/10_Buscar.py", default_timeout=30)
     app.query_params["q"] = "203.0.113.7"
     app.run()
     assert not app.exception
@@ -67,7 +67,7 @@ def test_search_page_reads_the_query_from_the_url(tmp_path, monkeypatch):
 def test_alert_link_opens_its_detail_even_outside_the_filters(tmp_path, monkeypatch):
     settings, alert_id = _seed(tmp_path, monkeypatch)
     SQLiteRepository(settings).update_alert_status(alert_id, "dismissed", None, NOW.isoformat())
-    app = AppTest.from_file(ROOT / "interfaces/gui/pages/2_Alertas.py", default_timeout=30)
+    app = AppTest.from_file(ROOT / "interfaces/gui/views/03_Alertas.py", default_timeout=30)
     app.query_params["id"] = str(alert_id)
     app.run()
     assert not app.exception
@@ -81,7 +81,7 @@ def test_connections_filter_by_ip_shows_its_profile(tmp_path, monkeypatch):
     _seed(tmp_path, monkeypatch)
     monkeypatch.setattr(dns_cache, "dns_cache_records",
                         lambda timeout=15: [{"Entry": "c2.example.test", "Data": "203.0.113.7", "Type": 1}])
-    app = AppTest.from_file(ROOT / "interfaces/gui/pages/3_Conexiones.py", default_timeout=30)
+    app = AppTest.from_file(ROOT / "interfaces/gui/views/11_Conexiones.py", default_timeout=30)
     app.query_params["ip"] = "203.0.113.7"
     app.run()
     assert not app.exception
@@ -93,7 +93,7 @@ def test_connections_filter_by_ip_shows_its_profile(tmp_path, monkeypatch):
 
 def test_live_page_says_whether_atalaya_is_watching(tmp_path, monkeypatch):
     _seed(tmp_path, monkeypatch)
-    app = AppTest.from_file(ROOT / "interfaces/gui/pages/14_En_vivo.py", default_timeout=30).run()
+    app = AppTest.from_file(ROOT / "interfaces/gui/views/02_En_vivo.py", default_timeout=30).run()
     assert not app.exception
     # The seeded run never finishes, so the banner reports it as in progress
     assert any(phrase in element.value for phrase in ("en curso", "vigilando", "Todavía no hay recolecciones")
