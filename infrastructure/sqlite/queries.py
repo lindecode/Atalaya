@@ -11,6 +11,7 @@ ALLOWED_TABLES = {"connections", "auth_events", "file_events", "file_reputation"
 
 ROWS_LIMIT = 5000  # most recent rows per table and window that the GUI loads
 ENTITY_LIMIT = 200
+HISTORY_LIMIT = 2000
 # Live timeline: one fixed SELECT per event type, each naming its columns (a UNION takes the names of
 # whichever SELECT comes first) and binding `since`
 LIVE_SOURCES = {
@@ -260,6 +261,38 @@ class SQLiteQueryRepository:
                               f"WHERE ts>=? GROUP BY hora{split} ORDER BY hora", (since,))
             return [{"hora": row[0], **({"serie": str(row[1])} if by else {}), "total": int(row[-1])} for row in rows]
 
+    def analysis_history(self, since: str | None, limit: int = HISTORY_LIMIT) -> list[dict]:
+        """Alert analyses and section summaries as one newest-first list (since=None: everything)."""
+        limit = min(max(int(limit), 1), HISTORY_LIMIT)
+        start = since or "0000"
+        items: list[dict] = []
+        with connect(self.settings.database_path, readonly=True) as db:
+            tables = {row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+            for row in db.execute("""SELECT id, run_id, ts, model, alert_ids, result_json, error, duration_ms
+                                     FROM llm_analyses WHERE ts>=? ORDER BY ts DESC LIMIT ?""", (start, limit)):
+                result = _json_or_none(row["result_json"])
+                items.append({
+                    "key": f"alertas-{row['id']}", "id": row["id"], "kind": "alertas", "section": None,
+                    "ts": row["ts"], "model": row["model"], "trigger": "auto" if row["run_id"] else "manual",
+                    "risk": (result or {}).get("overall_risk"), "summary": (result or {}).get("summary"),
+                    "points": [incident.get("title") for incident in (result or {}).get("incidents", [])],
+                    "alerts": len(_json_or_none(row["alert_ids"]) or []), "duration_ms": row["duration_ms"],
+                    "error": row["error"], "result": result, "data": None, "window_hours": None})
+            if "section_summaries" in tables:
+                for row in db.execute("""SELECT id, section, created_at, trigger, window_hours, model, digest_json,
+                                         result_json, error FROM section_summaries WHERE created_at>=?
+                                         ORDER BY created_at DESC LIMIT ?""", (start, limit)):
+                    result = _json_or_none(row["result_json"])
+                    items.append({
+                        "key": f"seccion-{row['id']}", "id": row["id"], "kind": "seccion", "section": row["section"],
+                        "ts": row["created_at"], "model": row["model"], "trigger": row["trigger"],
+                        "risk": (result or {}).get("risk"), "summary": (result or {}).get("summary"),
+                        "points": (result or {}).get("highlights", []), "alerts": None, "duration_ms": None,
+                        "error": row["error"], "result": result, "data": _json_or_none(row["digest_json"]),
+                        "window_hours": row["window_hours"]})
+        items.sort(key=lambda item: item["ts"], reverse=True)
+        return items[:limit]
+
     def latest_analysis(self):
         with connect(self.settings.database_path, readonly=True) as db:
             row = db.execute("SELECT * FROM llm_analyses ORDER BY id DESC LIMIT 1").fetchone()
@@ -319,6 +352,13 @@ class SQLiteQueryRepository:
                 results[name] = [{key: value for key, value in dict(row).items() if key != "raw_xml"}
                                  for row in db.execute(sql, params)]
         return results
+
+
+def _json_or_none(value):
+    try:
+        return json.loads(value) if value else None
+    except (TypeError, ValueError):
+        return None
 
 def since_hours(hours: int) -> str:
     """Start of the window, rounded down to the minute so repeated reads within a minute share a cache key."""

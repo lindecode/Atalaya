@@ -6,15 +6,16 @@ from datetime import datetime, timedelta, timezone
 
 import pandas as pd
 import plotly.express as px
+import plotly.graph_objects as go
 import streamlit as st
 
 from domain.rules.catalog import ALL_RULES
 from infrastructure.clock import SystemClock
-from infrastructure.sqlite.queries import ENTITY_LIMIT, ROWS_LIMIT
+from infrastructure.sqlite.queries import ENTITY_LIMIT, ROWS_LIMIT, since_hours
 from interfaces.gui import network
 from interfaces.gui.common import context, refresh_data, selected_window_hours
 from interfaces.gui.components import (SEVERITY_COLORS, SEVERITY_ICONS, SEVERITY_NAMES, chart, empty, hero, legend,
-                                       page_link, plain_label, risk_banner, search_links, severity_label, table)
+                                       csv_name, page_link, plain_label, risk_banner, search_links, severity_label, table)
 from interfaces.gui.chart_data import hourly_frame
 from interfaces.gui.rule_help import OPEN_STATUSES, RULES, STATUS_NAMES
 from interfaces.gui.table_formatting import COLUMN_FORMAT, format_local_datetime, local_series, to_local_datetime
@@ -1350,3 +1351,192 @@ def search():
                           query_params={"id": row["id"]})
             table(rows, key=f"search-{name}", view=name if name in VIEWS else None,
                   windowed=name not in {"process_lifecycle", "persistence_items", "file_reputation"})
+
+
+# --- Historial de análisis -------------------------------------------------------------------------
+
+RISK_ORDER = ("low", "medium", "high", "critical")
+HISTORY_PERIODS = {"Últimas 24 h": 24, "Últimos 7 días": 168, "Últimos 30 días": 720, "Todo": None}
+HISTORY_KINDS = {"todos": "Todos", "alertas": "Análisis de alertas", "seccion": "Resúmenes por sección"}
+HISTORY_PAGE_SIZE = 10
+FAILED = "Fallido"
+
+
+def _history_title(item: dict) -> str:
+    from application.section_summaries import SECTIONS
+    return "Análisis de alertas" if item["kind"] == "alertas" else f"Resumen · {SECTIONS.get(item['section'], item['section'])}"
+
+
+def _risk_name(risk: str | None) -> str:
+    return SEVERITY_NAMES.get(risk, FAILED) if risk else FAILED
+
+
+def _risk_pill(risk: str | None) -> str:
+    """Coloured badge; only fixed labels and palette colours reach the HTML."""
+    color = SEVERITY_COLORS.get(risk, "#94A3B8") if risk in RISK_ORDER else "#94A3B8"
+    return f'<span class="nl-pill" style="--c:{color}">{_risk_name(risk if risk in RISK_ORDER else None)}</span>'
+
+
+def _history_charts(items: list[dict]):
+    from application.section_summaries import SECTIONS
+
+    frame = pd.DataFrame([{"Fecha": to_local_datetime(item["ts"]), "Riesgo": _risk_name(item["risk"]),
+                           "Tipo": "Alertas" if item["kind"] == "alertas" else "Sección",
+                           "Fila": "Alertas" if item["kind"] == "alertas" else SECTIONS.get(item["section"], item["section"]),
+                           "Modelo": item["model"] or "?", "duracion": (item["duration_ms"] or 0) / 1000,
+                           # Plotly renders a subset of HTML in hovers: escape the LLM text
+                           "Resumen": network.safe(item["summary"] or item["error"] or "", 140)} for item in items])
+    colors = {SEVERITY_NAMES[level]: SEVERITY_COLORS[level] for level in RISK_ORDER} | {FAILED: "#94A3B8"}
+    order = [SEVERITY_NAMES[level] for level in RISK_ORDER] + [FAILED]
+
+    st.markdown("**Riesgo a lo largo del tiempo** · ◆ análisis de alertas · ● resumen de una sección")
+    figure = px.scatter(frame, x="Fecha", y="Riesgo", color="Riesgo", symbol="Tipo", custom_data=["Fila", "Modelo", "Resumen"],
+                        color_discrete_map=colors, category_orders={"Riesgo": order[::-1]},
+                        symbol_map={"Alertas": "diamond", "Sección": "circle"})
+    figure.update_traces(marker=dict(size=13, line=dict(width=1.5, color="rgba(127,127,127,.6)")),
+                         hovertemplate="<b>%{customdata[0]}</b> · %{y}<br>%{x|%d/%m/%Y %H:%M} · %{customdata[1]}"
+                                       "<br>%{customdata[2]}<extra></extra>")
+    # Every level stays on the axis, so "medium" always sits in the same place
+    # Plotly stacks categories bottom-up: failures at the bottom, critical at the top
+    shown_levels = ([FAILED] if (frame["Riesgo"] == FAILED).any() else []) + order[:-1]
+    figure.update_yaxes(title=None, categoryorder="array", categoryarray=shown_levels,
+                        range=[-0.5, len(shown_levels) - 0.5])
+    chart(_time_axis(_style(figure, 300)).update_layout(showlegend=False), key="history-timeline")
+
+    left, right = st.columns([3, 2], gap="large")
+    with left:
+        st.markdown("**Riesgo por día y área** · color: el riesgo más alto del día · número: análisis")
+        frame["Día"] = frame["Fecha"].dt.strftime("%d/%m")
+        frame["nivel"] = frame["Riesgo"].map({name: index for index, name in enumerate(order[:-1])})
+        days = sorted(frame["Fecha"].dt.normalize().unique())
+        labels = [pd.Timestamp(day).strftime("%d/%m") for day in days]
+        rows = ["Alertas"] + [name for name in SECTIONS.values() if name in set(frame["Fila"])]
+        grid = (frame.dropna(subset=["nivel"]).groupby(["Fila", "Día"])["nivel"].max()
+                .unstack().reindex(index=rows, columns=labels))
+        counts = frame.groupby(["Fila", "Día"]).size().unstack().reindex(index=rows, columns=labels).fillna(0)
+        scale = [[index / 3, SEVERITY_COLORS[level]] for index, level in enumerate(RISK_ORDER)]
+        heat = go.Figure(go.Heatmap(
+            z=grid.values, x=labels, y=rows, zmin=0, zmax=3, colorscale=scale, showscale=False, xgap=3, ygap=3,
+            customdata=[[f"{SEVERITY_NAMES[RISK_ORDER[int(value)]] if value == value else 'Sin análisis'} · "
+                         f"{int(count)} análisis" for value, count in zip(z_row, c_row)]
+                        for z_row, c_row in zip(grid.values, counts.values)],
+            text=[[str(int(count)) if count else "" for count in c_row] for c_row in counts.values],
+            texttemplate="%{text}", textfont=dict(color="#13171F"),
+            hovertemplate="%{y} · %{x}<br>%{customdata}<extra></extra>"))
+        heat.update_yaxes(autorange="reversed")
+        chart(_style(heat, 70 + 34 * len(rows)), key="history-heatmap")
+    with right:
+        st.markdown("**Análisis por día**")
+        per_day = frame.groupby(["Día", "Riesgo"]).size().reset_index(name="total")
+        bars = px.bar(per_day, x="Día", y="total", color="Riesgo", color_discrete_map=colors,
+                      category_orders={"Riesgo": order, "Día": labels}, labels={"Día": "", "total": ""})
+        bars.update_traces(hovertemplate="%{x} · %{y} análisis<extra>%{fullData.name}</extra>")
+        chart(_style(bars, 70 + 34 * len(rows)), key="history-per-day")
+
+
+def _history_card(item: dict):
+    with st.container(border=True):
+        when = format_local_datetime(item["ts"])
+        st.markdown(f"{_risk_pill(item['risk'])} <b>{_history_title(item)}</b> · {when} · {_ago(item['ts'])}",
+                    unsafe_allow_html=True)
+        details = [_plain(item["model"] or "?"), "automático" if item["trigger"] == "auto" else "a petición"]
+        if item["duration_ms"]:
+            details.append(f"{item['duration_ms'] / 1000:.0f} s")
+        if item["alerts"]:
+            details.append(f"{item['alerts']} alerta(s) analizadas")
+        if item["window_hours"]:
+            details.append(f"ventana de {item['window_hours']} h")
+        st.caption(" · ".join(details))
+        if item["error"] and not item["result"]:
+            st.text(f"El análisis falló: {item['error'][:300]}")
+            return
+        # LLM text is shaped by collected data: plain text, never Markdown/HTML
+        st.text(item["summary"] or "")
+        points = [point for point in item["points"] if point][:5]
+        if points:
+            st.text("\n".join(f"• {point}" for point in points))
+        with st.expander("Detalle", icon=":material/unfold_more:"):
+            if item["kind"] == "alertas":
+                for incident in item["result"].get("incidents", []):
+                    st.markdown(f"**{_severity_name(incident.get('severity', 'low'))}** · posible falso positivo: "
+                                f"{SEVERITY_NAMES.get(incident.get('false_positive_likelihood'), '?').lower()}")
+                    st.text(incident.get("title", ""))
+                    st.text(incident.get("narrative", ""))
+                    if incident.get("benign_explanations"):
+                        st.text("Explicaciones benignas: " + "; ".join(incident["benign_explanations"]))
+                    if incident.get("recommended_actions"):
+                        st.text("Recomendaciones: " + "; ".join(incident["recommended_actions"]))
+                    for alert_id in incident.get("alert_ids", [])[:6]:
+                        _link("pages/2_Alertas.py", f"Abrir la alerta \\#{int(alert_id)}", ":material/notification_important:",
+                              query_params={"id": int(alert_id)})
+                if not item["result"].get("incidents"):
+                    st.caption("El modelo no agrupó las alertas en incidentes.")
+            else:
+                st.caption("Cifras agregadas que recibió el LLM para este resumen:")
+                st.json(item["data"] or {}, expanded=False)
+
+
+def analysis_history():
+    _, _, query, _ = context()
+    hero("🗂️ Historial de análisis", "Todo lo que concluyó el LLM local: análisis de alertas y resúmenes por sección, "
+                                    "con su riesgo y su evolución.")
+    from application.section_summaries import SECTIONS
+
+    a, b, c = st.columns([2, 3, 2], vertical_alignment="bottom")
+    period = a.selectbox("Periodo", list(HISTORY_PERIODS), index=2, key="history-period")
+    kind = b.segmented_control("Tipo", list(HISTORY_KINDS), default="todos", format_func=HISTORY_KINDS.get,
+                               key="history-kind") or "todos"
+    failed = c.toggle("Incluir fallidos", value=True, key="history-failed")
+    d, e, f, g = st.columns([2, 2, 2, 3], vertical_alignment="bottom")
+    hours = HISTORY_PERIODS[period]
+    items = query.analysis_history(since_hours(hours) if hours else None)
+    risks = d.multiselect("Riesgo", list(RISK_ORDER), format_func=SEVERITY_NAMES.get, key="history-risk",
+                          placeholder="Todos")
+    sections = e.multiselect("Sección", list(SECTIONS), format_func=SECTIONS.get, key="history-section",
+                             placeholder="Todas", disabled=kind == "alertas")
+    models = f.multiselect("Modelo", sorted({item["model"] for item in items if item["model"]}), key="history-model",
+                           placeholder="Todos")
+    text = g.text_input("Buscar", key="history-text", placeholder="IP, proceso, palabra del resumen…",
+                        icon=":material/search:").casefold().strip()
+
+    items = [item for item in items
+             if (kind == "todos" or item["kind"] == kind)
+             and (failed or item["result"])
+             and (not risks or item["risk"] in risks)
+             and (not sections or item["kind"] == "alertas" and kind == "alertas" or item["section"] in sections)
+             and (not models or item["model"] in models)
+             and (not text or text in " ".join(str(value) for value in (item["summary"], item["model"], item["error"],
+                                                                         *item["points"])).casefold())]
+    if not items:
+        return empty("No hay análisis con estos filtros. Los análisis se generan al pulsar Analizar, en el ciclo "
+                     "automático o con «Resumir ahora» en cada sección.")
+
+    finished = [item for item in items if item["result"]]
+    latest = items[0]
+    durations = [item["duration_ms"] / 1000 for item in items if item["duration_ms"]]
+    k1, k2, k3, k4, k5 = st.columns(5)
+    k1.metric("Análisis", len(items), help="Análisis de alertas más resúmenes por sección en el periodo.")
+    k2.metric("Último riesgo", _risk_name(next((item["risk"] for item in finished), None)),
+              help=f"{_history_title(latest)} · {_ago(latest['ts'])}")
+    k3.metric("Altos o críticos", sum(item["risk"] in {"high", "critical"} for item in finished))
+    k4.metric("Fallidos", f"{len(items) - len(finished)}",
+              help="Intentos en que el LLM no respondió o devolvió un formato inválido.")
+    k5.metric("Duración media", f"{sum(durations) / len(durations):.0f} s" if durations else "—",
+              help="Solo análisis de alertas (los resúmenes no registran duración).")
+
+    _history_charts(items)
+
+    st.subheader("Cronología", divider="gray")
+    pages = max(1, -(-len(items) // HISTORY_PAGE_SIZE))
+    left, right = st.columns([3, 1], vertical_alignment="bottom")
+    page = right.number_input(f"Página (de {pages})", 1, pages, 1, key="history-page") if pages > 1 else 1
+    left.caption(f"{len(items)} análisis, del más reciente al más antiguo"
+                 + (f" · página {page} de {pages}." if pages > 1 else "."))
+    for item in items[(page - 1) * HISTORY_PAGE_SIZE: page * HISTORY_PAGE_SIZE]:
+        _history_card(item)
+    export = pd.DataFrame([{"fecha": format_local_datetime(item["ts"]), "tipo": _history_title(item),
+                            "riesgo": _risk_name(item["risk"]), "modelo": item["model"], "origen": item["trigger"],
+                            "resumen": item["summary"], "puntos": " | ".join(p for p in item["points"] if p),
+                            "error": item["error"]} for item in items])
+    st.download_button("Descargar CSV", export.to_csv(index=False).encode("utf-8"), csv_name("historial_analisis", False),
+                       "text/csv", icon=":material/download:", key="history-csv")

@@ -20,6 +20,8 @@ navigation = st.navigation({
         st.Page("pages/12_Procesos.py", title="Procesos y RAM", icon=":material/memory:"),
         st.Page("pages/2_Alertas.py", title="Alertas", icon=":material/notification_important:"),
         st.Page("pages/1_Resumen.py", title="Actividad", icon=":material/monitoring:"),
+        st.Page("pages/16_Historial.py", title="Historial de análisis", icon=":material/history_edu:",
+                url_path="historial"),
     ],
     "Evidencia": [
         st.Page("pages/13_Buscar.py", title="Buscar", icon=":material/search:", url_path="buscar"),

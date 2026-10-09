@@ -48,6 +48,8 @@ _STYLE = """
 .nl-tile span {font-size: .72rem; opacity: .7; text-transform: uppercase; letter-spacing: .03em;}
 .nl-tile b {color: var(--c); font-size: .95rem;}
 .nl-tile small {opacity: .75;}
+.nl-pill {display: inline-block; padding: 1px 10px; border-radius: 999px; font-size: .78rem; font-weight: 700;
+  color: var(--c); background: color-mix(in srgb, var(--c) 16%, transparent); border: 1px solid var(--c); margin-right: 4px;}
 .nl-about {text-align: center;}
 .nl-about h3 {margin: 4px 0 0 0; padding: 0;}
 .nl-about small {opacity: .6;}
