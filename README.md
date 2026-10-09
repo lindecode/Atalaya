@@ -96,7 +96,7 @@ start\diagnostico.bat
 3. Revise las alertas antes de aprobar elementos como normales.
 4. Configure Ollama o llama.cpp si desea explicaciones, chat o embeddings.
 5. Cree un backup antes de activar la automatización.
-6. Active el ciclo programado desde **Estado → Configuración de análisis automático**.
+6. Active el ciclo programado desde **Sistema → Estado → Ciclo automático**.
 
 La baseline aprende durante las primeras ejecuciones, pero no aprueba por sí sola
 actividad sospechosa. Use `baseline learn` sólo después de revisar el estado del

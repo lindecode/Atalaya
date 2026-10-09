@@ -27,7 +27,7 @@ Valores admitidos para `ATALAYA_LLM_PROVIDER`:
 - `ollama`: utiliza exclusivamente Ollama.
 - `none`: mantiene recolección, reglas y alertas sin iniciar ninguna IA.
 
-La página **Herramientas > Modelos locales** permite autorizar un
+La página **Sistema > IA local** permite autorizar un
 `llama-server.exe` y archivos GGUF sin usar variables de entorno. Atalaya no
 escanea el disco: el usuario proporciona cada ruta, elige las funciones
 permitidas y confirma su asignación. Antes de registrar se valida la cabecera,

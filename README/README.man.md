@@ -88,7 +88,7 @@ También puede separar los modelos de análisis, chat y resumen:
 & $Python $Main models use qwen3.5:0.8b --role summary
 ```
 
-La pantalla **Estado → Modelos por función** ofrece los mismos selectores. La
+La pantalla **Sistema → IA local → Modelos por función** ofrece los mismos selectores. La
 recomendación considera capacidades y tamaño de los modelos instalados; debe
 contrastarse con los evals locales. El análisis estructurado usa baja
 temperatura y una caché ligada a evidencia, modelo y versión del prompt.
@@ -328,7 +328,7 @@ contraseña y ejecuta el ciclo sólo mientras el usuario tiene una sesión:
 Cada ejecución llama a `main.py cycle`: selecciona el perfil configurado,
 impide ciclos simultáneos y sólo inicia el análisis cuando hubo evidencia
 nueva. La ventana temporal, el uso del LLM, las frecuencias de perfiles y la
-retención se editan en **Estado → Configuración de análisis automático**.
+retención se editan en **Sistema → Estado → Ciclo automático**.
 
 La opción recomendada para `watch` es crear la tarea manualmente desde
 **Task Scheduler**:

@@ -19,7 +19,7 @@ Atalaya funciona **en segundo plano**: su icono aparece junto al reloj. Cerrar l
 | Permisos | Ninguno para usar Atalaya. La configuración opcional *Configurar permisos* pide administrador **una vez** para leer accesos/RDP y el log del firewall | Opcional |
 | Sysmon | Añade conexiones por proceso y borrados de archivos (ver `README.md`, fase 5) | Opcional |
 
-Tras instalar, **Herramientas > Primeros pasos** (o `diagnostico.bat`) comprueba todo esto en tu equipo, dice qué falta y descarga los modelos.
+Tras instalar, **Sistema > Primeros pasos** (o `diagnostico.bat`) comprueba todo esto en tu equipo y dice qué falta; los modelos se descargan en **Sistema > IA local**.
 
 ## Opción 1 · Instalador (recomendada)
 
@@ -27,7 +27,7 @@ Tras instalar, **Herramientas > Primeros pasos** (o `diagnostico.bat`) comprueba
    - Como el instalador no está firmado digitalmente, Windows SmartScreen puede mostrar *"Windows protegió su PC"*. Pulsa **Más información > Ejecutar de todas formas**.
 2. Si no tienes Ollama, el asistente ofrece **instalarlo con winget**, abrir su página de descarga o seguir sin él.
 3. Elige si quieres acceso directo en el escritorio y que el monitor de archivos arranque al iniciar sesión.
-4. Al terminar se abre Atalaya. Ve a **Herramientas > Primeros pasos** y descarga los modelos (unos 4 GB, una sola vez).
+4. Al terminar se abre Atalaya. Ve a **Sistema > Primeros pasos** para revisar el equipo y descarga los modelos en **Sistema > IA local** (unos 4 GB, una sola vez).
 5. Opcional: menú Inicio > Atalaya > **Configurar permisos**. Después, cierra sesión y vuelve a entrar.
 
 Para **actualizar**, ejecuta el instalador de la versión nueva encima: tus datos se conservan.

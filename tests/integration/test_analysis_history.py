@@ -60,7 +60,10 @@ def test_history_page_draws_charts_and_cards_with_llm_text_as_plain_text(tmp_pat
     app = AppTest.from_file(ROOT / "interfaces/gui/views/20_Historial.py", default_timeout=30).run()
     assert not app.exception
     metrics = {metric.label: metric.value for metric in app.metric}
-    assert metrics["Análisis"] == "4" and metrics["Fallidos"] == "2" and metrics["Altos o críticos"] == "1"
+    # The sidebar window (24 h) leaves out the 3-day-old failure; "Todo el historial" brings it back
+    assert metrics["Análisis"] == "3" and metrics["Fallidos"] == "1" and metrics["Altos o críticos"] == "1"
+    app.toggle(key="history-all").set_value(True).run()
+    assert {metric.label: metric.value for metric in app.metric}["Análisis"] == "4"
     figures = [json.loads(element.proto.spec) for element in app.get("plotly_chart")]
     assert {trace["type"] for figure in figures for trace in figure["data"]} >= {"scatter", "heatmap", "bar"}
     assert any(element.value == "<b>texto</b> del LLM" for element in app.text)  # never rendered as HTML

@@ -92,7 +92,7 @@ class DoctorService:
         if selected == "none":
             return [Check("llm-none", "LLM local", "Inteligencia artificial", "info",
                           "Sin proveedor: reglas, recolección y alertas continúan disponibles",
-                          "Configure Ollama o autorice llama.cpp y un GGUF en Modelos locales")]
+                          "Configure Ollama o autorice llama.cpp y un GGUF en IA local")]
         return self._llama_cpp() if selected == "llama_cpp" else self._ollama()
 
     def _llama_cpp(self) -> list[Check]:

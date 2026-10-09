@@ -11,7 +11,7 @@ import streamlit as st
 
 from domain.rules.catalog import ALL_RULES
 from infrastructure.clock import SystemClock
-from infrastructure.sqlite.queries import ENTITY_LIMIT, ROWS_LIMIT, since_hours
+from infrastructure.sqlite.queries import ENTITY_LIMIT, ROWS_LIMIT
 from interfaces.gui import network
 from interfaces.gui.common import AI_PAGE, ai_status, context, refresh_data, selected_window_hours
 from interfaces.gui.components import (SEVERITY_COLORS, SEVERITY_ICONS, SEVERITY_NAMES, chart, empty, hero, legend,
@@ -190,7 +190,6 @@ LIVE_LEVELS = {"critical": "🔴 Crítico", "high": "🟠 Alto", "medium": "🟡
 LIVE_ORIGINS = {"outbound": "Saliente", "inbound": "Entrante", "listen": "En escucha", "session": "Sesión",
                 "service": "Servicio", "DROP": "Bloqueado", "ALLOW": "Permitido", "scan": "Escaneo",
                 "watchdog": "Vigilancia en vivo", **FILE_ACTIONS, **{str(key): value for key, value in EVENT_NAMES.items()}}
-LIVE_SPANS = {"Últimos 15 min": 0.25, "Última hora": 1, "Últimas 6 h": 6, "Ventana de la barra lateral": None}
 RUN_KINDS = {"collect": "Recolección", "analyze": "Análisis", "watch": "Vigilancia de archivos", "cycle": "Ciclo"}
 RUN_STATES = {"ok": "✅ Correcta", "partial": "🟡 Parcial", "error": "❌ Error", "running": "🔄 En curso",
               "skipped": "⏭️ Omitida"}
@@ -307,7 +306,7 @@ def _live_health(runs: list[dict]):
     else:
         st.error(f"Sin recolecciones recientes: la última fue {age}. El ciclo automático no parece estar activo; "
                  "lo que ve abajo no es el estado actual. Pulse «Recolectar» en la barra lateral o active el ciclo en "
-                 "Estado → Configuración de análisis automático.", icon=":material/warning:")
+                 "Sistema → Estado → Ciclo automático.", icon=":material/warning:")
 
 
 def _live_event_links(row: dict):
@@ -333,7 +332,7 @@ def live_operations():
                                  help="Desactívela para examinar un evento sin que la lista se mueva.")
     seconds = controls[1].selectbox("Cada", [5, 10, 30, 60], index=1, key="live-seconds", disabled=not enabled,
                                     format_func=lambda value: f"{value} segundos")
-    span_label = controls[2].selectbox("Periodo", list(LIVE_SPANS), index=1, key="live-span")
+    controls[2].caption("El flujo de eventos usa la ventana temporal de la barra lateral; el pulso, la última hora.")
     every = f"{seconds}s" if enabled else None
 
     @st.fragment(run_every=every)
@@ -361,7 +360,8 @@ def live_operations():
                    "nuevos es normal. «No disponible»: la fuente necesita permisos o no existe en este equipo "
                    f"(vea Primeros pasos). Archivos se revisa con el perfil standard, cada {_cycle_config()[1] // 60} min.")
 
-        pulse = query.live_activity(_span_since(LIVE_SPANS[span_label], since))
+        last_hour = max((datetime.now(timezone.utc) - timedelta(hours=1)).isoformat(), since)
+        pulse = query.live_activity(last_hour)
         if pulse:
             frame = pd.DataFrame(pulse)
             frame["minuto"] = local_series(frame["minuto"] + ":00+00:00")
@@ -369,9 +369,8 @@ def live_operations():
             figure = px.bar(frame, x="minuto", y="total", color="tipo", labels={"minuto": "", "total": "", "tipo": ""})
             figure.update_traces(width=60_000 * 0.8,
                                  hovertemplate="%{x|%d/%m %H:%M} · %{y} eventos<extra>%{fullData.name}</extra>")
-            start = to_local_datetime(_span_since(LIVE_SPANS[span_label], since))
-            figure.update_xaxes(range=[start, datetime.now()])
-            st.markdown("**Pulso de actividad** · eventos registrados por minuto (cada recolección aparece como un pico)")
+            figure.update_xaxes(range=[to_local_datetime(last_hour), datetime.now()])
+            st.markdown("**Pulso de la última hora** · eventos registrados por minuto (cada recolección aparece como un pico)")
             chart(_time_axis(_style(figure, 220)), key="live-pulse")
 
     current_state()
@@ -386,10 +385,10 @@ def live_operations():
 
     @st.fragment(run_every=every)
     def recent_events():
-        events = query.live_events(_span_since(LIVE_SPANS[span_label], since), 300, types or list(LIVE_TYPES),
+        events = query.live_events(since, 300, types or list(LIVE_TYPES),
                                    text, relevant)
         if not events:
-            return empty("No hay eventos con estos filtros en el periodo elegido.")
+            return empty("No hay eventos con estos filtros en la ventana temporal elegida.")
         rows = [{**event, "Fecha": event["ts"], "Tipo": LIVE_TYPES.get(event["tipo"], event["tipo"]),
                  "Nivel": LIVE_LEVELS.get(event["nivel"], event["nivel"]),
                  "Qué pasó": (f"{FILE_ACTIONS.get(event['origen'], event['origen'])}: {event['resumen']}"
@@ -423,14 +422,6 @@ def live_operations():
                     "Avisos": "; ".join(map(str, detail.get("warnings", [])))[:300]}
                    for name, detail in latest_collect["collectors"].items()],
                   key="live-collectors", windowed=False, searchable=False, detail=False)
-
-
-def _span_since(hours: float | None, window_since: str) -> str:
-    """Start of the chosen period; never earlier than the sidebar window."""
-    if hours is None:
-        return window_since
-    start = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat()
-    return max(start, window_since)
 
 
 # --- Bitácora de errores -------------------------------------------------------------------------
@@ -909,6 +900,7 @@ def files():
         with st.expander("Detalle", icon=":material/table:"):
             table(rows, key="file_events", view="file_events")
     st.subheader("Reputación de ejecutables")
+    st.caption("Inventario completo: no depende de la ventana temporal.")
     reputations = query.rows("file_reputation", None, 100)
     table(reputations, key="file_reputation", view="file_reputation", windowed=False)
     st.caption("Sólo se consulta el SHA-256; nunca se carga el ejecutable. Ejecute "
@@ -961,13 +953,13 @@ AI_SIZES = {"compacto": "Compacto · 25 alertas", "completo": "Completo · 100 a
 def _ai_export_panel(settings):
     """A Markdown dossier for a more capable AI. Atalaya does not send it anywhere: the person downloads it."""
     from bootstrap import build_ai_report_service
-    from interfaces.gui.common import WINDOW_HOURS
 
     st.subheader(":material/smart_toy: Expediente para una IA externa", divider="gray")
     st.caption("Un Markdown con instrucciones, contexto, alertas, conclusiones del LLM local y datos de cada sección, "
                "listo para pegar en una IA más capaz y pedirle un análisis completo.")
     a, b, c = st.columns([2, 3, 3], vertical_alignment="bottom")
-    window = a.selectbox("Ventana", list(WINDOW_HOURS), index=1, key="ai-window")
+    hours = selected_window_hours()
+    a.metric("Ventana", st.session_state.get("window", "24 horas"), help="La de la barra lateral.")
     size = b.segmented_control("Tamaño", list(AI_SIZES), default="compacto", format_func=AI_SIZES.get,
                                key="ai-size") or "compacto"
     pseudonymize = c.toggle("Seudonimizar", value=True, key="ai-pseudo",
@@ -979,7 +971,7 @@ def _ai_export_panel(settings):
     if st.button("Preparar expediente", icon=":material/assignment:", key="ai-build"):
         with st.spinner("Reuniendo la evidencia…"):
             st.session_state["ai-export"] = build_ai_report_service(settings).build(
-                WINDOW_HOURS[window], size, pseudonymize, public_ips)
+                hours, size, pseudonymize, public_ips)
     report = st.session_state.get("ai-export")
     if not report:
         return
@@ -1060,7 +1052,7 @@ def _show_message(message: dict):
 
 
 def chat():
-    context()
+    context(window_applies=False)
     hero("💬 Chat", "Pregunte en lenguaje natural sobre la evidencia recolectada y la documentación local. "
                     "Las conversaciones se guardan en la base local para consultarlas después.")
     from bootstrap import build_chat_history
@@ -1208,7 +1200,7 @@ def _state_maintenance(repository, settings):
 # --- Primeros pasos --------------------------------------------------------------------------------
 
 def getting_started():
-    settings, _, _, _ = context()
+    settings, _, _, _ = context(window_applies=False)
     hero("🚀 Primeros pasos", "Qué necesita Atalaya en este equipo, qué falta y cómo resolverlo.")
     from bootstrap import build_doctor_service
     doctor = build_doctor_service(settings)
@@ -1359,7 +1351,6 @@ def search():
 # --- Historial de análisis -------------------------------------------------------------------------
 
 RISK_ORDER = ("low", "medium", "high", "critical")
-HISTORY_PERIODS = {"Últimas 24 h": 24, "Últimos 7 días": 168, "Últimos 30 días": 720, "Todo": None}
 HISTORY_KINDS = {"todos": "Todos", "alertas": "Análisis de alertas", "seccion": "Resúmenes por sección"}
 HISTORY_PAGE_SIZE = 10
 FAILED = "Fallido"
@@ -1480,19 +1471,19 @@ def _history_card(item: dict):
 
 
 def analysis_history():
-    _, _, query, _ = context()
+    _, _, query, since = context()
     hero("🗂️ Historial de análisis", "Todo lo que concluyó el LLM local: análisis de alertas y resúmenes por sección, "
                                     "con su riesgo y su evolución.")
     from application.section_summaries import SECTIONS
 
     a, b, c = st.columns([2, 3, 2], vertical_alignment="bottom")
-    period = a.selectbox("Periodo", list(HISTORY_PERIODS), index=2, key="history-period")
+    everything = a.toggle("Todo el historial", value=False, key="history-all",
+                          help="Ignora la ventana temporal de la barra lateral y muestra todos los análisis guardados.")
     kind = b.segmented_control("Tipo", list(HISTORY_KINDS), default="todos", format_func=HISTORY_KINDS.get,
                                key="history-kind") or "todos"
     failed = c.toggle("Incluir fallidos", value=True, key="history-failed")
     d, e, f, g = st.columns([2, 2, 2, 3], vertical_alignment="bottom")
-    hours = HISTORY_PERIODS[period]
-    items = query.analysis_history(since_hours(hours) if hours else None)
+    items = query.analysis_history(None if everything else since)
     risks = d.multiselect("Riesgo", list(RISK_ORDER), format_func=SEVERITY_NAMES.get, key="history-risk",
                           placeholder="Todos")
     sections = e.multiselect("Sección", list(SECTIONS), format_func=SECTIONS.get, key="history-section",
