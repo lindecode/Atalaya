@@ -30,3 +30,5 @@ No crees una segunda pantalla para la misma configuración. Si una función camb
 Prueba importación y renderizado básico de cada vista modificada, además de ruta y etiqueta del menú.
 
 Las capacidades disponibles dentro de la GUI deben invocar los servicios de `application/` mediante `bootstrap.py`. No indiques ejecutar un `.bat` desde una pantalla para completar una acción normal: los `.bat` son lanzadores opcionales de instalación, doble clic y operación externa.
+
+**Archivos → Reputación de ejecutables** permite analizar una ruta sin ejecutar el archivo. El análisis local calcula el hash y comprueba Authenticode. La consulta en VirusTotal es opcional, requiere consentimiento explícito y envía únicamente el SHA-256; la clave escrita en la pantalla se usa para esa consulta y no se persiste.

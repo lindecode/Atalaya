@@ -3,6 +3,7 @@ from __future__ import annotations
 import ipaddress
 import json
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 import pandas as pd
 import plotly.express as px
@@ -1114,13 +1115,68 @@ def files():
         with right: _top_chart(query, "file_events", "action", since, "Actions" if lang == "en" else "Acciones", key="files-action")
         with st.expander("Details" if lang == "en" else "Detalle", icon=":material/table:"):
             table(rows, key="file_events", view="file_events", lang=lang)
+    _reputation_panel(settings, query, lang)
+
+
+def _reputation_panel(settings, query, lang):
+    from dataclasses import asdict, replace
+    from bootstrap import build_reputation_service
+
     st.subheader("Executable reputation" if lang == "en" else "Reputación de ejecutables")
-    st.caption("Complete inventory: independent of time window." if lang == "en" else "Inventario completo: no depende de la ventana temporal.")
+    st.caption("Inspect a local executable without running it. Local analysis calculates SHA-256 and verifies its "
+               "Authenticode signature."
+               if lang == "en" else
+               "Inspecciona un ejecutable local sin abrirlo: calcula SHA-256 y comprueba su firma Authenticode.")
+    with st.form("reputation-inspect"):
+        path = st.text_input("File path" if lang == "en" else "Ruta del archivo",
+                             placeholder=r"C:\ruta\programa.exe", key="reputation-path")
+        online = st.checkbox("Check SHA-256 with VirusTotal" if lang == "en" else
+                             "Consultar el SHA-256 en VirusTotal", value=False, key="reputation-online",
+                             help="Only the SHA-256 is sent; the file and its path remain on this computer."
+                             if lang == "en" else
+                             "Sólo se envía el SHA-256; el archivo y su ruta permanecen en este equipo.")
+        api_key = st.text_input("VirusTotal API key (used only for this check)" if lang == "en" else
+                                "Clave API de VirusTotal (sólo para esta consulta)", type="password",
+                                disabled=not online or bool(settings.virustotal_api_key), key="reputation-api-key",
+                                help="Atalaya already has a configured key." if lang == "en" and settings.virustotal_api_key
+                                else "Atalaya ya tiene una clave configurada." if settings.virustotal_api_key else None)
+        submitted = st.form_submit_button("Inspect file" if lang == "en" else "Analizar archivo",
+                                          icon=":material/shield:")
+    if submitted:
+        if not path.strip():
+            st.error("Enter the path of an executable." if lang == "en" else
+                     "Introduzca la ruta de un ejecutable.")
+        elif online and not (settings.virustotal_api_key or api_key.strip()):
+            st.error("Enter a VirusTotal API key to perform the online check."
+                     if lang == "en" else "Introduzca una clave API de VirusTotal para realizar la consulta online.")
+        else:
+            effective = replace(settings, virustotal_api_key=settings.virustotal_api_key or api_key.strip() or None)
+            try:
+                with st.spinner("Inspecting without executing the file…" if lang == "en" else
+                                "Analizando sin ejecutar el archivo…"):
+                    result = build_reputation_service(effective).inspect(Path(path.strip()), online=online)
+                st.session_state["reputation-result"] = asdict(result)
+                refresh_data()
+            except (OSError, RuntimeError, ValueError) as exc:
+                st.error(("The file could not be inspected: " if lang == "en" else
+                          "No se pudo analizar el archivo: ") + f"{type(exc).__name__}: {exc}")
+    result = st.session_state.get("reputation-result")
+    if result:
+        signature = result.get("local", {}).get("signature", {})
+        a, b, c = st.columns(3)
+        a.metric("Verdict" if lang == "en" else "Veredicto", result["verdict"])
+        b.metric("Confidence" if lang == "en" else "Confianza", f"{result['confidence']:.0%}")
+        c.metric("Authenticode", signature.get("status") or ("Not checked" if lang == "en" else "No comprobada"))
+        st.code(result["sha256"], language=None)
+        for reason in result.get("reasons", []):
+            st.write(f"- {reason}")
+        if result.get("external"):
+            st.json(result["external"], expanded=False)
+    st.caption("The executable is never uploaded. Online enrichment is optional and sends only its SHA-256."
+               if lang == "en" else
+               "El ejecutable nunca se carga. La consulta online es opcional y envía únicamente su SHA-256.")
     reputations = query.rows("file_reputation", None, 100)
     table(reputations, key="file_reputation", view="file_reputation", windowed=False, lang=lang)
-    st.caption("Only SHA-256 is checked; executable is never uploaded. Run `main.py reputation inspect PATH --online` to enrich a file."
-               if lang == "en" else
-               "Sólo se consulta el SHA-256; nunca se carga el ejecutable. Ejecute `main.py reputation inspect RUTA --online` para enriquecer un archivo.")
 
 
 def persistence():
