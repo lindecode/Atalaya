@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import defaultdict
 from datetime import datetime
 
 import pandas as pd
@@ -213,43 +214,159 @@ def table(rows, *, key: str, columns: dict | None = None, view: str | None = Non
     if view:
         shown, config = present(raw, view, lang=lang), column_config(VIEWS[view], lang=lang) | (columns or {})
         has_dates = any(column.kind == "date" for column in VIEWS[view])
+        headers = t("tables.headers", lang=lang) if isinstance(t("tables.headers", lang=lang), dict) else {}
+        date_columns = [headers.get(column.source, column.label) for column in VIEWS[view] if column.kind == "date"]
     else:
-        shown, date_columns = format_table_rows((visible(row) for row in raw), dates)
+        shown, date_cols_res = format_table_rows((visible(row) for row in raw), dates)
+        date_columns = list(date_cols_res)
         # Real datetimes (not text) so clicking a date column sorts chronologically
         config = {name: st.column_config.DatetimeColumn(format=COLUMN_FORMAT) for name in date_columns} | (columns or {})
         has_dates = bool(date_columns)
     available = list(pd.DataFrame(shown).columns)
+    groupable = [c for c in available if c not in date_columns]
+
     search_placeholder = "Name, IP, path, status…" if lang == "en" else "Nombre, IP, ruta, estado…"
     search_label = "Search in table" if lang == "en" else "Buscar en la tabla"
-    search = st.text_input(search_label, key=f"search-text-{key}", placeholder=search_placeholder,
-                           label_visibility="collapsed", icon=":material/search:") if searchable else ""
+
+    if searchable and groupable:
+        col_search, col_group = st.columns([3, 2])
+        search = col_search.text_input(search_label, key=f"search-text-{key}", placeholder=search_placeholder,
+                                       label_visibility="collapsed", icon=":material/search:")
+        group_options = ["none"] + groupable
+        group_by = col_group.selectbox(
+            t("tables.group_by", lang=lang, default="Agrupar por"),
+            group_options,
+            index=0,
+            key=f"group-by-{key}",
+            format_func=lambda c: t("tables.no_grouping", lang=lang, default="Sin agrupar (todas las filas)") if c == "none" else f"{t('tables.group_by', lang=lang, default='Agrupar por')}: {c}",
+            label_visibility="collapsed",
+        )
+    elif searchable:
+        search = st.text_input(search_label, key=f"search-text-{key}", placeholder=search_placeholder,
+                               label_visibility="collapsed", icon=":material/search:")
+        group_by = "none"
+    elif groupable:
+        group_options = ["none"] + groupable
+        group_by = st.selectbox(
+            t("tables.group_by", lang=lang, default="Agrupar por"),
+            group_options,
+            index=0,
+            key=f"group-by-{key}",
+            format_func=lambda c: t("tables.no_grouping", lang=lang, default="Sin agrupar (todas las filas)") if c == "none" else f"{t('tables.group_by', lang=lang, default='Agrupar por')}: {c}",
+            label_visibility="collapsed",
+        )
+        search = ""
+    else:
+        search = ""
+        group_by = "none"
+
     matches = [index for index, row in enumerate(shown) if filter_table_rows([row], search, available)]
-    frame = pd.DataFrame([shown[index] for index in matches], columns=available)
+
+    if group_by == "none":
+        frame = pd.DataFrame([shown[index] for index in matches], columns=available)
+        if search:
+            st.caption(t("common.rows_matching", lang=lang, matches=len(matches), total=len(shown)))
+        event = st.dataframe(frame, width="stretch", hide_index=True, column_config=config, key=f"table-{key}",
+                             on_select="rerun" if detail else "ignore", selection_mode="single-row")
+        date_note = "Dates in device local time." if lang == "en" else "Fechas en hora local del equipo."
+        row_note = "Select a row to inspect all fields." if lang == "en" else "Seleccione una fila para ver todos sus campos."
+        caption = " ".join(text for text, show in ((date_note, has_dates), (row_note, detail)) if show)
+        if caption:
+            st.caption(caption)
+        selected = list(getattr(getattr(event, "selection", None), "rows", None) or [])
+        if detail and selected and selected[0] < len(matches):
+            with st.container(border=True):
+                st.markdown("**Selected row details**" if lang == "en" else "**Detalle de la fila seleccionada**")
+                record = raw[matches[selected[0]]]
+                st.dataframe(pd.DataFrame(_record(record)), hide_index=True, width="stretch", key=f"record-{key}")
+                shown_row = shown[matches[selected[0]]]
+                search_links([value for name, value in list(record.items()) + list(shown_row.items())
+                              if name in ENTITY_FIELDS], key=f"links-{key}")
+                if on_pick:
+                    on_pick(record)
+        else:
+            record = None
+        csv_label = "Download CSV" if lang == "en" else "Descargar CSV"
+        csv_help = "Exports visible rows with search filter applied." if lang == "en" else "Exporta las filas visibles, con el filtro de búsqueda aplicado."
+        st.download_button(csv_label, frame.to_csv(index=False).encode("utf-8"), csv_name(key, windowed), "text/csv",
+                           key=f"download-{key}", icon=":material/download:", help=csv_help)
+        return record
+
+    # Grouped view
     if search:
         st.caption(t("common.rows_matching", lang=lang, matches=len(matches), total=len(shown)))
-    event = st.dataframe(frame, width="stretch", hide_index=True, column_config=config, key=f"table-{key}",
-                         on_select="rerun" if detail else "ignore", selection_mode="single-row")
-    date_note = "Dates in device local time." if lang == "en" else "Fechas en hora local del equipo."
-    row_note = "Select a row to inspect all fields." if lang == "en" else "Seleccione una fila para ver todos sus campos."
-    caption = " ".join(text for text, show in ((date_note, has_dates), (row_note, detail)) if show)
-    if caption:
-        st.caption(caption)
-    selected = list(getattr(getattr(event, "selection", None), "rows", None) or [])
-    if detail and selected and selected[0] < len(matches):
+    group_buckets = defaultdict(list)
+    empty_label = "(vacío)" if lang == "es" else "(empty)"
+    for idx in matches:
+        val = shown[idx].get(group_by)
+        val_display = empty_label if val is None or val == "" else str(val)
+        group_buckets[val_display].append(idx)
+
+    sorted_groups = sorted(group_buckets.items(), key=lambda item: len(item[1]), reverse=True)
+    count_hdr = t("tables.count", lang=lang, default="Ocurrencias")
+    first_seen_hdr = t("tables.first_seen", lang=lang, default="Primera vez")
+    last_seen_hdr = t("tables.last_seen", lang=lang, default="Última vez")
+
+    grouped_data = []
+    primary_date_col = date_columns[0] if date_columns else None
+
+    for g_val, g_indices in sorted_groups:
+        entry = {
+            group_by: g_val,
+            count_hdr: len(g_indices),
+        }
+        if primary_date_col:
+            dates_in_group = [shown[i].get(primary_date_col) for i in g_indices
+                              if isinstance(shown[i].get(primary_date_col), datetime)]
+            entry[first_seen_hdr] = min(dates_in_group) if dates_in_group else None
+            entry[last_seen_hdr] = max(dates_in_group) if dates_in_group else None
+        grouped_data.append(entry)
+
+    group_cols = [group_by, count_hdr]
+    if primary_date_col:
+        group_cols.extend([first_seen_hdr, last_seen_hdr])
+
+    group_frame = pd.DataFrame(grouped_data, columns=group_cols)
+    group_config = {
+        count_hdr: st.column_config.NumberColumn(count_hdr, format="%d"),
+    }
+    if primary_date_col:
+        group_config[first_seen_hdr] = st.column_config.DatetimeColumn(first_seen_hdr, format=COLUMN_FORMAT)
+        group_config[last_seen_hdr] = st.column_config.DatetimeColumn(last_seen_hdr, format=COLUMN_FORMAT)
+
+    group_event = st.dataframe(group_frame, width="stretch", hide_index=True, column_config=group_config,
+                               key=f"table-grouped-{key}", on_select="rerun", selection_mode="single-row")
+
+    st.caption(t("tables.grouped_caption", lang=lang, groups=len(sorted_groups), matches=len(matches),
+                 default=f"{len(sorted_groups)} grupos únicos de {len(matches)} filas coincidentes. Seleccione un grupo para ver sus eventos."))
+
+    grp_selected = list(getattr(getattr(group_event, "selection", None), "rows", None) or [])
+    record = None
+    if grp_selected and grp_selected[0] < len(sorted_groups):
+        picked_val, picked_indices = sorted_groups[grp_selected[0]]
+        events_label = t("tables.group_events", lang=lang, default="Eventos de este grupo")
         with st.container(border=True):
-            st.markdown("**Selected row details**" if lang == "en" else "**Detalle de la fila seleccionada**")
-            record = raw[matches[selected[0]]]
-            st.dataframe(pd.DataFrame(_record(record)), hide_index=True, width="stretch", key=f"record-{key}")
-            shown_row = shown[matches[selected[0]]]
-            search_links([value for name, value in list(record.items()) + list(shown_row.items())
-                          if name in ENTITY_FIELDS], key=f"links-{key}")
-            if on_pick:
-                on_pick(record)
-    else:
-        record = None
+            st.markdown(f"**{events_label}: `{plain_label(picked_val)}`** ({len(picked_indices)})")
+            sub_frame = pd.DataFrame([shown[i] for i in picked_indices], columns=available)
+            sub_event = st.dataframe(sub_frame, width="stretch", hide_index=True, column_config=config,
+                                     key=f"table-sub-{key}", on_select="rerun" if detail else "ignore",
+                                     selection_mode="single-row")
+            sub_selected = list(getattr(getattr(sub_event, "selection", None), "rows", None) or [])
+            if detail and sub_selected and sub_selected[0] < len(picked_indices):
+                with st.container(border=True):
+                    st.markdown("**Selected row details**" if lang == "en" else "**Detalle de la fila seleccionada**")
+                    record = raw[picked_indices[sub_selected[0]]]
+                    st.dataframe(pd.DataFrame(_record(record)), hide_index=True, width="stretch", key=f"record-grp-{key}")
+                    sub_shown_row = shown[picked_indices[sub_selected[0]]]
+                    search_links([value for name, value in list(record.items()) + list(sub_shown_row.items())
+                                  if name in ENTITY_FIELDS], key=f"links-grp-{key}")
+                    if on_pick:
+                        on_pick(record)
+
     csv_label = "Download CSV" if lang == "en" else "Descargar CSV"
     csv_help = "Exports visible rows with search filter applied." if lang == "en" else "Exporta las filas visibles, con el filtro de búsqueda aplicado."
-    st.download_button(csv_label, frame.to_csv(index=False).encode("utf-8"), csv_name(key, windowed), "text/csv",
+    st.download_button(csv_label, group_frame.to_csv(index=False).encode("utf-8"),
+                       csv_name(f"{key}_grouped", windowed), "text/csv",
                        key=f"download-{key}", icon=":material/download:", help=csv_help)
     return record
 

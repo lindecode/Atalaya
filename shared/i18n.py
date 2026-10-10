@@ -153,6 +153,33 @@ ES_TRANSLATIONS: dict[str, Any] = {
         "test": "Prueba",
     },
 
+    "alerts": {
+        "tabs": {
+            "active": "Alertas activas",
+            "dismissed": "Descartadas (Historial)",
+            "timelapse": "Timelapse",
+        },
+        "bulk_dismiss_btn": "Descartar las {count} alertas filtradas",
+        "bulk_dismiss_title": "Descarte masivo de alertas filtradas",
+        "bulk_dismiss_confirm": "Confirmar descarte de {count} alertas",
+        "reason_label": "Motivo del descarte",
+        "reason_default": "Descarte masivo de falsos positivos",
+        "no_active": "No hay alertas activas en esta ventana temporal.",
+        "no_dismissed": "No hay alertas descartadas en esta ventana temporal.",
+        "no_match_filters": "Ninguna alerta coincide con los filtros.",
+        "reactivate_btn": "Reactivar alerta",
+        "reactivated_note": "Reactivada manualmente",
+        "dismissed_at": "Fecha de descarte",
+        "dismissed_note": "Motivo / Nota",
+        "timelapse_title": "Evolución cronológica de alertas",
+        "timelapse_caption": "Compara la aparición de alertas activas frente a las que fueron descartadas o confirmadas en el tiempo.",
+        "mode_label": "Modo de visualización",
+        "mode_list": "Lista de alertas",
+        "mode_by_rule": "Agrupadas por Regla",
+        "dismiss_rule_btn": "Descartar las {count} de {rule}",
+        "group_count": "Alertas (#)",
+    },
+
     # -------------------------------------------------------------
     # Network, Visualizations & Charts
     # -------------------------------------------------------------
@@ -198,6 +225,13 @@ ES_TRANSLATIONS: dict[str, Any] = {
     # Tables: Enums, Headers, Severity, Verdicts
     # -------------------------------------------------------------
     "tables": {
+        "group_by": "Agrupar por",
+        "no_grouping": "Sin agrupar (todas las filas)",
+        "count": "Ocurrencias",
+        "first_seen": "Primera vez",
+        "last_seen": "Última vez",
+        "grouped_caption": "{groups} grupos únicos de {matches} filas coincidentes. Seleccione un grupo para ver sus eventos.",
+        "group_events": "Eventos de este grupo",
         "severity": {
             "low": "Baja",
             "medium": "Media",
@@ -610,6 +644,33 @@ EN_TRANSLATIONS: dict[str, Any] = {
         "test": "Test",
     },
 
+    "alerts": {
+        "tabs": {
+            "active": "Active alerts",
+            "dismissed": "Dismissed (History)",
+            "timelapse": "Timelapse",
+        },
+        "bulk_dismiss_btn": "Dismiss {count} filtered alerts",
+        "bulk_dismiss_title": "Bulk dismissal of filtered alerts",
+        "bulk_dismiss_confirm": "Confirm dismissal of {count} alerts",
+        "reason_label": "Dismissal reason",
+        "reason_default": "Bulk dismissal of false positives",
+        "no_active": "No active alerts in this time window.",
+        "no_dismissed": "No dismissed alerts in this time window.",
+        "no_match_filters": "No alerts match the filters.",
+        "reactivate_btn": "Reactivate alert",
+        "reactivated_note": "Manually reactivated",
+        "dismissed_at": "Dismissed date",
+        "dismissed_note": "Reason / Note",
+        "timelapse_title": "Chronological alert evolution",
+        "timelapse_caption": "Compares active alerts against those dismissed or confirmed over time.",
+        "mode_label": "View mode",
+        "mode_list": "Alert list",
+        "mode_by_rule": "Grouped by Rule",
+        "dismiss_rule_btn": "Dismiss all {count} of {rule}",
+        "group_count": "Alerts (#)",
+    },
+
     # -------------------------------------------------------------
     # Network, Visualizations & Charts
     # -------------------------------------------------------------
@@ -655,6 +716,13 @@ EN_TRANSLATIONS: dict[str, Any] = {
     # Tables: Enums, Headers, Severity, Verdicts
     # -------------------------------------------------------------
     "tables": {
+        "group_by": "Group by",
+        "no_grouping": "No grouping (all rows)",
+        "count": "Count",
+        "first_seen": "First seen",
+        "last_seen": "Last seen",
+        "grouped_caption": "{groups} unique groups from {matches} matching rows. Select a group to inspect its events.",
+        "group_events": "Events in this group",
         "severity": {
             "low": "Low",
             "medium": "Medium",

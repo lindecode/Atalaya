@@ -902,7 +902,7 @@ def _set_status(repository, alert_ids, status: str, note: str | None):
     refresh_data()
 
 
-def _alert_detail(repository, query, row: dict):
+def _alert_detail(repository, query, row: dict, key_prefix: str = "alert"):
     """Everything about one alert: what the rule means, its evidence, the LLM's view and the triage actions."""
     with st.container(border=True):
         st.markdown(f"#### {_severity_name(row['severity'])} · {row['rule_id']} · alerta #{row['id']}")
@@ -927,12 +927,12 @@ def _alert_detail(repository, query, row: dict):
             st.markdown("**Resumen de la evidencia**")
             st.dataframe(pd.DataFrame([{"campo": key, "valor": "" if value is None else str(value)}
                                        for key, value in summary.items()]), hide_index=True, width="stretch",
-                         key=f"summary-{row['id']}")
-            search_links(summary.values(), key=f"alert-{row['id']}")
+                         key=f"summary-{key_prefix}-{row['id']}")
+            search_links(summary.values(), key=f"alert-{key_prefix}-{row['id']}")
         st.markdown("**Eventos que la originaron**")
         evidence = query.alert_evidence(row["id"])
-        table(evidence, key=f"evidence-{row['id']}", view=evidence_view(evidence), windowed=False,
-              on_pick=lambda record: path_actions(record, f"alert-{row['id']}", lang))
+        table(evidence, key=f"evidence-{key_prefix}-{row['id']}", view=evidence_view(evidence), windowed=False,
+              on_pick=lambda record: path_actions(record, f"alert-{key_prefix}-{row['id']}", lang))
         for incident in query.llm_incidents_for(row["id"]):
             st.markdown(f"**Análisis del LLM** ({_plain(incident['model'])}) · severidad LLM: `{incident['severity']}` · "
                         f"posible falso positivo: `{incident['false_positive_likelihood']}`")
@@ -942,19 +942,19 @@ def _alert_detail(repository, query, row: dict):
                 st.text("Explicaciones benignas: " + "; ".join(incident["benign_explanations"]))
             if incident.get("recommended_actions"):
                 st.text("Recomendaciones: " + "; ".join(incident["recommended_actions"]))
-        note = st.text_input("Nota", key=f"note-{row['id']}")
+        note = st.text_input("Nota", key=f"note-{key_prefix}-{row['id']}")
         a, b, c = st.columns(3)
-        if a.button("Confirmar" if lang != "en" else "Confirm", key=f"confirm-{row['id']}", icon=":material/check_circle:"):
+        if a.button("Confirmar" if lang != "en" else "Confirm", key=f"confirm-{key_prefix}-{row['id']}", icon=":material/check_circle:"):
             _set_status(repository, [row["id"]], "confirmed", note); st.rerun()
         if row["status"] == "dismissed":
             reactivate_lbl = t("alerts.reactivate_btn", lang=lang, default="Reactivar alerta")
-            if b.button(reactivate_lbl, key=f"reactivate-{row['id']}", icon=":material/replay:"):
+            if b.button(reactivate_lbl, key=f"reactivate-{key_prefix}-{row['id']}", icon=":material/replay:"):
                 _set_status(repository, [row["id"]], "new", note or t("alerts.reactivated_note", lang=lang, default="Reactivada manualmente"))
                 st.rerun()
         else:
-            if b.button("Descartar" if lang != "en" else "Dismiss", key=f"dismiss-{row['id']}", icon=":material/cancel:"):
+            if b.button("Descartar" if lang != "en" else "Dismiss", key=f"dismiss-{key_prefix}-{row['id']}", icon=":material/cancel:"):
                 _set_status(repository, [row["id"]], "dismissed", note); st.rerun()
-        if row["rule_id"] in BASELINE_RULES and c.button("Aprobar como normal" if lang != "en" else "Approve baseline", key=f"approve-{row['id']}",
+        if row["rule_id"] in BASELINE_RULES and c.button("Aprobar como normal" if lang != "en" else "Approve baseline", key=f"approve-{key_prefix}-{row['id']}",
                                                          icon=":material/verified:"):
             repository.approve_alert(row["id"], SystemClock().now_iso()); refresh_data(); st.rerun()
 
@@ -987,6 +987,42 @@ def _bulk_actions(repository, selected: list[dict]):
             refresh_data(); st.rerun()
 
 
+def _render_alerts_table(repository, query, rows: list[dict], curr_status_names: dict, lang: str, requested: str | None, key_prefix: str = "alerts"):
+    if len(rows) > MAX_ALERTS_SHOWN:
+        st.caption(f"Showing {MAX_ALERTS_SHOWN} of {len(rows)} alerts; use filters to narrow down." if lang == "en" else f"Mostrando {MAX_ALERTS_SHOWN} de {len(rows)} alertas; use los filtros para acotar.")
+    shown_rows = rows[:MAX_ALERTS_SHOWN]
+    selected: list[dict] = []
+    if shown_rows:
+        col_sev = "Severity" if lang == "en" else "Severidad"
+        col_rule = "Rule" if lang == "en" else "Regla"
+        col_title = "Title" if lang == "en" else "Título"
+        col_summary = "Summary" if lang == "en" else "Resumen"
+        col_status = "Status" if lang == "en" else "Estado"
+        col_date = "Date" if lang == "en" else "Fecha"
+        frame = pd.DataFrame([{"#": row["id"], col_sev: _severity_name(row["severity"], lang=lang), col_rule: row["rule_id"],
+                               col_title: row["title"], col_summary: _alert_summary(row["evidence"]),
+                               col_status: curr_status_names.get(row["status"], row["status"]),
+                               col_date: to_local_datetime(row["ts"])} for row in shown_rows])
+        event = st.dataframe(frame, hide_index=True, width="stretch", key=f"{key_prefix}-table", on_select="rerun",
+                             selection_mode="multi-row",
+                             column_config={"#": st.column_config.NumberColumn(format="%d", width="small"),
+                                            col_date: st.column_config.DatetimeColumn(format=COLUMN_FORMAT)})
+        st.caption("Select an alert to inspect details, or multiple to act on them together." if lang == "en" else "Seleccione una alerta para ver su detalle, o varias para actuar sobre todas a la vez.")
+        selected = [shown_rows[index] for index in (event.selection.rows if event else []) if index < len(shown_rows)]
+    else:
+        empty("No alerts match the filters." if lang == "en" else "Ninguna alerta coincide con los filtros.")
+    if len(selected) > 1:
+        _bulk_actions(repository, selected)
+        return
+    target = selected[0] if selected else None
+    if target is None and requested and str(requested).isdigit():
+        target = query.alert(int(requested))
+    if target is None and shown_rows and key_prefix == "alerts":
+        target = shown_rows[0]
+    if target:
+        _alert_detail(repository, query, target, key_prefix=key_prefix)
+
+
 def alerts():
     _, repository, query, since = context()
     lang = st.session_state.get("language") or "es"
@@ -998,61 +1034,208 @@ def alerts():
     if not rows and not requested:
         empty_msg = f"No alerts. Click Analyze to evaluate rules R01–R{len(ALL_RULES):02d}." if lang == "en" else f"No hay alertas. Pulse Analizar para aplicar las reglas R01–R{len(ALL_RULES):02d}."
         return empty(empty_msg)
-    open_rows = [row for row in rows if row["status"] in OPEN_STATUSES]
-    labels_es = {"critical": "Críticas abiertas", "high": "Altas abiertas", "medium": "Medias abiertas", "low": "Bajas abiertas"}
-    labels_en = {"critical": "Open critical", "high": "Open high", "medium": "Open medium", "low": "Open low"}
-    labels = labels_en if lang == "en" else labels_es
-    for column, (level, label) in zip(st.columns(4), labels.items()):
-        column.metric(label, sum(row["severity"] == level for row in open_rows))
-    a, b, c = st.columns(3)
-    curr_status_names = status_names(lang=lang)
-    statuses = a.multiselect("Status" if lang == "en" else "Estado", list(curr_status_names), default=list(OPEN_STATUSES),
-                             format_func=curr_status_names.get, key="alert-status",
-                             placeholder="All" if lang == "en" else "Todos")
-    severities = b.multiselect("Severity" if lang == "en" else "Severidad", ["critical", "high", "medium", "low"],
-                               format_func=lambda s: _severity_name(s, lang=lang), key="alert-severity",
-                               placeholder="All" if lang == "en" else "Todas")
-    rules = c.multiselect("Rule" if lang == "en" else "Regla", sorted({row["rule_id"] for row in rows}),
-                          key="alert-rule", placeholder="All" if lang == "en" else "Todas",
-                          format_func=lambda rule: (f"{rule} · {rule_help(rule, lang=lang).detects[:45]}…" if rule_help(rule, lang=lang) else rule))
-    rows = [row for row in rows if (not statuses or row["status"] in statuses)
-            and (not severities or row["severity"] in severities) and (not rules or row["rule_id"] in rules)]
-    rank = {"critical": 0, "high": 1, "medium": 2, "low": 3}
-    rows.sort(key=lambda row: (rank.get(row["severity"], 4), row["ts"]))
-    if len(rows) > MAX_ALERTS_SHOWN:
-        st.caption(f"Showing {MAX_ALERTS_SHOWN} of {len(rows)} alerts; use filters to narrow down." if lang == "en" else f"Mostrando {MAX_ALERTS_SHOWN} de {len(rows)} alertas; use los filtros para acotar.")
-    rows = rows[:MAX_ALERTS_SHOWN]
 
-    selected: list[dict] = []
-    if rows:
-        col_sev = "Severity" if lang == "en" else "Severidad"
-        col_rule = "Rule" if lang == "en" else "Regla"
-        col_title = "Title" if lang == "en" else "Título"
-        col_summary = "Summary" if lang == "en" else "Resumen"
-        col_status = "Status" if lang == "en" else "Estado"
-        col_date = "Date" if lang == "en" else "Fecha"
-        frame = pd.DataFrame([{"#": row["id"], col_sev: _severity_name(row["severity"], lang=lang), col_rule: row["rule_id"],
-                               col_title: row["title"], col_summary: _alert_summary(row["evidence"]),
-                               col_status: curr_status_names.get(row["status"], row["status"]),
-                               col_date: to_local_datetime(row["ts"])} for row in rows])
-        event = st.dataframe(frame, hide_index=True, width="stretch", key="alerts-table", on_select="rerun",
-                             selection_mode="multi-row",
+    open_rows = [row for row in rows if row["status"] in OPEN_STATUSES]
+    dismissed_rows = [row for row in rows if row["status"] == "dismissed"]
+    curr_status_names = status_names(lang=lang)
+
+    tab_active_lbl = f":material/notification_important: {t('alerts.tabs.active', lang=lang, default='Alertas activas')} ({len(open_rows)})"
+    tab_dism_lbl = f":material/archive: {t('alerts.tabs.dismissed', lang=lang, default='Descartadas (Historial)')} ({len(dismissed_rows)})"
+    tab_time_lbl = f":material/timeline: {t('alerts.tabs.timelapse', lang=lang, default='Timelapse')}"
+
+    tab_act, tab_dism, tab_time = st.tabs([tab_active_lbl, tab_dism_lbl, tab_time_lbl])
+
+    with tab_act:
+        labels_es = {"critical": "Críticas abiertas", "high": "Altas abiertas", "medium": "Medias abiertas", "low": "Bajas abiertas"}
+        labels_en = {"critical": "Open critical", "high": "Open high", "medium": "Open medium", "low": "Open low"}
+        labels = labels_en if lang == "en" else labels_es
+        for column, (level, label) in zip(st.columns(4), labels.items()):
+            column.metric(label, sum(row["severity"] == level for row in open_rows))
+
+        if not open_rows and not requested:
+            empty(t("alerts.no_active", lang=lang, default="No hay alertas activas en esta ventana temporal."))
+        else:
+            col_sev, col_rule = st.columns(2)
+            severities = col_sev.multiselect("Severity" if lang == "en" else "Severidad", ["critical", "high", "medium", "low"],
+                                             format_func=lambda s: _severity_name(s, lang=lang), key="act-alert-severity",
+                                             placeholder="All" if lang == "en" else "Todas")
+            rules = col_rule.multiselect("Rule" if lang == "en" else "Regla", sorted({row["rule_id"] for row in open_rows}),
+                                         key="act-alert-rule", placeholder="All" if lang == "en" else "Todas",
+                                         format_func=lambda rule: (f"{rule} · {rule_help(rule, lang=lang).detects[:45]}…" if rule_help(rule, lang=lang) else rule))
+            filtered_open = [row for row in open_rows if (not severities or row["severity"] in severities) and (not rules or row["rule_id"] in rules)]
+            rank = {"critical": 0, "high": 1, "medium": 2, "low": 3}
+            filtered_open.sort(key=lambda row: (rank.get(row["severity"], 4), row["ts"]))
+
+            # Quick bulk dismiss for filtered alerts
+            if filtered_open:
+                dismiss_btn_label = t("alerts.bulk_dismiss_btn", lang=lang, count=len(filtered_open), default=f"Descartar las {len(filtered_open)} alertas filtradas")
+                with st.expander(f":material/delete_sweep: {dismiss_btn_label}", expanded=False):
+                    note_input = st.text_input(t("alerts.reason_label", lang=lang, default="Motivo del descarte"),
+                                               value=t("alerts.reason_default", lang=lang, default="Descarte masivo de falsos positivos"),
+                                               key="bulk-dismiss-filter-note")
+                    if st.button(t("alerts.bulk_dismiss_confirm", lang=lang, count=len(filtered_open), default=f"Confirmar descarte de {len(filtered_open)} alertas"),
+                                 key="confirm-bulk-filtered-btn", icon=":material/delete_sweep:", type="primary"):
+                        _set_status(repository, [r["id"] for r in filtered_open], "dismissed", note_input)
+                        st.rerun()
+
+            col_mode, _ = st.columns([2, 3])
+            mode = col_mode.radio(t("alerts.mode_label", lang=lang, default="Modo de visualización"),
+                                  [t("alerts.mode_list", lang=lang, default="Lista de alertas"),
+                                   t("alerts.mode_by_rule", lang=lang, default="Agrupadas por Regla")],
+                                  horizontal=True, label_visibility="collapsed", key="active-view-mode")
+
+            if mode == t("alerts.mode_by_rule", lang=lang, default="Agrupadas por Regla"):
+                from collections import defaultdict
+                rule_groups = defaultdict(list)
+                for r in filtered_open:
+                    rule_groups[r["rule_id"]].append(r)
+
+                rule_rows = []
+                for r_id, g_alerts in sorted(rule_groups.items(), key=lambda item: len(item[1]), reverse=True):
+                    r_info = rule_help(r_id, lang=lang)
+                    r_detects = r_info.detects if r_info else r_id
+                    sevs = sorted({a["severity"] for a in g_alerts}, key=lambda s: rank.get(s, 4))
+                    highest_sev = _severity_name(sevs[0], lang=lang) if sevs else ""
+                    rule_rows.append({
+                        "Rule" if lang == "en" else "Regla": r_id,
+                        "Severity" if lang == "en" else "Severidad": highest_sev,
+                        "Detects" if lang == "en" else "Qué detecta": r_detects[:60] + "…" if len(r_detects) > 60 else r_detects,
+                        "Count" if lang == "en" else "Alertas (#)": len(g_alerts),
+                        "Date" if lang == "en" else "Fecha": to_local_datetime(max(a["ts"] for a in g_alerts)),
+                    })
+
+                df_rules = pd.DataFrame(rule_rows)
+                event_rules = st.dataframe(df_rules, hide_index=True, width="stretch", key="alerts-rule-grouped",
+                                           selection_mode="single-row", on_select="rerun",
+                                           column_config={"Count" if lang == "en" else "Alertas (#)": st.column_config.NumberColumn(format="%d"),
+                                                          "Date" if lang == "en" else "Fecha": st.column_config.DatetimeColumn(format=COLUMN_FORMAT)})
+                sel_rule_idx = list(getattr(getattr(event_rules, "selection", None), "rows", None) or [])
+                if sel_rule_idx and sel_rule_idx[0] < len(rule_rows):
+                    chosen_rule_id = rule_rows[sel_rule_idx[0]]["Rule" if lang == "en" else "Regla"]
+                    alerts_in_rule = rule_groups[chosen_rule_id]
+                    with st.container(border=True):
+                        st.markdown(f"**{chosen_rule_id}** · {len(alerts_in_rule)} " + ("alerts" if lang == "en" else "alertas"))
+                        btn_dismiss_rule = t("alerts.dismiss_rule_btn", lang=lang, count=len(alerts_in_rule), rule=chosen_rule_id, default=f"Descartar las {len(alerts_in_rule)} de {chosen_rule_id}")
+                        if st.button(btn_dismiss_rule, icon=":material/delete_sweep:", key=f"dismiss-rule-btn-{chosen_rule_id}"):
+                            _set_status(repository, [a["id"] for a in alerts_in_rule], "dismissed", f"Descarte de regla {chosen_rule_id}")
+                            st.rerun()
+                        _render_alerts_table(repository, query, alerts_in_rule, curr_status_names, lang, requested, key_prefix=f"sub-act-{chosen_rule_id}")
+                elif not sel_rule_idx and filtered_open:
+                    st.caption("Seleccione una regla de la tabla para ver y gestionar sus alertas." if lang != "en" else "Select a rule from the table to view and manage its alerts.")
+            else:
+                _render_alerts_table(repository, query, filtered_open, curr_status_names, lang, requested, key_prefix="alerts")
+
+    with tab_dism:
+        if not dismissed_rows:
+            empty(t("alerts.no_dismissed", lang=lang, default="No hay alertas descartadas en esta ventana temporal."))
+        else:
+            col_d_sev, col_d_rule = st.columns(2)
+            d_severities = col_d_sev.multiselect("Severity" if lang == "en" else "Severidad", ["critical", "high", "medium", "low"],
+                                                 format_func=lambda s: _severity_name(s, lang=lang), key="dism-severity",
+                                                 placeholder="All" if lang == "en" else "Todas")
+            d_rules = col_d_rule.multiselect("Rule" if lang == "en" else "Regla", sorted({r["rule_id"] for r in dismissed_rows}),
+                                             key="dism-rule", placeholder="All" if lang == "en" else "Todas",
+                                             format_func=lambda rule: (f"{rule} · {rule_help(rule, lang=lang).detects[:45]}…" if rule_help(rule, lang=lang) else rule))
+            filtered_dism = [r for r in dismissed_rows if (not d_severities or r["severity"] in d_severities) and (not d_rules or r["rule_id"] in d_rules)]
+            filtered_dism.sort(key=lambda r: (r.get("status_at") or r["ts"]), reverse=True)
+
+            if not filtered_dism:
+                empty(t("alerts.no_match_filters", lang=lang, default="Ninguna alerta coincide con los filtros."))
+            else:
+                col_sev = "Severity" if lang == "en" else "Severidad"
+                col_rule = "Rule" if lang == "en" else "Regla"
+                col_title = "Title" if lang == "en" else "Título"
+                col_date = "Date" if lang == "en" else "Fecha evento"
+                col_d_date = t("alerts.dismissed_at", lang=lang, default="Fecha de descarte")
+                col_note = t("alerts.dismissed_note", lang=lang, default="Motivo / Nota")
+                d_frame = pd.DataFrame([{
+                    "#": r["id"],
+                    col_sev: _severity_name(r["severity"], lang=lang),
+                    col_rule: r["rule_id"],
+                    col_title: r["title"],
+                    col_date: to_local_datetime(r["ts"]),
+                    col_d_date: to_local_datetime(r["status_at"]) if r.get("status_at") else None,
+                    col_note: r.get("status_note") or "-"
+                } for r in filtered_dism[:MAX_ALERTS_SHOWN]])
+                d_event = st.dataframe(d_frame, hide_index=True, width="stretch", key="dism-table", on_select="rerun",
+                                       selection_mode="single-row",
+                                       column_config={"#": st.column_config.NumberColumn(format="%d", width="small"),
+                                                      col_date: st.column_config.DatetimeColumn(format=COLUMN_FORMAT),
+                                                      col_d_date: st.column_config.DatetimeColumn(format=COLUMN_FORMAT)})
+                st.caption("Seleccione una alerta descartada para ver su detalle o reactivarla." if lang != "en" else "Select a dismissed alert to view details or reactivate it.")
+                d_sel = list(getattr(getattr(d_event, "selection", None), "rows", None) or [])
+                d_target = filtered_dism[d_sel[0]] if d_sel and d_sel[0] < len(filtered_dism) else None
+                if d_target:
+                    _alert_detail(repository, query, d_target, key_prefix="dism")
+
+    with tab_time:
+        st.subheader(":material/timeline: " + t("alerts.timelapse_title", lang=lang, default="Evolución cronológica de alertas"), divider="gray")
+        if not rows:
+            empty("No hay datos para construir la línea de tiempo." if lang != "en" else "No data to build timeline.")
+        else:
+            tl_data = []
+            for r in rows:
+                dt = to_local_datetime(r["ts"])
+                hour_str = dt.strftime("%Y-%m-%d %H:00")
+                st_code = r["status"]
+                if st_code in OPEN_STATUSES:
+                    st_label = "Activa" if lang != "en" else "Active"
+                elif st_code == "dismissed":
+                    st_label = "Descartada" if lang != "en" else "Dismissed"
+                else:
+                    st_label = "Confirmada" if lang != "en" else "Confirmed"
+                tl_data.append({
+                    "hour": hour_str,
+                    "status": st_label,
+                    "alert_id": r["id"],
+                    "rule": r["rule_id"],
+                })
+
+            df_raw_tl = pd.DataFrame(tl_data)
+            df_grouped = df_raw_tl.groupby(["hour", "status"]).size().reset_index(name="count")
+            df_grouped.sort_values(by="hour", inplace=True)
+
+            color_map = {
+                "Activa": "#EF4444", "Active": "#EF4444",
+                "Descartada": "#64748B", "Dismissed": "#64748B",
+                "Confirmada": "#3B82F6", "Confirmed": "#3B82F6",
+            }
+            fig_tl = px.bar(
+                df_grouped,
+                x="hour",
+                y="count",
+                color="status",
+                color_discrete_map=color_map,
+                barmode="stack",
+                labels={"hour": "Hora" if lang != "en" else "Hour",
+                        "count": "Alertas" if lang != "en" else "Alerts",
+                        "status": "Estado" if lang != "en" else "Status"},
+            )
+            fig_tl.update_layout(xaxis_title="", yaxis_title="Alertas" if lang != "en" else "Alerts", hovermode="x unified",
+                                 legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1))
+            chart(fig_tl, key="alerts-timelapse-chart")
+            st.caption(t("alerts.timelapse_caption", lang=lang,
+                         default="Compara la aparición de alertas activas frente a las que fueron descartadas o confirmadas en el tiempo."))
+
+            unique_hours = sorted(df_raw_tl["hour"].unique(), reverse=True)
+            if unique_hours:
+                st.divider()
+                st.markdown("**" + ("Explore alerts by hour:" if lang == "en" else "Explorar alertas por bloque horario:") + "**")
+                chosen_hour = st.selectbox("Bloque horario", unique_hours, key="tl-hour-pick", label_visibility="collapsed")
+                hour_alerts = [r for r in rows if to_local_datetime(r["ts"]).strftime("%Y-%m-%d %H:00") == chosen_hour]
+                st.caption(f"{len(hour_alerts)} " + ("alerts recorded in this hour:" if lang == "en" else "alertas registradas en esta hora:"))
+                col_s = "Severity" if lang == "en" else "Severidad"
+                col_r = "Rule" if lang == "en" else "Regla"
+                col_t = "Title" if lang == "en" else "Título"
+                col_st = "Status" if lang == "en" else "Estado"
+                col_d = "Date" if lang == "en" else "Fecha"
+                f_hour = pd.DataFrame([{"#": r["id"], col_s: _severity_name(r["severity"], lang=lang),
+                                       col_r: r["rule_id"], col_t: r["title"],
+                                       col_st: curr_status_names.get(r["status"], r["status"]),
+                                       col_d: to_local_datetime(r["ts"])} for r in hour_alerts])
+                st.dataframe(f_hour, hide_index=True, width="stretch", key="tl-hour-table",
                              column_config={"#": st.column_config.NumberColumn(format="%d", width="small"),
-                                            col_date: st.column_config.DatetimeColumn(format=COLUMN_FORMAT)})
-        st.caption("Select an alert to inspect details, or multiple to act on them together." if lang == "en" else "Seleccione una alerta para ver su detalle, o varias para actuar sobre todas a la vez.")
-        selected = [rows[index] for index in (event.selection.rows if event else []) if index < len(rows)]
-    else:
-        empty("No alerts match the filters." if lang == "en" else "Ninguna alerta coincide con los filtros.")
-    if len(selected) > 1:
-        _bulk_actions(repository, selected)
-        return
-    target = selected[0] if selected else None
-    if target is None and requested and str(requested).isdigit():
-        target = query.alert(int(requested))  # a link from the Panel or a search, even outside these filters
-    if target is None and rows:
-        target = rows[0]
-    if target:
-        _alert_detail(repository, query, target)
+                                            col_d: st.column_config.DatetimeColumn(format=COLUMN_FORMAT)})
 
 
 
