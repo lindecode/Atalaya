@@ -66,6 +66,28 @@ def test_intent_router_picks_the_obvious_tools():
     assert chat_intents.plan("¿Qué es un 4625?")[0][0] == "search_knowledge"
 
 
+def test_concrete_entities_pin_the_tool_and_filter():
+    assert chat_intents.plan("¿Quién es 79.133.168.76?")[0] == ("get_connections", {"remote_ip": "79.133.168.76", "since": "7d"})
+    assert chat_intents.plan("¿Por qué R11 tiene tantas alertas?") == [("get_alerts", {"rule": "R11"})]  # not a how-to
+    assert [name for name, _ in chat_intents.plan("¿Qué hizo pythonw.exe ayer?")] == ["get_processes", "get_connections"]
+    assert chat_intents.plan("¿Cambió algo desde ayer?") == [("get_overview", {"since": "48h"})]
+    assert chat_intents.plan("reunión a las 10:30:00") == []
+
+
+def test_an_answer_without_any_evidence_is_retried(tmp_path):
+    settings = _settings(tmp_path)
+    answers = ["Todo parece normal.", "Según el panorama no hay alertas abiertas."]
+
+    class Client:
+        def chat(self, **kwargs):
+            if len(answers) == 1 and not any(m.get("role") == "tool" for m in kwargs["messages"] if isinstance(m, dict)):
+                assert "No consultaste ninguna evidencia" in kwargs["messages"][-1]["content"]
+            return _reply(answers.pop(0))
+
+    result = ChatService(settings, SQLiteQueryTools(settings), Client()).ask("¿Está bien mi equipo hoy, sí o no?")
+    assert result["answer"] == "Según el panorama no hay alertas abiertas." and not answers
+
+
 def test_preloaded_evidence_reaches_the_model_and_options_set_the_context(tmp_path):
     settings = _settings(tmp_path)
     _alerts(settings, [("critical", "new")])

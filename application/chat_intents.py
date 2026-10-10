@@ -14,11 +14,13 @@ MAX_TOOLS = 3
 HOW_TO = re.compile(r"^(como|how|que (es una?|significa|hace|quiere decir)|what (is an?|does)|explica|explain|para que|"
                     r"por que|why|cuando (debo|deberia)|que debo|what should|guia|guide|pasos)\b")
 PERIODS = ((r"\b(ultima hora|last hour|1h)\b", "1h"), (r"\b(hoy|today|24h|ultimo dia|last day)\b", "24h"),
+           (r"\b(ayer|yesterday)\b", "48h"),
            (r"\b(semana|week|7d|7 dias|7 days)\b", "7d"), (r"\b(mes|month|30d|30 dias|30 days)\b", "30d"))
 # (pattern, tool, arguments); the first MAX_TOOLS distinct tools that match are run, in this order
 INTENTS = (
     (r"\b(resumen|estado|situacion|panorama|novedades|que (ha )?pas|overview|summary|status|what happened|"
-     r"estoy (seguro|en riesgo)|am i (safe|at risk)|todo bien|everything ok)", "get_overview", {}),
+     r"estoy (seguro|en riesgo)|am i (safe|at risk)|todo bien|everything ok|cambi|changed|preocup|worr|raro|"
+     r"extran|anormal|unusual|weird|strange)", "get_overview", {}),
     (r"\b(alerta|alert|riesgo|risk|critic|grave|prioridad|priorit|urgent|amenaza|threat|incidente|incident|"
      r"sospech|suspicious|revisar primero|look at first)", "get_alerts", {}),
     (r"\b(rdp|escritorio remoto|remote desktop|inicio(s)? de sesion|logon|login|inicia(r|ron) sesion|acceso|"
@@ -46,13 +48,36 @@ def period(question: str) -> str | None:
     return next((value for pattern, value in PERIODS if re.search(pattern, text)), None)
 
 
+IP = re.compile(r"\b(\d{1,3}(?:\.\d{1,3}){3})\b")
+RULE = re.compile(r"\br(\d{2})\b")
+EXECUTABLE = re.compile(r"\b([\w-]+\.exe)\b")
+
+
+def _entities(text: str, when: str | None) -> list[tuple[str, dict]]:
+    """A concrete IP, rule or executable in the question pins the tool and its filter."""
+    calls: list[tuple[str, dict]] = []
+    wide = {"since": when or "7d"}
+    if match := IP.search(text):
+        calls += [("get_connections", {"remote_ip": match.group(1), **wide}),
+                  ("get_auth_events", {"source_ip": match.group(1), **wide})]
+    if match := RULE.search(text):
+        calls.append(("get_alerts", {"rule": f"R{match.group(1)}", **({"since": when} if when else {})}))
+    if match := EXECUTABLE.search(text):
+        calls += [("get_processes", {"process": match.group(1), **wide}),
+                  ("get_connections", {"process": match.group(1), **wide})]
+    return calls
+
+
 def plan(question: str) -> list[tuple[str, dict]]:
     """Tool calls to run before asking the model; a how-to question only searches the local documentation."""
     text = _plain(question).lstrip("¡!¿? ")
-    if HOW_TO.match(text):
-        return [("search_knowledge", {"query": question[:300], "top_k": 4})]
     when = period(question)
     calls: list[tuple[str, dict]] = []
+    for name, args in _entities(text, when):  # "¿por qué R11…?" is about this machine's data, not a how-to
+        if all(name != other for other, _ in calls):
+            calls.append((name, args))
+    if not calls and HOW_TO.match(text):
+        return [("search_knowledge", {"query": question[:300], "top_k": 4})]
     for pattern, tool, args in INTENTS:
         if len(calls) >= MAX_TOOLS:
             break

@@ -49,6 +49,8 @@ def _parser() -> argparse.ArgumentParser:
     chat.add_argument("--no-history", action="store_true", help="No guardar esta pregunta en el historial")
     eval_chat = commands.add_parser("eval-chat", help="Puntúa los modelos de chat con preguntas canónicas sobre la evidencia local")
     eval_chat.add_argument("--model", action="append", help="Modelo a evaluar (repetible); por defecto todos los de chat con tools")
+    eval_chat.add_argument("--set", choices=("basic", "hard", "all"), default="all",
+                           help="basic: preguntas que el router reconoce; hard: el modelo elige las herramientas solo")
     history = commands.add_parser("historial", help="Consulta las conversaciones guardadas del chat")
     history_actions = history.add_subparsers(dest="history_action", required=True)
     history_list = history_actions.add_parser("list", help="Lista conversaciones (más recientes primero)")
@@ -318,12 +320,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"Watch #{result['run_id']}: eventos={result['events']}; alertas={result['alerts']}")
         return 0
     if args.command == "eval-chat":
-        from application.chat_evals import run
+        from application.chat_evals import SETS, run
         models = args.model or [item["name"] for item in build_model_service().available() if item["chat"] and item["tools"]]
         ranking = []
         for model in models:
             print(f"\n== {model} ==")
-            report = run(build_chat_service(model=model), progress=lambda item: print(
+            report = run(build_chat_service(model=model), SETS[args.set], progress=lambda item: print(
                 f"  {item['passed']}/{item['total']} {item['seconds']:>5}s  {item['question']}"
                 + (f"  [{item['error']}]" if item.get("error") else
                    "  falla: " + ", ".join(name for name, ok in item["checks"].items() if not ok)

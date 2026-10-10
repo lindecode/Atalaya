@@ -97,6 +97,12 @@ NUDGE = {
     "en": "You run the tools; the user cannot. Do not ask them to run anything. Call the tool you need now or answer "
           "from the evidence already loaded, in English, citing the IDs.",
 }
+NO_EVIDENCE = {
+    "es": "No consultaste ninguna evidencia. Llama ahora las herramientas que respondan la pregunta (get_overview si "
+          "es general) y responde sólo con lo que devuelvan, en español, citando los IDs.",
+    "en": "You did not consult any evidence. Call the tools that answer the question now (get_overview if it is "
+          "general) and answer only from what they return, in English, citing the IDs.",
+}
 
 
 def _rows(result) -> list:
@@ -171,14 +177,18 @@ class ChatService:
             calls = getattr(message, "tool_calls", None) or []
             if not calls:
                 answer = (message.content or "").strip()
+                # A question answered without consulting anything is a guess (small models do it in about a second)
+                unsupported = not trace and "?" in question
                 # After the retry a non-empty answer is kept: an imperfect explanation beats the bare summary
-                if answer and (nudged or not DEFERS_TO_USER.search(answer)):
+                if answer and (nudged or not (DEFERS_TO_USER.search(answer) or unsupported)):
                     return {"answer": self.harness.validate_answer(humanize(answer, lang), trace), "tool_calls": trace}
                 if nudged:
                     break
                 nudged = True  # one corrective retry: small models often answer empty or ask the user to run a tool
-                log.info("Respuesta vacía o que delega en el usuario; se reintenta una vez")
-                messages += [{"role": "assistant", "content": answer}, {"role": "user", "content": NUDGE[lang]}]
+                log.info("Respuesta vacía, sin evidencia o que delega en el usuario; se reintenta una vez")
+                nudge = (NO_EVIDENCE[lang] if unsupported and answer and not DEFERS_TO_USER.search(answer)
+                         else NUDGE[lang])
+                messages += [{"role": "assistant", "content": answer}, {"role": "user", "content": nudge}]
                 continue
             messages.append(message)
             for call in calls:

@@ -35,6 +35,16 @@ CASES = (
     EvalCase("¿Cómo investigo un inicio de sesión RDP sospechoso?", ("search_knowledge",), cite_ids=False),
     EvalCase("What are the most important open alerts?", ("get_alerts",), lang="en"),
 )
+# Questions the keyword router does not catch: the model has to pick the tools and arguments by itself
+HARD_CASES = (
+    EvalCase("¿Algo raro con chrome ayer?", ("get_connections", "get_processes", "get_alerts")),
+    EvalCase("¿Quién es 79.133.168.76?", ("get_connections",), must_match=(r"79\.133\.168\.76",)),
+    EvalCase("¿Por qué R11 tiene tantas alertas?", ("get_alerts",), must_match=(r"R11",)),
+    EvalCase("¿Qué hizo pythonw.exe?", ("get_processes", "get_connections", "get_file_events")),
+    EvalCase("¿Cambió algo desde ayer?", ("get_overview", "get_alerts")),
+    EvalCase("¿Hay algo que deba preocuparme?", ("get_overview", "get_alerts")),
+)
+SETS = {"basic": CASES, "hard": HARD_CASES, "all": CASES + HARD_CASES}
 
 SPANISH = re.compile(r"(?i)\b(el|la|los|las|de|que|hay|no|en|para|una?)\b")
 ENGLISH = re.compile(r"(?i)\b(the|is|are|there|of|and|to|no|in|for)\b")
