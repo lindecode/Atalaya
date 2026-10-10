@@ -15,6 +15,7 @@ from application.models import ModelService
 from application.rag import RagService
 from application.reputation import FileReputationService
 from application.automation import AutomationConfigService, CycleService
+from application.rule_config import RuleConfigService
 from application.section_summaries import SectionSummaryService
 from application.ai_export import AiReportService
 from application.tool_router import SecureToolRouter
@@ -117,8 +118,9 @@ def _with_model(settings: Settings | None, model: str | None, role: str = "chat"
 def build_analyze_service(settings: Settings | None = None, model: str | None = None) -> AnalyzeService:
     effective = _with_model(settings, model, "analysis")
     effective, analyzer, _, _, _ = build_components(effective)
-    return AnalyzeService(build_repository(effective), analyzer, SystemClock(),
-                          WindowsSystemInfo(), effective)
+    repository = build_repository(effective)
+    rules = RuleConfigService(repository, SystemClock()).enabled_rules()
+    return AnalyzeService(repository, analyzer, SystemClock(), WindowsSystemInfo(), effective, rules)
 
 
 def build_report_service(settings: Settings | None = None) -> ReportService:
@@ -182,6 +184,11 @@ def build_reputation_service(settings: Settings | None = None) -> FileReputation
 def build_automation_config_service(settings: Settings | None = None) -> AutomationConfigService:
     effective = settings or Settings()
     return AutomationConfigService(build_repository(effective), SystemClock())
+
+
+def build_rule_config_service(settings: Settings | None = None) -> RuleConfigService:
+    effective = settings or Settings()
+    return RuleConfigService(build_repository(effective), SystemClock())
 
 
 def build_section_summary_service(settings: Settings | None = None) -> SectionSummaryService:

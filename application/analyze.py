@@ -83,7 +83,8 @@ class AnalyzeService:
                                               analyzed_ids, prompt_chars, result, error, duration_ms)
         status = "partial" if error else "ok"
         self.repository.finish_run(run_id, self.clock.now_iso(), status, {
-            "rules": {"status": "ok", "candidates": len(candidates), "inserted": len(inserted), "learning_baseline": learning},
+            "rules": {"status": "ok", "enabled": [rule.__name__.upper() for rule in self.rules],
+                      "candidates": len(candidates), "inserted": len(inserted), "learning_baseline": learning},
             "llm": {"status": "disabled" if not use_llm else "error" if error else "ok", "model": self.analyzer.model,
                     "error": error, "cache_hits": locals().get("cache_hits", 0)},
         })

@@ -13,7 +13,9 @@ Responsabilidades:
 
 - **Primeros pasos** diagnostica requisitos y permisos.
 - **IA local** configura proveedor, instalación y modelos.
-- **Ajustes** reúne configuración de funciones, ciclo automático, datos y bitácora.
+- **Ajustes** reúne configuración de funciones, reglas de detección, ciclo automático, datos y bitácora.
+
+En **Sistema → Ajustes → Funciones → Reglas de detección** se habilita o deshabilita cada regla. El cambio se aplica al próximo análisis; no detiene la recolección ni elimina alertas existentes. Todas las reglas están activas por defecto y “Activar todas” restaura esa selección.
 
 No crees una segunda pantalla para la misma configuración. Si una función cambia de ubicación, actualiza `page_link`, ayudas, pruebas y README en el mismo commit; busca también el nombre anterior con `rg`.
 

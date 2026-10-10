@@ -10,6 +10,7 @@
 - Usa UTC e ISO 8601 al persistir; formatea fechas legibles sólo en interfaces.
 - Todo texto visible, leyenda de gráfica y prompt de IA debe usar el catálogo bilingüe `shared/i18n.py`.
 - El fallo de un recolector produce estado `partial` y diagnóstico útil, sin perder evidencia válida de otros.
+- La selección de reglas se persiste como lista de reglas desactivadas: así, una regla nueva queda habilitada por defecto al actualizar.
 
 ## Base de datos
 

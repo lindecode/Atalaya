@@ -1485,6 +1485,8 @@ def _features(settings):
     if changed is not None:
         save(automatic_analysis=changed)
 
+    _rule_settings(settings)
+
     changed = _feature("Explicar alertas con IA", "La IA local agrupa y explica las alertas nuevas. Sin ella, las reglas "
                        "siguen funcionando.", ":green[● Activado]" if config.use_llm else ":gray[● Desactivado]",
                        config.use_llm, "llm")
@@ -1521,6 +1523,37 @@ def _features(settings):
             ok, message = open_permissions_setup()
             (st.info if ok else st.error)("Acepte el aviso de Windows y siga la consola que se abre."
                                           if ok else message)
+
+
+def _rule_settings(settings):
+    """Persistent per-rule switches; collecting evidence remains independent."""
+    from application.rule_config import RULE_IDS
+    from bootstrap import build_rule_config_service
+
+    service = build_rule_config_service(settings)
+    enabled = set(service.enabled_ids())
+    with st.expander(f"Reglas de detección · {len(enabled)}/{len(ALL_RULES)} activas"):
+        st.caption("Se aplican al próximo análisis. Desactivar una regla no detiene la recolección ni borra alertas "
+                   "anteriores. Todas vienen activadas de forma predeterminada.")
+        with st.form("detection-rules-config"):
+            selected = []
+            for rule_id in RULE_IDS:
+                help_ = RULES[rule_id]
+                if st.checkbox(f"{rule_id} · {help_.detects}", value=rule_id in enabled,
+                               key=f"detection-rule-{rule_id}", help=help_.check):
+                    selected.append(rule_id)
+            left, right = st.columns(2)
+            save_rules = left.form_submit_button("Guardar reglas", icon=":material/save:", width="stretch")
+            enable_all = right.form_submit_button("Activar todas", icon=":material/select_all:", width="stretch")
+        if save_rules or enable_all:
+            chosen = RULE_IDS if enable_all else tuple(selected)
+            service.save_enabled(chosen)
+            if not chosen:
+                st.warning("Todas las reglas quedaron desactivadas. Atalaya seguirá recolectando, pero no generará "
+                           "alertas deterministas nuevas.")
+            else:
+                st.success(f"Configuración guardada: {len(chosen)} reglas activas.")
+            st.rerun()
 
 
 def _automation_settings(settings):
@@ -1951,4 +1984,3 @@ def analysis_history():
     st.download_button("Download CSV" if lang == "en" else "Descargar CSV", export.to_csv(index=False).encode("utf-8"),
                        csv_name("historial_analisis", False),
                        "text/csv", icon=":material/download:", key="history-csv")
-
