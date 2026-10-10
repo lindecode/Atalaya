@@ -66,6 +66,32 @@ class SQLiteQueryRepository:
         with connect(self.settings.database_path, readonly=True) as db:
             return [dict(row) for row in db.execute(sql, tuple(params))]
 
+    def duplicate_files(self, since: str | None = None, limit: int = 2000):
+        """Latest observation per path for hashes found at two or more distinct paths."""
+        where, params = "1=1", []
+        if since:
+            where += " AND ts>=?"
+            params.append(since)
+        params.append(min(max(int(limit), 1), 5000))
+        sql = f"""
+            WITH ranked AS (
+              SELECT id, ts, path, size, sha256, action,
+                     ROW_NUMBER() OVER (PARTITION BY lower(path) ORDER BY ts DESC, id DESC) position
+              FROM file_events WHERE {where}
+            ), current_files AS (
+              SELECT id, ts, path, size, sha256 FROM ranked
+              WHERE position=1 AND action NOT IN ('deleted', 'moved')
+                AND sha256 IS NOT NULL AND sha256<>''
+            ), duplicate_hashes AS (
+              SELECT sha256 FROM current_files GROUP BY sha256 HAVING COUNT(*) > 1
+            )
+            SELECT current_files.* FROM current_files
+            JOIN duplicate_hashes USING (sha256)
+            ORDER BY sha256, ts DESC LIMIT ?
+        """
+        with connect(self.settings.database_path, readonly=True) as db:
+            return [dict(row) for row in db.execute(sql, tuple(params))]
+
     def counts(self, since: str):
         result = {}
         with connect(self.settings.database_path, readonly=True) as db:

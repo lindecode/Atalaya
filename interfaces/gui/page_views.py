@@ -1023,6 +1023,13 @@ def _render_alerts_table(repository, query, rows: list[dict], curr_status_names:
         _alert_detail(repository, query, target, key_prefix=key_prefix)
 
 
+def _alert_matches(row: dict, term: str) -> bool:
+    """Case-insensitive search over useful alert fields, including structured evidence."""
+    values = (row.get("rule_id"), row.get("severity"), row.get("title"), row.get("entity"),
+              row.get("status"), row.get("status_note"), row.get("evidence"))
+    return term.casefold() in " ".join(str(value or "") for value in values).casefold()
+
+
 def alerts():
     _, repository, query, since = context()
     lang = st.session_state.get("language") or "es"
@@ -1034,6 +1041,15 @@ def alerts():
     if not rows and not requested:
         empty_msg = f"No alerts. Click Analyze to evaluate rules R01–R{len(ALL_RULES):02d}." if lang == "en" else f"No hay alertas. Pulse Analizar para aplicar las reglas R01–R{len(ALL_RULES):02d}."
         return empty(empty_msg)
+
+    alert_search = st.text_input("Search alerts" if lang == "en" else "Buscar en alertas",
+                                 placeholder="Rule, title, entity, evidence, note…" if lang == "en" else
+                                             "Regla, título, entidad, evidencia, nota…",
+                                 icon=":material/search:", key="alert-search").casefold().strip()
+    if alert_search:
+        rows = [row for row in rows if _alert_matches(row, alert_search)]
+        st.caption(f"{len(rows)} matching alerts." if lang == "en" else
+                   f"{len(rows)} alertas coinciden con la búsqueda.")
 
     open_rows = [row for row in rows if row["status"] in OPEN_STATUSES]
     dismissed_rows = [row for row in rows if row["status"] == "dismissed"]
@@ -1313,7 +1329,43 @@ def files():
         with st.expander("Details" if lang == "en" else "Detalle", icon=":material/table:"):
             table(rows, key="file_events", view="file_events", lang=lang,
                   on_pick=lambda record: path_actions(record, "file-event", lang))
+    _duplicate_files(query, since, lang)
     _reputation_panel(settings, query, lang)
+
+
+def _duplicate_files(query, since: str, lang: str):
+    st.subheader("Repeated files" if lang == "en" else "Archivos repetidos", divider="gray")
+    st.caption("Same SHA-256 at different observed paths. Repeated events for one path count only once."
+               if lang == "en" else
+               "Mismo SHA-256 en rutas observadas distintas. Los eventos repetidos de una sola ruta cuentan una vez.")
+    rows = query.duplicate_files(since)
+    if not rows:
+        st.info("No repeated files with a calculated hash were found in this time window."
+                if lang == "en" else
+                "No se encontraron archivos repetidos con hash calculado en esta ventana.")
+        return
+    groups = {}
+    for row in rows:
+        groups.setdefault(row["sha256"], []).append(row)
+    extra_copies = sum(max(len(items) - 1, 0) for items in groups.values())
+    recoverable = sum(max(len(items) - 1, 0) * max(int(item.get("size") or 0) for item in items)
+                      for items in groups.values())
+    a, b, c = st.columns(3)
+    a.metric("Duplicate groups" if lang == "en" else "Grupos duplicados", len(groups))
+    b.metric("Additional copies" if lang == "en" else "Copias adicionales", extra_copies)
+    c.metric("Potential duplicate size" if lang == "en" else "Tamaño duplicado potencial",
+             f"{recoverable / 1024 ** 2:.1f} MB")
+    shown = [{"SHA-256": row["sha256"], "ruta": row["path"],
+              "tamaño": row.get("size"), "última observación": row["ts"],
+              "copias": len(groups[row["sha256"]])} for row in rows]
+    table(shown, key="duplicate-files", windowed=True, lang=lang,
+          dates=("última observación",),
+          columns={"tamaño": st.column_config.NumberColumn(format="%d bytes"),
+                   "copias": st.column_config.NumberColumn(format="%d")},
+          on_pick=lambda record: path_actions(record, "duplicate-file", lang))
+    st.caption("La cifra es orientativa: Atalaya no elimina archivos y una ruta observada podría haber cambiado "
+               "desde la recolección." if lang != "en" else
+               "The estimate is informational: Atalaya never deletes files, and an observed path may have changed.")
 
 
 def _reputation_panel(settings, query, lang):
