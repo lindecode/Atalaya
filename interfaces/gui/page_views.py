@@ -1042,12 +1042,25 @@ def alerts():
         empty_msg = f"No alerts. Click Analyze to evaluate rules R01–R{len(ALL_RULES):02d}." if lang == "en" else f"No hay alertas. Pulse Analizar para aplicar las reglas R01–R{len(ALL_RULES):02d}."
         return empty(empty_msg)
 
-    alert_search = st.text_input("Search alerts" if lang == "en" else "Buscar en alertas",
-                                 placeholder="Rule, title, entity, evidence, note…" if lang == "en" else
-                                             "Regla, título, entidad, evidencia, nota…",
-                                 icon=":material/search:", key="alert-search").casefold().strip()
+    search_col, path_col = st.columns(2)
+    alert_search = search_col.text_input("Search alerts" if lang == "en" else "Buscar en alertas",
+                                         placeholder="Rule, title, entity, evidence, note…" if lang == "en" else
+                                                     "Regla, título, entidad, evidencia, nota…",
+                                         icon=":material/search:", key="alert-search").casefold().strip()
+    path_search = path_col.text_input("Path" if lang == "en" else "Ruta",
+                                      placeholder=r"C:\Users\... or executable.exe" if lang == "en" else
+                                                  r"C:\Usuarios\... o ejecutable.exe",
+                                      icon=":material/search:", key="alert-path-search").strip()
     if alert_search:
         rows = [row for row in rows if _alert_matches(row, alert_search)]
+    if path_search:
+        try:
+            path_alert_ids = set(query.alert_ids_by_path(path_search, since))
+            rows = [row for row in rows if row["id"] in path_alert_ids]
+        except ValueError as exc:
+            st.warning(str(exc))
+            rows = []
+    if alert_search or path_search:
         st.caption(f"{len(rows)} matching alerts." if lang == "en" else
                    f"{len(rows)} alertas coinciden con la búsqueda.")
 

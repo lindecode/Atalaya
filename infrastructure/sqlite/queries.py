@@ -425,6 +425,33 @@ class SQLiteQueryRepository:
             rows = db.execute("SELECT entity_type, entity_id, snapshot_json FROM alert_evidence WHERE alert_id=? LIMIT 500", (alert_id,))
             return [{"entity_type": row[0], "entity_id": row[1], **json.loads(row[2])} for row in rows]
 
+    def alert_ids_by_path(self, term: str, since: str, limit: int = ENTITY_LIMIT) -> list[int]:
+        """Alert ids whose summary or full evidence snapshot contains a path fragment."""
+        needle = " ".join(str(term).replace("\x00", " ").split())[:500]
+        if len(needle) < 2:
+            raise ValueError("Escriba al menos 2 caracteres de la ruta")
+        pattern = "%" + needle.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+        limit = min(max(int(limit), 1), ENTITY_LIMIT)
+        with connect(self.settings.database_path, readonly=True) as db:
+            rows = db.execute(
+                """SELECT DISTINCT a.id
+                   FROM alerts AS a
+                   WHERE a.ts>=? AND (
+                       EXISTS (
+                           SELECT 1 FROM json_tree(a.evidence) AS summary_value
+                           WHERE CAST(summary_value.value AS TEXT) LIKE ? ESCAPE '\\'
+                       )
+                       OR EXISTS (
+                           SELECT 1 FROM alert_evidence AS e, json_tree(e.snapshot_json) AS snapshot_value
+                           WHERE e.alert_id=a.id
+                             AND CAST(snapshot_value.value AS TEXT) LIKE ? ESCAPE '\\'
+                       )
+                   )
+                   ORDER BY a.id DESC LIMIT ?""",
+                (since, pattern, pattern, limit),
+            ).fetchall()
+        return [int(row[0]) for row in rows]
+
 
     def latest_section_summary(self, section: str) -> dict:
         """{'ok': latest successful summary or None, 'last': latest attempt or None} for one GUI section."""
