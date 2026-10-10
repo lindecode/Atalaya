@@ -27,6 +27,8 @@ st.session_state["language"] = lang
 # Every page has a fixed url_path so links (tray menu, bookmarks, ?id=/?q= deep links) stay stable.
 navigation = st.navigation({
     t("nav.sections.home", lang=lang): [
+        st.Page("views/00_Guia.py", title="User guide" if lang == "en" else "Guía de Atalaya",
+                icon=":material/menu_book:", url_path="guia"),
         st.Page("views/01_Panel.py", title=t("nav.pages.overview", lang=lang), icon=":material/dashboard:", default=True),
         st.Page("views/02_En_vivo.py", title=t("nav.pages.live", lang=lang), icon=":material/pulse_alert:", url_path="en-vivo"),
         st.Page("views/03_Alertas.py", title=t("nav.pages.alerts", lang=lang), icon=":material/notification_important:", url_path="alertas"),

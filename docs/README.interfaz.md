@@ -4,7 +4,7 @@ La navegación actual se define en `interfaces/gui/app.py`. Es la fuente de verd
 
 ## Menús vigentes
 
-- **Inicio**: Panel, En vivo, Alertas.
+- **Inicio**: Guía de Atalaya, Panel, En vivo, Alertas. La guía aparece primero, pero Panel continúa como página predeterminada.
 - **Investigar**: Buscar, Conexiones, Procesos y RAM, Accesos, Archivos, Persistencia, Firewall.
 - **IA**: Historial de análisis, Chat, Informes.
 - **Sistema**: Primeros pasos, IA local, Ajustes.
@@ -14,6 +14,7 @@ Responsabilidades:
 - **Primeros pasos** diagnostica requisitos y permisos.
 - **IA local** configura proveedor, instalación y modelos.
 - **Ajustes** reúne configuración de funciones, reglas de detección, ciclo automático, datos y bitácora.
+- **Guía de Atalaya** es el manual integrado: explica el flujo, cada sección, las reglas y su estado real, privacidad y términos básicos. No modifica configuración.
 
 En **Sistema → Ajustes → Funciones → Reglas de detección** se habilita o deshabilita cada regla. El cambio se aplica al próximo análisis; no detiene la recolección ni elimina alertas existentes. Todas las reglas están activas por defecto y “Activar todas” restaura esa selección.
 
