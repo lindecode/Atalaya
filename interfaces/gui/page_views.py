@@ -1110,7 +1110,8 @@ def alerts():
             col_mode, _ = st.columns([2, 3])
             mode = col_mode.radio(t("alerts.mode_label", lang=lang, default="Modo de visualización"),
                                   [t("alerts.mode_list", lang=lang, default="Lista de alertas"),
-                                   t("alerts.mode_by_rule", lang=lang, default="Agrupadas por Regla")],
+                                   t("alerts.mode_by_rule", lang=lang, default="Agrupadas por Regla"),
+                                   t("alerts.mode_by_path", lang=lang, default="Agrupadas por ruta")],
                                   horizontal=True, label_visibility="collapsed", key="active-view-mode")
 
             if mode == t("alerts.mode_by_rule", lang=lang, default="Agrupadas por Regla"):
@@ -1151,6 +1152,60 @@ def alerts():
                         _render_alerts_table(repository, query, alerts_in_rule, curr_status_names, lang, requested, key_prefix=f"sub-act-{chosen_rule_id}")
                 elif not sel_rule_idx and filtered_open:
                     st.caption("Seleccione una regla de la tabla para ver y gestionar sus alertas." if lang != "en" else "Select a rule from the table to view and manage its alerts.")
+            elif mode == t("alerts.mode_by_path", lang=lang, default="Agrupadas por ruta"):
+                from collections import defaultdict
+                paths_by_alert = query.alert_paths([row["id"] for row in filtered_open])
+                path_groups = defaultdict(list)
+                without_path = []
+                for alert in filtered_open:
+                    paths = paths_by_alert.get(alert["id"], [])
+                    if paths:
+                        path_groups[paths[0]].append(alert)
+                    else:
+                        without_path.append(alert)
+
+                path_rows = []
+                for path, path_alerts in sorted(path_groups.items(), key=lambda item: (-len(item[1]), item[0].casefold())):
+                    severities = sorted({alert["severity"] for alert in path_alerts}, key=lambda value: rank.get(value, 4))
+                    path_rows.append({
+                        "Path" if lang == "en" else "Ruta": path,
+                        "Severity" if lang == "en" else "Severidad": _severity_name(severities[0], lang=lang),
+                        "Count" if lang == "en" else "Alertas (#)": len(path_alerts),
+                        "Date" if lang == "en" else "Fecha": to_local_datetime(max(alert["ts"] for alert in path_alerts)),
+                    })
+
+                if path_rows:
+                    path_column = "Path" if lang == "en" else "Ruta"
+                    count_column = "Count" if lang == "en" else "Alertas (#)"
+                    date_column = "Date" if lang == "en" else "Fecha"
+                    path_event = st.dataframe(
+                        pd.DataFrame(path_rows), hide_index=True, width="stretch", key="alerts-path-grouped",
+                        selection_mode="single-row", on_select="rerun",
+                        column_config={count_column: st.column_config.NumberColumn(format="%d"),
+                                       date_column: st.column_config.DatetimeColumn(format=COLUMN_FORMAT)},
+                    )
+                    selected_paths = list(getattr(getattr(path_event, "selection", None), "rows", None) or [])
+                    if selected_paths and selected_paths[0] < len(path_rows):
+                        selected_index = selected_paths[0]
+                        selected_path = path_rows[selected_index][path_column]
+                        alerts_in_path = path_groups[selected_path]
+                        with st.container(border=True):
+                            st.markdown(f"**{_plain(selected_path)}** · {len(alerts_in_path)} " +
+                                        ("alerts" if lang == "en" else "alertas"))
+                            _render_alerts_table(repository, query, alerts_in_path, curr_status_names, lang, requested,
+                                                 key_prefix=f"sub-path-{selected_index}")
+                    elif filtered_open:
+                        st.caption("Select a path to view its alerts." if lang == "en" else
+                                   "Seleccione una ruta para ver sus alertas.")
+                else:
+                    empty("No alerts contain an identifiable path." if lang == "en" else
+                          "Ninguna alerta contiene una ruta identificable.")
+
+                if without_path:
+                    with st.expander((f"Without an identifiable path ({len(without_path)})" if lang == "en" else
+                                      f"Sin ruta identificada ({len(without_path)})"), expanded=False):
+                        _render_alerts_table(repository, query, without_path, curr_status_names, lang, requested,
+                                             key_prefix="sub-path-none")
             else:
                 _render_alerts_table(repository, query, filtered_open, curr_status_names, lang, requested, key_prefix="alerts")
 

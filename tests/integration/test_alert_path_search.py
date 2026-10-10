@@ -35,5 +35,9 @@ def test_alert_path_search_reads_full_evidence_and_escapes_wildcards(tmp_path):
     assert query.alert_ids_by_path(r"C:\Users\Ana", since) == [recent_id]
     assert query.alert_ids_by_path("100%_safe.exe", since) == [literal_id]
     assert old_id not in query.alert_ids_by_path("rare_tool.exe", since)
+    assert query.alert_paths([recent_id, literal_id]) == {
+        recent_id: [r"C:\Users\Ana\Downloads\rare_tool.exe"],
+        literal_id: [r"C:\Samples\100%_safe.exe"],
+    }
     with pytest.raises(ValueError):
         query.alert_ids_by_path(" a ", since)

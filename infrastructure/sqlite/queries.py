@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timedelta, timezone
+from pathlib import PureWindowsPath
 
 from infrastructure.sqlite.connection import connect
 from settings import Settings
@@ -451,6 +452,39 @@ class SQLiteQueryRepository:
                 (since, pattern, pattern, limit),
             ).fetchall()
         return [int(row[0]) for row in rows]
+
+    def alert_paths(self, alert_ids: list[int]) -> dict[int, list[str]]:
+        """Return distinct absolute Windows paths embedded in alert summaries or evidence snapshots."""
+        ids = list(dict.fromkeys(int(alert_id) for alert_id in alert_ids))[:ROWS_LIMIT]
+        if not ids:
+            return {}
+        placeholders = ",".join("?" for _ in ids)
+        path_keys = ("path", "process_path", "dest_path", "image_path", "executable_path")
+        key_placeholders = ",".join("?" for _ in path_keys)
+        sql = f"""SELECT alert_id, path_value FROM (
+                      SELECT a.id AS alert_id, CAST(value.value AS TEXT) AS path_value,
+                             CASE lower(value.key) WHEN 'path' THEN 0 WHEN 'process_path' THEN 1 ELSE 2 END AS priority
+                      FROM alerts AS a, json_tree(a.evidence) AS value
+                      WHERE a.id IN ({placeholders}) AND value.type='text'
+                        AND lower(value.key) IN ({key_placeholders})
+                      UNION ALL
+                      SELECT e.alert_id, CAST(value.value AS TEXT),
+                             CASE lower(value.key) WHEN 'path' THEN 0 WHEN 'process_path' THEN 1 ELSE 2 END
+                      FROM alert_evidence AS e, json_tree(e.snapshot_json) AS value
+                      WHERE e.alert_id IN ({placeholders}) AND value.type='text'
+                        AND lower(value.key) IN ({key_placeholders})
+                  ) ORDER BY alert_id, priority, path_value"""
+        params = (*ids, *path_keys, *ids, *path_keys)
+        found: dict[int, list[str]] = {}
+        with connect(self.settings.database_path, readonly=True) as db:
+            for alert_id, value in db.execute(sql, params):
+                path = str(value or "").strip()
+                if not path or not PureWindowsPath(path).is_absolute():
+                    continue
+                paths = found.setdefault(int(alert_id), [])
+                if path.casefold() not in {item.casefold() for item in paths}:
+                    paths.append(path)
+        return found
 
 
     def latest_section_summary(self, section: str) -> dict:
