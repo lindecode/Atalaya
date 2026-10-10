@@ -22,6 +22,7 @@ Estas reglas son restricciones del producto, no sugerencias.
 - Los recolectores son de lectura; una corrección se muestra al humano y no se ejecuta automáticamente.
 - No uses rutas o parámetros de eventos para invocar procesos.
 - Para subprocesos usa argumentos fijos, `shell=False`, timeout y ejecutables identificados.
+- Abrir una ubicación usa exclusivamente `explorer.exe`: valida una ruta local absoluta y existente, rechaza recursos de red, URLs y enlaces simbólicos, y nunca ejecuta el archivo señalado.
 
 ## Secretos y datos
 

@@ -32,3 +32,5 @@ Prueba importación y renderizado básico de cada vista modificada, además de r
 Las capacidades disponibles dentro de la GUI deben invocar los servicios de `application/` mediante `bootstrap.py`. No indiques ejecutar un `.bat` desde una pantalla para completar una acción normal: los `.bat` son lanzadores opcionales de instalación, doble clic y operación externa.
 
 **Archivos → Reputación de ejecutables** permite analizar una ruta sin ejecutar el archivo. El análisis local calcula el hash y comprueba Authenticode. La consulta en VirusTotal es opcional, requiere consentimiento explícito y envía únicamente el SHA-256; la clave escrita en la pantalla se usa para esa consulta y no se persiste.
+
+Los detalles de alertas, archivos, reputación y procesos muestran acciones para rutas locales existentes. **Mostrar archivo** selecciona el elemento en Windows Explorer y **Abrir directorio** abre su carpeta; ninguna acción ejecuta el archivo. Se rechazan rutas relativas, URLs, recursos de red y enlaces simbólicos, y siempre se requiere una pulsación humana.

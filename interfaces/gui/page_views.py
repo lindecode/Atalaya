@@ -19,6 +19,7 @@ from interfaces.gui.components import (SEVERITY_COLORS, SEVERITY_ICONS, SEVERITY
                                        csv_name, page_link, plain_label, risk_banner, search_links, severity_label, table)
 from interfaces.gui.chart_data import hourly_frame
 from interfaces.gui.rule_help import OPEN_STATUSES, RULES, STATUS_NAMES, rule_help, status_names
+from interfaces.gui.path_actions import path_actions
 from interfaces.gui.safe_markdown import safe_markdown
 from interfaces.gui.table_formatting import COLUMN_FORMAT, format_local_datetime, local_series, to_local_datetime
 from interfaces.gui.table_views import EVENT_NAMES, FILE_ACTIONS, VIEWS, evidence_view
@@ -930,7 +931,8 @@ def _alert_detail(repository, query, row: dict):
             search_links(summary.values(), key=f"alert-{row['id']}")
         st.markdown("**Eventos que la originaron**")
         evidence = query.alert_evidence(row["id"])
-        table(evidence, key=f"evidence-{row['id']}", view=evidence_view(evidence), windowed=False)
+        table(evidence, key=f"evidence-{row['id']}", view=evidence_view(evidence), windowed=False,
+              on_pick=lambda record: path_actions(record, f"alert-{row['id']}", lang))
         for incident in query.llm_incidents_for(row["id"]):
             st.markdown(f"**Análisis del LLM** ({_plain(incident['model'])}) · severidad LLM: `{incident['severity']}` · "
                         f"posible falso positivo: `{incident['false_positive_likelihood']}`")
@@ -942,11 +944,17 @@ def _alert_detail(repository, query, row: dict):
                 st.text("Recomendaciones: " + "; ".join(incident["recommended_actions"]))
         note = st.text_input("Nota", key=f"note-{row['id']}")
         a, b, c = st.columns(3)
-        if a.button("Confirmar", key=f"confirm-{row['id']}", icon=":material/check_circle:"):
+        if a.button("Confirmar" if lang != "en" else "Confirm", key=f"confirm-{row['id']}", icon=":material/check_circle:"):
             _set_status(repository, [row["id"]], "confirmed", note); st.rerun()
-        if b.button("Descartar", key=f"dismiss-{row['id']}", icon=":material/cancel:"):
-            _set_status(repository, [row["id"]], "dismissed", note); st.rerun()
-        if row["rule_id"] in BASELINE_RULES and c.button("Aprobar como normal", key=f"approve-{row['id']}",
+        if row["status"] == "dismissed":
+            reactivate_lbl = t("alerts.reactivate_btn", lang=lang, default="Reactivar alerta")
+            if b.button(reactivate_lbl, key=f"reactivate-{row['id']}", icon=":material/replay:"):
+                _set_status(repository, [row["id"]], "new", note or t("alerts.reactivated_note", lang=lang, default="Reactivada manualmente"))
+                st.rerun()
+        else:
+            if b.button("Descartar" if lang != "en" else "Dismiss", key=f"dismiss-{row['id']}", icon=":material/cancel:"):
+                _set_status(repository, [row["id"]], "dismissed", note); st.rerun()
+        if row["rule_id"] in BASELINE_RULES and c.button("Aprobar como normal" if lang != "en" else "Approve baseline", key=f"approve-{row['id']}",
                                                          icon=":material/verified:"):
             repository.approve_alert(row["id"], SystemClock().now_iso()); refresh_data(); st.rerun()
 
@@ -959,8 +967,13 @@ def _bulk_actions(repository, selected: list[dict]):
         ids = [row["id"] for row in selected]
         if a.button("Confirmar seleccionadas", key="bulk-confirm", icon=":material/check_circle:"):
             _set_status(repository, ids, "confirmed", note); st.rerun()
-        if b.button("Descartar seleccionadas", key="bulk-dismiss", icon=":material/cancel:"):
-            _set_status(repository, ids, "dismissed", note); st.rerun()
+        all_dismissed = all(row["status"] == "dismissed" for row in selected)
+        if all_dismissed:
+            if b.button("Reactivar seleccionadas", key="bulk-reactivate", icon=":material/replay:"):
+                _set_status(repository, ids, "new", note or "Reactivadas en lote"); st.rerun()
+        else:
+            if b.button("Descartar seleccionadas", key="bulk-dismiss", icon=":material/cancel:"):
+                _set_status(repository, ids, "dismissed", note); st.rerun()
         approvable = [row["id"] for row in selected if row["rule_id"] in BASELINE_RULES]
         if approvable and c.button(f"Aprobar como normal ({len(approvable)})", key="bulk-approve",
                                    icon=":material/verified:", help="Solo las de reglas con baseline: "
@@ -1115,7 +1128,8 @@ def files():
         with left: _top_chart(query, "file_events", "extension", since, "Extensions" if lang == "en" else "Extensiones", key="files-ext")
         with right: _top_chart(query, "file_events", "action", since, "Actions" if lang == "en" else "Acciones", key="files-action")
         with st.expander("Details" if lang == "en" else "Detalle", icon=":material/table:"):
-            table(rows, key="file_events", view="file_events", lang=lang)
+            table(rows, key="file_events", view="file_events", lang=lang,
+                  on_pick=lambda record: path_actions(record, "file-event", lang))
     _reputation_panel(settings, query, lang)
 
 
@@ -1177,7 +1191,8 @@ def _reputation_panel(settings, query, lang):
                if lang == "en" else
                "El ejecutable nunca se carga. La consulta online es opcional y envía únicamente su SHA-256.")
     reputations = query.rows("file_reputation", None, 100)
-    table(reputations, key="file_reputation", view="file_reputation", windowed=False, lang=lang)
+    table(reputations, key="file_reputation", view="file_reputation", windowed=False, lang=lang,
+          on_pick=lambda record: path_actions(record, "reputation", lang))
 
 
 def persistence():
@@ -1200,7 +1215,8 @@ def persistence():
     top_title = "Items first seen, by type" if lang == "en" else "Elementos vistos por primera vez, por tipo"
     _top_chart(query, "persistence_items", "kind", since, top_title, names, key="persistence")
     with st.expander("Details" if lang == "en" else "Detalle", icon=":material/table:"):
-        table(rows, key="persistence_items", view="persistence_items", lang=lang)
+        table(rows, key="persistence_items", view="persistence_items", lang=lang,
+              on_pick=lambda record: path_actions(record, "persistence", lang))
 
 
 def firewall():
@@ -1840,7 +1856,8 @@ def processes():
         with st.expander("Processes in paths requiring review" if lang == "en" else "Procesos en rutas que requieren revisión", icon=":material/warning:"):
             table([{"proceso": row.get("name"), "pid": row.get("pid"), "padre": row.get("parent_name"),
                     "memoria MB": row["memoria_mb"], "ruta": row.get("path")}
-                   for row in suspicious], key="processes-suspicious", windowed=False, columns=MEMORY_COLUMNS, lang=lang)
+                   for row in suspicious], key="processes-suspicious", windowed=False, columns=MEMORY_COLUMNS, lang=lang,
+                  on_pick=lambda record: path_actions(record, "process-suspicious", lang))
 
     top = pd.DataFrame(current[:20])
     figure = px.bar(top.sort_values("memoria_mb"), x="memoria_mb", y="name", orientation="h",
@@ -1855,7 +1872,8 @@ def processes():
     table([{"proceso": row.get("name"), "pid": row.get("pid"), "privada MB": row["memoria_mb"],
             "RSS MB": row["rss_mb"], "% RAM": row.get("memory_percent"), "estado": row.get("status"),
             "usuario": row.get("process_user"), "padre": row.get("parent_name"), "ruta": row.get("path")}
-           for row in filtered], key="processes-current", windowed=False, columns=MEMORY_COLUMNS, lang=lang)
+           for row in filtered], key="processes-current", windowed=False, columns=MEMORY_COLUMNS, lang=lang,
+          on_pick=lambda record: path_actions(record, "process-current", lang))
 
     st.subheader("History" if lang == "en" else "Historial", divider="gray")
     choices = {f"{row.get('name') or '?'} · PID {row['pid']} · {row['process_key'][:8]}": row["process_key"]
@@ -1876,7 +1894,8 @@ def processes():
     table([{"proceso": row.get("name"), "pid": row.get("pid"), "inicio observado": row.get("first_seen"),
             "última observación": row.get("last_seen"), "fin inferido": row.get("ended_at"),
             "pico privado MB": round((row.get("peak_private_bytes") or 0) / 1024 ** 2, 1), "ruta": row.get("path")}
-           for row in ended], key="processes-ended", windowed=False, columns=MEMORY_COLUMNS, lang=lang)
+           for row in ended], key="processes-ended", windowed=False, columns=MEMORY_COLUMNS, lang=lang,
+          on_pick=lambda record: path_actions(record, "process-ended", lang))
 
 
 
@@ -1932,7 +1951,8 @@ def search():
                     _link("views/03_Alertas.py", alert_lbl, ":material/open_in_new:",
                           query_params={"id": row["id"]})
             table(rows, key=f"search-{name}", view=name if name in VIEWS else None,
-                  windowed=name not in {"process_lifecycle", "persistence_items", "file_reputation"}, lang=lang)
+                  windowed=name not in {"process_lifecycle", "persistence_items", "file_reputation"}, lang=lang,
+                  on_pick=lambda record, section=name: path_actions(record, f"search-{section}", lang))
 
 
 
