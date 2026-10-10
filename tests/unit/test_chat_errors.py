@@ -25,5 +25,5 @@ def test_chat_reports_bad_tool_arguments_to_the_model(tmp_path):
             return SimpleNamespace(message=SimpleNamespace(content="No pude filtrar por esa fecha.", tool_calls=[]))
 
     result = ChatService(settings, SQLiteQueryTools(settings), Client()).ask("alertas de la semana pasada")
-    assert result["tool_calls"][0]["error"]
+    assert any(call.get("error") for call in result["tool_calls"] if not call.get("prefetch"))
     assert result["answer"]

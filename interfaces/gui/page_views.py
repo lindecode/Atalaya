@@ -1493,9 +1493,9 @@ def chat():
         from bootstrap import build_recorded_chat_service
         with conversation_col:
             with st.chat_message("user"): st.text(prompt)
-            with st.spinner("Consultando la evidencia local..."):
+            with st.spinner("Checking the local evidence..." if lang == "en" else "Consultando la evidencia local..."):
                 try:
-                    result = build_recorded_chat_service().ask(prompt, current)
+                    result = build_recorded_chat_service().ask(prompt, current, lang=lang)
                     st.session_state["chat_session_id"] = result["session_id"]
                 except Exception as exc:
                     # The error is already stored in the conversation; keep it selected so it is visible

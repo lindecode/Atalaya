@@ -159,7 +159,7 @@ def build_chat_history(settings: Settings | None = None) -> SQLiteChatHistory:
 
 
 def build_recorded_chat_service(settings: Settings | None = None, model: str | None = None) -> RecordedChatService:
-    effective = _with_model(settings, model, "analysis")
+    effective = _with_model(settings, model)  # the chat role, not the analysis model
     effective, _, _, embedder_class, _ = build_components(effective)
     history = build_chat_history(effective)
     memory = ConversationMemoryService(history, embedder_class(effective))

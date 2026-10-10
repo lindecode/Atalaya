@@ -23,6 +23,8 @@ class SecureChatHarness:
 
     def tool_payload(self, name: str, rows):
         boundary = "TRUSTED_KNOWLEDGE" if name == "search_knowledge" else "UNTRUSTED_EVIDENCE"
+        if isinstance(rows, dict):  # SQL tools return {"summary", "rows"}: totals first, then the sample
+            return {"boundary": boundary, "tool": name, "summary": rows.get("summary", {}), "rows": rows.get("rows", [])}
         return {"boundary": boundary, "tool": name, "rows": rows}
 
     def validate_answer(self, answer: str, trace):

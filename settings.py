@@ -106,6 +106,8 @@ class Settings:
     llama_cpp_embedding_model_path: Path = field(default_factory=lambda: Path(os.environ.get(
         "ATALAYA_LLAMA_CPP_EMBEDDING_MODEL", _default_llama_embedding_model())))
     llama_cpp_context_size: int = 8192
+    # Ollama's default (~4k tokens) silently cuts the policy and the evidence out of a chat prompt
+    chat_context_tokens: int = field(default_factory=lambda: int(os.environ.get("ATALAYA_CHAT_CONTEXT", "16384")))
     llm_timeout_seconds: float = 60.0
     llm_max_alerts: int = 40      # per analyze run; the rest stay 'new' for the next run
     llm_batch_size: int = 8

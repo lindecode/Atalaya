@@ -61,6 +61,22 @@ def _status_header(settings):
             st.warning(f"El proveedor no responde: {status['error']}", icon=":material/cloud_off:")
 
 
+def parameter_billions(text) -> float | None:
+    """'4.7B' -> 4.7, '806M' -> 0.806; None when Ollama does not report the size."""
+    import re
+    match = re.fullmatch(r"\s*([\d.]+)\s*([BMK])\s*", str(text or ""), re.IGNORECASE)
+    if not match:
+        return None
+    return float(match.group(1)) * {"B": 1, "M": 1e-3, "K": 1e-6}[match.group(2).upper()]
+
+
+def effective_billions(name: str, parameters) -> float | None:
+    """Gemma 'e2b'/'e4b' tags name the effective size; the reported total (4.6B for e2b) overstates it."""
+    import re
+    tag = re.search(r":e(\d+(?:\.\d+)?)b\b", str(name), re.IGNORECASE)
+    return float(tag.group(1)) if tag else parameter_billions(parameters)
+
+
 def _ollama_roles(settings):
     from bootstrap import build_model_service
 
@@ -99,6 +115,10 @@ def _ollama_roles(settings):
         column.caption("Recomendado en este equipo: " + (recommended["name"] if recommended else "ninguno"))
         if selected and role == "chat" and not by_name[selected]["tools"]:
             column.warning("Este modelo no admite herramientas: el chat no podrá consultar la evidencia.")
+        size = effective_billions(selected, by_name[selected]["parameters"]) if selected else None
+        if role == "chat" and size is not None and size < 3:
+            column.warning(f"Modelo pequeño (~{size:g}B efectivos): el chat será poco fiable al elegir herramientas "
+                           "y redactar. Use uno de 4B o más (p. ej. qwen3.5:4b) o uno de 7-8B si la GPU lo permite.")
         if selected and selected != current:
             model_service.select(selected, role)
             refresh_ai_status()

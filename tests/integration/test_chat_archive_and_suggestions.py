@@ -60,7 +60,7 @@ def test_a_suggestion_is_sent_as_the_question(tmp_path, monkeypatch):
     asked = []
 
     class FakeChat:
-        def ask(self, question, session_id=None):
+        def ask(self, question, session_id=None, **_):
             asked.append(question)
             return {"session_id": None}
 

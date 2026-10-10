@@ -18,7 +18,7 @@ class RecordedChatService:
     def __init__(self, chat, history, clock, model: str, memory=None):
         self.chat, self.history, self.clock, self.model, self.memory = chat, history, clock, model, memory
 
-    def ask(self, question: str, session_id: int | None = None) -> dict[str, Any]:
+    def ask(self, question: str, session_id: int | None = None, lang: str | None = None) -> dict[str, Any]:
         question = " ".join(question.split())
         if not question:
             raise ValueError("Pregunta vacía")
@@ -29,7 +29,8 @@ class RecordedChatService:
         self.history.add_message(session_id, self.clock.now_iso(), "user", question)
         started = time.perf_counter()
         try:
-            result = self.chat.ask(question, context=context) if context else self.chat.ask(question)
+            options = {key: value for key, value in (("context", context), ("lang", lang)) if value}
+            result = self.chat.ask(question, **options)
         except Exception as exc:
             self.history.add_message(session_id, self.clock.now_iso(), "error", f"{type(exc).__name__}: {exc}", self.model,
                                      duration_ms=int((time.perf_counter() - started) * 1000))
