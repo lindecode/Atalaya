@@ -33,17 +33,20 @@ class SQLiteChatHistory:
                 (session_id, ts, role, content, model,
                  json.dumps(tool_calls, ensure_ascii=False, default=str) if tool_calls is not None else None, duration_ms),
             )
-            db.execute("UPDATE chat_sessions SET updated_at=? WHERE id=?", (ts, session_id))
+            # Writing in an archived conversation brings it back to the active list
+            db.execute("UPDATE chat_sessions SET updated_at=?, archived_at=NULL WHERE id=?", (ts, session_id))
             return int(cursor.lastrowid)
 
-    def list_sessions(self, search: str | None = None, limit: int = 100) -> list[dict[str, Any]]:
-        sql = """SELECT s.id, s.title, s.created_at, s.updated_at, COUNT(m.id) messages
-                 FROM chat_sessions s LEFT JOIN chat_messages m ON m.session_id = s.id"""
+    def list_sessions(self, search: str | None = None, limit: int = 100, archived: bool = False) -> list[dict[str, Any]]:
+        """Active conversations by default; archived=True lists only the archived ones."""
+        sql = """SELECT s.id, s.title, s.created_at, s.updated_at, s.archived_at, COUNT(m.id) messages
+                 FROM chat_sessions s LEFT JOIN chat_messages m ON m.session_id = s.id
+                 WHERE s.archived_at IS """ + ("NOT NULL" if archived else "NULL")
         params: list[Any] = []
         if search:
             # Match the title or any message of the conversation
-            sql += """ WHERE s.title LIKE ? ESCAPE '\\' OR s.id IN
-                       (SELECT session_id FROM chat_messages WHERE content LIKE ? ESCAPE '\\')"""
+            sql += """ AND (s.title LIKE ? ESCAPE '\\' OR s.id IN
+                       (SELECT session_id FROM chat_messages WHERE content LIKE ? ESCAPE '\\'))"""
             pattern = "%" + search.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
             params += [pattern, pattern]
         sql += " GROUP BY s.id ORDER BY s.updated_at DESC LIMIT ?"
@@ -61,6 +64,12 @@ class SQLiteChatHistory:
         for message in messages:
             message["tool_calls"] = json.loads(message.pop("tool_calls_json") or "null")
         return {**dict(session), "messages": messages}
+
+    def set_archived(self, session_id: int, archived: bool, ts: str) -> bool:
+        """Archive (hide from the active list, keep everything) or restore a conversation."""
+        with self._connect() as db:
+            return db.execute("UPDATE chat_sessions SET archived_at=? WHERE id=?",
+                              (ts if archived else None, session_id)).rowcount == 1
 
     def delete_session(self, session_id: int) -> bool:
         with self._connect() as db:

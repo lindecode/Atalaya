@@ -118,7 +118,9 @@ def test_chat_page_lists_and_opens_saved_conversations(tmp_path, monkeypatch):
     title = "![x](http://evil.example/beacon.png) conexiones"
     session = history.create_session(title, now)
     history.add_message(session, now, "user", title)
-    history.add_message(session, now, "assistant", "Hubo 2 conexiones RDP [K:1]", "qwen3.5:4b", [{"name": "get_auth_events", "ids": [7]}], 1200)
+    answer = ("## Resumen\n**Hubo 2 conexiones RDP** [K:1] ![p](http://evil.example/leak.png) "
+              "[guía](http://evil.example/login)")
+    history.add_message(session, now, "assistant", answer, "qwen3.5:4b", [{"name": "get_auth_events", "ids": [7]}], 1200)
 
     app = AppTest.from_file(ROOT / "interfaces/gui/views/21_Chat.py", default_timeout=30).run()
     assert not app.exception
@@ -127,7 +129,9 @@ def test_chat_page_lists_and_opens_saved_conversations(tmp_path, monkeypatch):
 
     app = button.click().run()
     assert not app.exception
-    assert any("Hubo 2 conexiones RDP" in text.value for text in app.text)
+    rendered = next(element.value for element in app.markdown if "Hubo 2 conexiones RDP" in element.value)
+    assert rendered.startswith("## Resumen") and "**Hubo 2 conexiones RDP**" in rendered  # Markdown kept
+    assert "](http" not in rendered and "`http://evil.example/login`" in rendered  # no image, no live link
 
 
 def test_about_dialog_shows_author(tmp_path, monkeypatch):

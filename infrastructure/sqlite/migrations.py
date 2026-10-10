@@ -363,4 +363,8 @@ MIGRATIONS: tuple[str, ...] = (
     );
     CREATE INDEX IF NOT EXISTS idx_conn_direction_ts ON connections(direction, ts);
     """,
+    """
+    ALTER TABLE chat_sessions ADD COLUMN archived_at TEXT;
+    CREATE INDEX idx_chat_sessions_archived ON chat_sessions(archived_at, updated_at);
+    """,
 )

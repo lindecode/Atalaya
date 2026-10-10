@@ -19,6 +19,7 @@ from interfaces.gui.components import (SEVERITY_COLORS, SEVERITY_ICONS, SEVERITY
                                        csv_name, page_link, plain_label, risk_banner, search_links, severity_label, table)
 from interfaces.gui.chart_data import hourly_frame
 from interfaces.gui.rule_help import OPEN_STATUSES, RULES, STATUS_NAMES, rule_help, status_names
+from interfaces.gui.safe_markdown import safe_markdown
 from interfaces.gui.table_formatting import COLUMN_FORMAT, format_local_datetime, local_series, to_local_datetime
 from interfaces.gui.table_views import EVENT_NAMES, FILE_ACTIONS, VIEWS, evidence_view
 from shared.i18n import DEFAULT_LANGUAGE, t
@@ -1340,8 +1341,11 @@ def _show_message(message: dict):
     with st.chat_message(role):
         if message["role"] == "error":
             st.error("Chat local no disponible")
-        # Answers are shaped by collected data and questions are free text: plain text only
-        st.text(message["content"])
+        if message["role"] == "assistant":
+            # The model writes Markdown; images, links and URLs are neutralized (see safe_markdown)
+            st.markdown(safe_markdown(message["content"], st.session_state.get("language") or "es"))
+        else:
+            st.text(message["content"])
         details = [_local(message["ts"])]
         if message.get("model"): details.append(message["model"])
         if message.get("duration_ms"): details.append(f"{message['duration_ms'] / 1000:.1f} s")
@@ -1351,8 +1355,50 @@ def _show_message(message: dict):
                 st.json(message["tool_calls"])
 
 
+def _chat_suggestions(query, lang: str) -> list[str]:
+    """Starter questions; the first ones follow what is in the data right now."""
+    tr = lambda es, en: en if lang == "en" else es
+    severities = query.open_alerts_by_severity()
+    serious = severities.get("critical", 0) + severities.get("high", 0)
+    suggestions = []
+    if serious:
+        suggestions.append(tr(f"Hay {serious} alertas críticas o altas abiertas: ¿cuál reviso primero y por qué?",
+                              f"There are {serious} open critical or high alerts: which should I review first and why?"))
+    elif sum(severities.values()):
+        suggestions.append(tr("¿Qué alertas abiertas hay y cuáles podrían ser falsos positivos?",
+                              "Which alerts are open and which could be false positives?"))
+    else:
+        suggestions.append(tr("¿Hubo alguna alerta en las últimas 24 horas?", "Were there any alerts in the last 24 hours?"))
+    suggestions += [
+        tr("¿Con qué servicios de Internet se conectó este equipo hoy?",
+           "Which Internet services did this computer connect to today?"),
+        tr("¿Hubo inicios de sesión fallidos o accesos remotos esta semana?",
+           "Were there failed logons or remote access this week?"),
+        tr("¿Qué programas nuevos se configuraron para arrancar con Windows?",
+           "Which new programs were set to start with Windows?"),
+        tr("¿Qué procesos usan más memoria ahora y alguno parece sospechoso?",
+           "Which processes use the most memory now, and does any look suspicious?"),
+        tr("¿Qué puertos tiene abiertos este equipo y quién se conecta a ellos?",
+           "Which ports does this computer have open and who connects to them?"),
+        tr("¿Cómo activo el registro del firewall de Windows?", "How do I turn on the Windows firewall log?"),
+        tr("¿Hay ejecutables con mala reputación o sin firma válida?",
+           "Are there executables with bad reputation or no valid signature?"),
+    ]
+    return suggestions[:8]
+
+
+def _suggestion_buttons(suggestions: list[str], key: str, columns: int = 2):
+    """Clicking a suggestion sends it as the next question."""
+    grid = st.columns(columns)
+    for index, text in enumerate(suggestions):
+        if grid[index % columns].button(text, key=f"{key}-{index}", width="stretch", icon=":material/lightbulb:",
+                                        help=text):  # long questions are truncated on the button
+            st.session_state["chat-pending"] = text
+            st.rerun()
+
+
 def chat():
-    context(window_applies=False)
+    _, _, query, _ = context(window_applies=False)
     lang = st.session_state.get("language") or "es"
     hero("💬 Chat", "Pregunte en lenguaje natural sobre la evidencia recolectada y la documentación local. "
                     "Las conversaciones se guardan en la base local para consultarlas después.", page_key="chat", lang=lang)
@@ -1374,9 +1420,20 @@ def chat():
         search = st.text_input("Buscar" if lang != "en" else "Search",
                                placeholder="text in questions or answers" if lang == "en" else "texto en preguntas o respuestas",
                                key="chat-search", label_visibility="collapsed")
-        sessions = history.list_sessions(search or None, 50)
+        if st.session_state.pop("chat-show-active", False):  # a restore asked for the active list; set before drawing
+            st.session_state["chat-archived"] = False
+        show_archived = st.toggle("Archived" if lang == "en" else "Archivadas", key="chat-archived",
+                                  help=("Conversations you archived: hidden from the list, nothing is deleted."
+                                        if lang == "en" else
+                                        "Conversaciones que archivó: ocultas de la lista, no se borra nada."))
+        sessions = history.list_sessions(search or None, 50, archived=show_archived)
         if not sessions:
-            st.caption("No conversations" if lang == "en" else "Sin conversaciones" + (" que coincidan." if search else " todavía."))
+            if lang == "en":
+                st.caption("No archived conversations." if show_archived else
+                           "No conversations" + (" match." if search else " yet."))
+            else:
+                st.caption("No hay conversaciones archivadas." if show_archived else
+                           "Sin conversaciones" + (" que coincidan." if search else " todavía."))
         current = st.session_state.get("chat_session_id")
         for session in sessions:
             msg_word = "msg" if lang == "en" else "msj"
@@ -1395,25 +1452,42 @@ def chat():
         if session:
             top_left, top_right = st.columns([3, 1])
             created_word = "created" if lang == "en" else "creada"
-            top_left.markdown(f"**#{session['id']}** · {created_word} {_local(session['created_at'])}")
+            archived_word = (" · archived" if lang == "en" else " · archivada") if session.get("archived_at") else ""
+            top_left.markdown(f"**#{session['id']}** · {created_word} {_local(session['created_at'])}{archived_word}")
             with top_right.popover("Options" if lang == "en" else "Opciones", icon=":material/more_horiz:", width="stretch"):
                 st.download_button("Export to Markdown" if lang == "en" else "Exportar a Markdown", history.export_markdown(session["id"]).encode("utf-8"),
                                    f"chat_{session['id']}.md", "text/markdown", icon=":material/download:", key="chat-export")
+                if session.get("archived_at"):
+                    if st.button("Restore conversation" if lang == "en" else "Restaurar conversación",
+                                 icon=":material/unarchive:", key="chat-unarchive"):
+                        history.set_archived(session["id"], False, SystemClock().now_iso())
+                        st.session_state["chat-show-active"] = True
+                        st.rerun()
+                elif st.button("Archive conversation" if lang == "en" else "Archivar conversación",
+                               icon=":material/archive:", key="chat-archive",
+                               help=("Hides it from the list without deleting it." if lang == "en" else
+                                     "La oculta de la lista sin borrarla.")):
+                    history.set_archived(session["id"], True, SystemClock().now_iso())
+                    st.session_state["chat_session_id"] = None
+                    st.rerun()
                 if st.button("Delete conversation" if lang == "en" else "Borrar conversación", icon=":material/delete:", type="primary", key="chat-delete"):
                     history.delete_session(session["id"])
                     st.session_state["chat_session_id"] = None
                     st.rerun()
             for message in session["messages"]:
                 _show_message(message)
+            with st.expander("Suggested questions" if lang == "en" else "Preguntas sugeridas", icon=":material/lightbulb:"):
+                _suggestion_buttons(_chat_suggestions(query, lang), "chat-suggest-more")
         else:
-            st.info("Type a question below to start a new conversation, or open a previous one on the left."
+            st.info("Type a question below or choose one of these to start a new conversation; previous ones are on the left."
                     if lang == "en" else
-                    "Escriba una pregunta abajo para empezar una conversación nueva, o abra una anterior a la izquierda.")
+                    "Escriba una pregunta abajo o elija una de estas para empezar; las conversaciones anteriores están a la izquierda.")
+            _suggestion_buttons(_chat_suggestions(query, lang), "chat-suggest")
 
     chat_input_ph = ("Ask about alerts, access, connections, files, persistence, or reputation"
                      if lang == "en" else
                      "Pregunta sobre alertas, accesos, conexiones, archivos, persistencia o reputación")
-    prompt = st.chat_input(chat_input_ph)
+    prompt = st.chat_input(chat_input_ph) or st.session_state.pop("chat-pending", None)
 
     if prompt:
         from bootstrap import build_recorded_chat_service
