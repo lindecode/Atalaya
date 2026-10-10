@@ -17,9 +17,9 @@ class Clock:
 
 class Catalog:
     def list_models(self):
-        return [{"name": "qwen3.5:4b", "chat": True, "tools": True},
-                {"name": "granite4.1:3b", "chat": True, "tools": True},
-                {"name": "all-minilm:latest", "chat": False, "tools": False}]
+        return [{"name": "qwen3.5:4b", "chat": True, "tools": True, "capabilities": ["completion", "tools"]},
+                {"name": "granite4.1:3b", "chat": True, "tools": True, "capabilities": ["completion", "tools"]},
+                {"name": "all-minilm:latest", "chat": False, "tools": False, "capabilities": ["embedding"]}]
 
 
 def test_model_selection_is_persisted_and_validated(tmp_path):
@@ -31,8 +31,24 @@ def test_model_selection_is_persisted_and_validated(tmp_path):
     assert ModelService(repository, Catalog(), Clock(), settings).current() == "granite4.1:3b"
     with pytest.raises(ValueError, match="embeddings"):
         service.select("all-minilm:latest")
+    service.select("all-minilm:latest", "embedding")
+    assert ModelService(repository, Catalog(), Clock(), settings).current("embedding") == "all-minilm:latest"
+    with pytest.raises(ValueError, match="no genera embeddings"):
+        service.select("qwen3.5:4b", "embedding")
     with pytest.raises(ValueError, match="no está instalado"):
         service.select("llama9:70b")
+
+
+def test_selected_embedding_model_is_used_by_rag(tmp_path):
+    from bootstrap import build_rag_service
+
+    settings = replace(Settings(), database_path=tmp_path / "t.db", llm_provider="ollama")
+    repository = SQLiteRepository(settings)
+    ModelService(repository, Catalog(), Clock(), settings).select("all-minilm:latest", "embedding")
+
+    rag = build_rag_service(settings)
+
+    assert rag.embedder.model == "all-minilm:latest"
 
 
 def test_think_flag_is_dropped_for_models_without_thinking():

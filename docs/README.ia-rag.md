@@ -8,6 +8,7 @@ La IA complementa reglas deterministas; no sustituye la detección ni la decisi�
 - Descarga, registro y asignación requieren acción explícita del usuario.
 - Las recomendaciones por RAM, CPU, VRAM y disco son orientativas.
 - Separa modelos de chat/herramientas, análisis, resumen y embeddings.
+- **Sistema → IA local → Modelos por función** muestra también los modelos de embeddings instalados. Se seleccionan para indexación y búsqueda RAG; no pueden abrirse como chat.
 - Si el proveedor falla, conserva reglas, búsqueda léxica y resultados parciales.
 
 ## Contexto y chunks

@@ -8,7 +8,8 @@ from settings import Settings
 
 
 MODEL_PREFERENCE = "ollama_model"
-ROLE_PREFERENCES = {"chat": "ollama_model_chat", "analysis": "ollama_model_analysis", "summary": "ollama_model_summary"}
+ROLE_PREFERENCES = {"chat": "ollama_model_chat", "analysis": "ollama_model_analysis",
+                    "summary": "ollama_model_summary", "embedding": "ollama_model_embedding"}
 
 
 class ModelService:
@@ -23,21 +24,26 @@ class ModelService:
     def current(self, role: str = "chat") -> str:
         self.repository.initialize()
         if role not in ROLE_PREFERENCES: raise ValueError(f"Rol de modelo inválido: {role}")
+        fallback = self.settings.ollama_embedding_model if role == "embedding" else self.settings.ollama_model
         return (self.repository.get_preference(ROLE_PREFERENCES[role])
-                or self.repository.get_preference(MODEL_PREFERENCE) or self.settings.ollama_model)
+                or (self.repository.get_preference(MODEL_PREFERENCE) if role != "embedding" else None)
+                or fallback)
 
     def available(self) -> list[dict[str, Any]]:
         """Raises if the selected local provider is unreachable."""
         return self.catalog.list_models()
 
     def select(self, name: str, role: str = "chat") -> dict[str, Any]:
+        if role not in ROLE_PREFERENCES: raise ValueError(f"Rol de modelo inválido: {role}")
         model = next((item for item in self.available() if item["name"] == name), None)
         if model is None:
             raise ValueError(f"El modelo {name!r} no está instalado o disponible en el proveedor local")
-        if not model["chat"]:
+        embedding = "embedding" in model.get("capabilities", ()) or not model["chat"]
+        if role == "embedding" and not embedding:
+            raise ValueError(f"{name} es un modelo de conversación y no genera embeddings")
+        if role != "embedding" and not model["chat"]:
             raise ValueError(f"{name} es un modelo de embeddings y no puede analizar ni conversar")
         self.repository.initialize()
-        if role not in ROLE_PREFERENCES: raise ValueError(f"Rol de modelo inválido: {role}")
         self.repository.set_preference(ROLE_PREFERENCES[role], name, self.clock.now_iso())
         return model
 

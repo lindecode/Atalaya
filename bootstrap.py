@@ -112,6 +112,10 @@ def build_model_service(settings: Settings | None = None) -> ModelService:
 def _with_model(settings: Settings | None, model: str | None, role: str = "chat") -> Settings:
     """Explicit --model wins, then the model chosen in the GUI/`models use`, then the default in settings.py."""
     effective = effective_settings(replace(settings or Settings(), llm_role=role), role)
+    if role == "embedding":
+        if provider_name(effective) == "ollama":
+            return replace(effective, ollama_embedding_model=model or build_model_service(effective).current(role))
+        return effective
     return replace(effective, ollama_model=model or build_model_service(effective).current(role))
 
 
@@ -142,7 +146,7 @@ def build_chat_service(settings: Settings | None = None, model: str | None = Non
 
 
 def build_doctor_service(settings: Settings | None = None) -> DoctorService:
-    effective = settings or Settings()
+    effective = _with_model(settings, None, "embedding")
     puller = (lambda name: pull_model(effective, name)) if provider_name(effective) == "ollama" else None
     return DoctorService(effective, build_model_service(effective), webview2_version=webview2_version,
                          model_puller=puller)
@@ -165,7 +169,7 @@ def build_recorded_chat_service(settings: Settings | None = None, model: str | N
 
 def build_rag_service(settings: Settings | None = None, embedding_model: str | None = None,
                       lexical_only: bool = False) -> RagService:
-    effective = effective_settings(replace(settings or Settings(), llm_role="embedding"), "embedding")
+    effective = _with_model(settings, embedding_model, "embedding")
     if lexical_only:
         return RagService(SQLiteKnowledgeStore(effective), SystemClock(), effective, None)
     effective, _, _, embedder_class, _ = build_components(effective)

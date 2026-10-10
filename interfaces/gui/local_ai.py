@@ -70,32 +70,41 @@ def _ollama_roles(settings):
     except Exception as exc:
         st.warning(f"Ollama no disponible: {exc}. Instálelo o arránquelo en la pestaña Ollama.")
         return
-    usable = [item for item in installed if item["chat"]]
-    names = [item["name"] for item in usable]
-    if not names:
+    chat_models = [item for item in installed if item["chat"]]
+    embedding_models = [item for item in installed
+                        if "embedding" in item.get("capabilities", ()) or not item["chat"]]
+    if not chat_models:
         st.info("No hay modelos de chat descargados. Descargue uno en la pestaña Ollama.")
         return
-    by_name = {item["name"]: item for item in usable}
+    by_name = {item["name"]: item for item in installed}
     recommendations = model_service.recommendations()
-    columns = st.columns(3)
-    for column, role in zip(columns, ("analysis", "chat", "summary")):
+    columns = st.columns(2)
+    for index, role in enumerate(("analysis", "chat", "summary", "embedding")):
+        column = columns[index % 2]
+        candidates = embedding_models if role == "embedding" else chat_models
+        names = [item["name"] for item in candidates]
+        if not names:
+            column.warning("No hay un modelo de embeddings instalado." if role == "embedding" else
+                           "No hay un modelo compatible instalado.")
+            continue
         current = model_service.current(role)
-        selected = column.selectbox(ROLE_NAMES[role], names, index=names.index(current) if current in names else 0,
+        selected = column.selectbox(ROLE_NAMES[role], names,
+                                    index=names.index(current) if current in names else None,
+                                    placeholder="Seleccione un modelo",
                                     key=f"model-role-{role}",
                                     format_func=lambda name: f"{name} · {by_name[name]['parameters'] or '?'}"
-                                                             + ("" if by_name[name]["tools"] else " · sin tools"))
+                                                             + (("" if by_name[name]["tools"] else " · sin tools")
+                                                                if role == "chat" else ""))
         recommended = recommendations.get(role)
         column.caption("Recomendado en este equipo: " + (recommended["name"] if recommended else "ninguno"))
-        if role == "chat" and not by_name[selected]["tools"]:
+        if selected and role == "chat" and not by_name[selected]["tools"]:
             column.warning("Este modelo no admite herramientas: el chat no podrá consultar la evidencia.")
-        if selected != current:
+        if selected and selected != current:
             model_service.select(selected, role)
             refresh_ai_status()
             column.success("Guardado")
-    embedding = recommendations.get("embedding")
-    st.caption(f"Embeddings: `{settings.ollama_embedding_model}`"
-               + (f" · recomendado `{embedding['name']}`" if embedding else "")
-               + ". Las recomendaciones usan capacidades y tamaño instalados; valide con los evals locales.")
+    st.caption("Las recomendaciones usan capacidades y tamaño de los modelos instalados. El modelo de embeddings "
+               "seleccionado se usa en la siguiente indexación o búsqueda RAG; no es un modelo de chat.")
 
 
 def _registry_roles(registry: ModelRegistry):

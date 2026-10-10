@@ -77,8 +77,7 @@ def ai_status() -> dict:
         return {"provider": provider, "ready": ready, "roles": roles, "chat_tools": None,
                 "error": None if ready else "Falta autorizar el runtime o asignar el modelo de chat"}
     service = build_model_service(settings)
-    roles = {role: service.current(role) for role in ("analysis", "chat", "summary")}
-    roles["embedding"] = settings.ollama_embedding_model
+    roles = {role: service.current(role) for role in ("analysis", "chat", "summary", "embedding")}
     try:
         available = {item["name"]: item for item in service.available()}
     except Exception as exc:  # Ollama down or unreachable: the rest of the GUI still works
