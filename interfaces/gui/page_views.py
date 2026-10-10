@@ -1232,8 +1232,23 @@ def reports():
     hero("📄 Informes", "Informes Markdown del comando report y expedientes para analizar con una IA externa.", page_key="reports", lang=lang)
     _ai_export_panel(settings)
     st.subheader(":material/description: " + ("Generated Reports" if lang == "en" else "Informes generados"), divider="gray")
+    st.caption("Creates a report from the evidence and analyses already stored in Atalaya."
+               if lang == "en" else
+               "Crea un informe con la evidencia y los análisis que Atalaya ya tiene guardados.")
+    if st.button("Generate report" if lang == "en" else "Generar informe",
+                 icon=":material/note_add:", type="primary", key="generate-report"):
+        from bootstrap import build_report_service
+        try:
+            with st.spinner("Generating report…" if lang == "en" else "Generando informe…"):
+                created = build_report_service(settings).execute()
+            st.success(("Report created: " if lang == "en" else "Informe creado: ") + created.name)
+        except (OSError, RuntimeError, ValueError) as exc:
+            st.error(("The report could not be created: " if lang == "en" else "No se pudo crear el informe: ")
+                     + f"{type(exc).__name__}: {exc}")
     paths = sorted(settings.reports_dir.glob("*.md"), reverse=True) if settings.reports_dir.exists() else []
-    if not paths: return empty("No reports yet. Run start\\recolectar.bat or the report command." if lang == "en" else "No hay informes. Ejecute start\\recolectar.bat o el comando report.")
+    if not paths:
+        return empty("There are no reports yet. Select Generate report."
+                     if lang == "en" else "Todavía no hay informes. Pulse «Generar informe».")
     chosen = st.selectbox("Report" if lang == "en" else "Informe", paths, format_func=lambda p: p.name)
     content = chosen.read_text(encoding="utf-8")
     # The report embeds LLM text: rendering it as Markdown would let an injected ![](http://...) leak data off the machine

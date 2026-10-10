@@ -28,3 +28,5 @@ No crees una segunda pantalla para la misma configuración. Si una función camb
 - No insertes secretos ni HTML de evidencia sin escapar.
 
 Prueba importación y renderizado básico de cada vista modificada, además de ruta y etiqueta del menú.
+
+Las capacidades disponibles dentro de la GUI deben invocar los servicios de `application/` mediante `bootstrap.py`. No indiques ejecutar un `.bat` desde una pantalla para completar una acción normal: los `.bat` son lanzadores opcionales de instalación, doble clic y operación externa.
