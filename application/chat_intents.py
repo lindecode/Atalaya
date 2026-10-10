@@ -10,7 +10,8 @@ import unicodedata
 
 MAX_TOOLS = 3
 
-HOW_TO = re.compile(r"^(como|how|que (es|significa|hace|quiere decir)|what (is|are|does)|explica|explain|para que|"
+# "¿Qué es un 4625?" asks for an explanation; "what are the open alerts?" asks for data, so only the article form counts
+HOW_TO = re.compile(r"^(como|how|que (es una?|significa|hace|quiere decir)|what (is an?|does)|explica|explain|para que|"
                     r"por que|why|cuando (debo|deberia)|que debo|what should|guia|guide|pasos)\b")
 PERIODS = ((r"\b(ultima hora|last hour|1h)\b", "1h"), (r"\b(hoy|today|24h|ultimo dia|last day)\b", "24h"),
            (r"\b(semana|week|7d|7 dias|7 days)\b", "7d"), (r"\b(mes|month|30d|30 dias|30 days)\b", "30d"))

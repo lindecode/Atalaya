@@ -62,6 +62,8 @@ def test_intent_router_picks_the_obvious_tools():
     assert chat_intents.plan("¿Qué puertos tengo abiertos?") == [("get_connections", {"direction": "listen"})]
     assert [name for name, _ in chat_intents.plan("¿Cómo investigo alertas de RDP?")] == ["search_knowledge"]
     assert chat_intents.plan("hola") == []
+    assert chat_intents.plan("What are the most important open alerts?")[0][0] == "get_alerts"
+    assert chat_intents.plan("¿Qué es un 4625?")[0][0] == "search_knowledge"
 
 
 def test_preloaded_evidence_reaches_the_model_and_options_set_the_context(tmp_path):
@@ -100,7 +102,19 @@ def test_evasive_answer_is_retried_once_then_replaced_by_the_evidence(tmp_path):
 
     stuck = Client(["Use get_alerts para verlas.", ""])
     result = ChatService(settings, SQLiteQueryTools(settings), stuck).ask("alertas")
-    assert result["fallback"] and "ID 1" in result["answer"] and "get_alerts" in result["answer"]
+    assert result["fallback"] and "ID 1" in result["answer"] and "**Alertas**" in result["answer"]
+
+    second_try = Client(["Ejecute get_alerts.", "Según get_alerts hay 1 alerta alta (ID 1)."])
+    result = ChatService(settings, SQLiteQueryTools(settings), second_try).ask("alertas")
+    assert result["answer"] == "Según alertas hay 1 alerta alta (ID 1)."  # kept after the retry, tool name rewritten
+
+
+def test_naming_a_tool_is_not_deferring_to_the_user():
+    from application.chat import DEFERS_TO_USER, humanize
+    assert not DEFERS_TO_USER.search("Se encontraron 37 eventos en `get_auth_events` (4625).")
+    assert DEFERS_TO_USER.search("Utilice `get_auth_events` con failed_only=true para ver el detalle.")
+    assert DEFERS_TO_USER.search("Puedes usar la herramienta de alertas.")
+    assert humanize("ver `get_connections`", "en") == "ver connections"
 
 
 def test_evals_score_a_model_and_survive_errors():

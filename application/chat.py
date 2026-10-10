@@ -63,11 +63,34 @@ TOOL_SCHEMAS = [
 
 MAX_ROUNDS = 6
 PRELOAD_CHARS = 24_000  # ~6k tokens: room for policy, tools and the answer even in an 8k llama.cpp context
-# The model handing the work back to the user: naming one of its own tools, or "puedes ejecutar la herramienta…"
+# The model handing the work back to the user: "utilice get_alerts…", "puedes ejecutar la herramienta…".
+# Merely naming a tool ("según get_alerts…") is not deferring; it is rewritten into a readable label instead.
 DEFERS_TO_USER = re.compile(
-    r"(?i)(\b(get_[a-z_]+|search_knowledge)\b|\b(puedes|podrías|podrias|debes|deberías|deberias|you can|you could|"
-    r"you should|please)\s+(usar|ejecutar|llamar|invocar|use|run|call|invoke)\s+(la |las |una |el |the |a |an )?"
+    r"(?i)(\b(usa|use|utiliza|utilice|utilizar|ejecuta|ejecute|ejecutar|run|llama|llame|llamar|call|invoca|invoke|"
+    r"consulta|consulte|consultar)\w*\s+(\S+\s+){0,3}?`?(get_[a-z_]+|search_knowledge)\b|"
+    r"\b(puedes|podrías|podrias|debes|deberías|deberias|you can|you could|you should|please)\s+(usar|ejecutar|"
+    r"llamar|invocar|use|run|call|invoke)\s+(la |las |una |el |the |a |an )?"
     r"(herramienta|función|funcion|consulta|tool|function|query)s?\b)")
+TOOL_NAME = re.compile(r"`?\b(get_[a-z_]+|search_knowledge)\b`?")
+TOOL_LABELS = {
+    "get_overview": ("panorama general", "overview"), "get_alerts": ("alertas", "alerts"),
+    "get_auth_events": ("inicios de sesión", "logons"), "get_connections": ("conexiones", "connections"),
+    "get_processes": ("procesos", "processes"), "get_file_events": ("cambios de archivos", "file changes"),
+    "get_file_reputation": ("reputación de ejecutables", "executable reputation"),
+    "get_ssh_observations": ("observaciones SSH", "SSH observations"),
+    "get_persistence_new": ("persistencia nueva", "new persistence"),
+    "search_knowledge": ("documentación local", "local documentation"),
+}
+
+
+def tool_label(name: str, lang: str = "es") -> str:
+    labels = TOOL_LABELS.get(name)
+    return labels[lang == "en"] if labels else name
+
+
+def humanize(answer: str, lang: str = "es") -> str:
+    """The user never sees internal tool names: they read as the section of evidence they stand for."""
+    return TOOL_NAME.sub(lambda match: tool_label(match.group(1), lang), answer)
 NUDGE = {
     "es": "Tú ejecutas las herramientas; el usuario no puede. No le pidas que ejecute nada. Llama ahora la herramienta "
           "que necesites o responde con la evidencia ya cargada, en español, citando los IDs.",
@@ -111,7 +134,7 @@ class ChatService:
         trace.append({**entry, "prefetch": True} if prefetch else entry)
         return json.dumps(payload, ensure_ascii=False, default=str)
 
-    def _preload(self, question: str, trace: list, evidence: dict) -> str | None:
+    def _preload(self, question: str, trace: list, evidence: dict, lang: str = "es") -> str | None:
         parts = []
         for name, args in chat_intents.plan(question):
             content = self._run(name, args, trace, evidence, prefetch=True)
@@ -121,8 +144,10 @@ class ChatService:
         if not parts:
             return None
         body = "\n".join(parts)[:PRELOAD_CHARS].replace("<", "\\u003c")  # inside JSON strings: cannot close the block
-        return ("<preloaded_evidence>\n" + body + "\n</preloaded_evidence>\nAtalaya ya ejecutó estas herramientas por "
-                "ti para esta pregunta. Responde con estos datos; llama otras herramientas sólo si necesitas más detalle.")
+        note = ("Atalaya already ran these tools for this question. Answer from this data, in English; call other tools "
+                "only if you need more detail." if lang == "en" else "Atalaya ya ejecutó estas herramientas por ti para "
+                "esta pregunta. Responde con estos datos; llama otras herramientas sólo si necesitas más detalle.")
+        return "<preloaded_evidence>\n" + body + "\n</preloaded_evidence>\n" + note
 
     def ask(self, question: str, context: str | None = None, lang: str | None = None):
         lang = "en" if (lang or getattr(self.settings, "language", DEFAULT_LANGUAGE)) == "en" else "es"
@@ -134,7 +159,7 @@ class ChatService:
         question = self.harness.sanitize_question(question)
         trace: list[dict] = []
         evidence: dict[str, Any] = {}
-        preloaded = self._preload(question, trace, evidence)
+        preloaded = self._preload(question, trace, evidence, lang)
         if preloaded:
             messages.append({"role": "system", "content": preloaded})
         messages.append({"role": "user", "content": question})
@@ -146,8 +171,9 @@ class ChatService:
             calls = getattr(message, "tool_calls", None) or []
             if not calls:
                 answer = (message.content or "").strip()
-                if answer and not DEFERS_TO_USER.search(answer):
-                    return {"answer": self.harness.validate_answer(answer, trace), "tool_calls": trace}
+                # After the retry a non-empty answer is kept: an imperfect explanation beats the bare summary
+                if answer and (nudged or not DEFERS_TO_USER.search(answer)):
+                    return {"answer": self.harness.validate_answer(humanize(answer, lang), trace), "tool_calls": trace}
                 if nudged:
                     break
                 nudged = True  # one corrective retry: small models often answer empty or ask the user to run a tool
@@ -177,21 +203,24 @@ def fallback_summary(evidence: dict[str, dict], lang: str = "es") -> str:
     """What the evidence says, without the model: better than an empty or evasive answer."""
     en = lang == "en"
     lines = ["The model did not give a usable answer. This is the evidence that was retrieved:" if en else
-             "El modelo no dio una respuesta útil. Esta es la evidencia recuperada:", ""]
+             "El modelo no dio una respuesta útil. Esta es la evidencia recuperada:"]
     for name, payload in evidence.items():
         summary, rows = payload.get("summary") or {}, payload.get("rows") or []
         if name == "search_knowledge":
-            lines.append("**" + ("Local documentation" if en else "Documentación local") + "**: "
+            lines.append("**" + tool_label(name, lang).capitalize() + "**: "
                          + ", ".join(f"[{row.get('id')}] {row.get('section') or row.get('source')}" for row in rows[:4]))
             continue
         figures = ", ".join(f"{key}: {value}" for key, value in summary.items()
                             if isinstance(value, (int, float, str)) and key not in ("note", "returned", "ordered_by"))
-        groups = ", ".join(f"{key} {value.get('count', value) if isinstance(value, dict) else value}"
+        unknown = "unknown" if en else "sin nombre"
+        groups = ", ".join(f"{unknown if key in (None, 'None', '') else key} "
+                           f"{value.get('count', value) if isinstance(value, dict) else value}"
                            for field, group in summary.items() if isinstance(group, dict)
                            for key, value in list(group.items())[:5])
-        lines.append(f"**{name}** — " + "; ".join(part for part in (figures, groups) if part))
+        lines.append("")  # Markdown: without a blank line the heading glues onto the previous bullet
+        lines.append(f"**{tool_label(name, lang).capitalize()}** — " + "; ".join(part for part in (figures, groups) if part))
         for row in rows[:5]:
             label = row.get("title") or row.get("name") or row.get("process_name") or row.get("path") or row.get("target_user") or ""
             extra = row.get("severity") or row.get("raddr") or row.get("source_ip") or row.get("lport") or ""
-            lines.append(f"- ID {row.get('id')}: {label} {f'({extra})' if extra else ''}".rstrip())
+            lines.append(f"- ID {row.get('id')}: " + " ".join(str(part) for part in (label, f"({extra})" if extra else "") if part))
     return "\n".join(lines)
