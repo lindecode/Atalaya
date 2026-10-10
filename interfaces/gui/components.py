@@ -199,7 +199,7 @@ def _record(row: dict) -> list[dict]:
 
 
 def table(rows, *, key: str, columns: dict | None = None, view: str | None = None, windowed: bool = True,
-          detail: bool = True, on_pick=None, searchable: bool = True, lang: str | None = None):
+          detail: bool = True, on_pick=None, searchable: bool = True, lang: str | None = None, dates=()):
     """Searchable, sortable table. `view` names a table_views layout; selecting a row shows every stored field.
 
     `on_pick(row)` draws extra context for the selected row inside its detail panel; the row is also returned.
@@ -214,7 +214,7 @@ def table(rows, *, key: str, columns: dict | None = None, view: str | None = Non
         shown, config = present(raw, view, lang=lang), column_config(VIEWS[view], lang=lang) | (columns or {})
         has_dates = any(column.kind == "date" for column in VIEWS[view])
     else:
-        shown, date_columns = format_table_rows(visible(row) for row in raw)
+        shown, date_columns = format_table_rows((visible(row) for row in raw), dates)
         # Real datetimes (not text) so clicking a date column sorts chronologically
         config = {name: st.column_config.DatetimeColumn(format=COLUMN_FORMAT) for name in date_columns} | (columns or {})
         has_dates = bool(date_columns)

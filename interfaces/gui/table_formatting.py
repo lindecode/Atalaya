@@ -44,13 +44,16 @@ def local_series(values) -> pd.Series:
     return pd.Series([to_local_datetime(value) for value in values], dtype="datetime64[ns]")
 
 
-def format_table_rows(rows: Iterable[Mapping[str, object]]) -> tuple[list[dict[str, object]], set[str]]:
+def format_table_rows(rows: Iterable[Mapping[str, object]],
+                      dates: Iterable[str] = ()) -> tuple[list[dict[str, object]], set[str]]:
+    """Local datetimes for date columns: the known names plus any listed in `dates` (labels like «Última vez»)."""
+    explicit = set(dates)
     formatted: list[dict[str, object]] = []
     date_columns: set[str] = set()
     for source in rows:
         row = dict(source)
         for name, value in row.items():
-            if is_date_column(name):
+            if name in explicit or is_date_column(name):
                 row[name] = to_local_datetime(value)
                 date_columns.add(name)
         formatted.append(row)

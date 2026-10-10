@@ -54,3 +54,10 @@ def test_chart_axes_use_local_time_not_utc():
     series = local_series(["2026-10-07T15:00:00+00:00"])
     expected = datetime(2026, 10, 7, 15, tzinfo=timezone.utc).astimezone().replace(tzinfo=None)
     assert series.iloc[0].to_pydatetime() == expected
+
+
+def test_explicit_date_columns_cover_labels_the_name_rules_do_not_know():
+    from datetime import datetime
+
+    rows, columns = format_table_rows([{"Última vez": "2026-10-07T12:00:00+00:00", "Nombre": "x"}], dates=("Última vez",))
+    assert columns == {"Última vez"} and isinstance(rows[0]["Última vez"], datetime)

@@ -806,10 +806,12 @@ def _servers_tab(query, servers: list[dict], names: dict, since: str, tr):
                  "Observaciones": client["observations"], "Primera vez": client["first_seen"],
                  "Última vez": client["last_seen"]} for client in server["clients"]]
         table(rows, key=f"server-clients-{server['protocolo']}-{server['puerto']}", windowed=True, searchable=False,
+              dates=("Primera vez", "Última vez"),
               on_pick=lambda client: _valid_ip(client.get("IP")) and _ip_profile(query, _valid_ip(client["IP"]), since,
                                                                                   key="server"))
 
-    table(table_rows, key="servers", columns={"Puerto": st.column_config.NumberColumn(format="%d")}, on_pick=clients_of)
+    table(table_rows, key="servers", columns={"Puerto": st.column_config.NumberColumn(format="%d")}, on_pick=clients_of,
+          dates=("Último cliente", "Visto por primera vez"))
 
 
 def _ips_tab(query, directory: list[dict], names: dict, flows: list[dict], since: str, tr):
@@ -847,7 +849,7 @@ def _ips_tab(query, directory: list[dict], names: dict, flows: list[dict], since
     st.caption(tr("Busque por IP, nombre, proceso o servicio. Seleccione una IP para ver su perfil, etiquetarla o "
                   "consultar su nombre.", "Search by IP, name, process or service. Select an IP to see its profile, "
                   "label it or look up its name."))
-    table(rows, key="ip-directory",
+    table(rows, key="ip-directory", dates=("Primera vez", "Última vez"),
           on_pick=lambda picked: _valid_ip(picked.get("IP")) and _ip_profile(query, _valid_ip(picked["IP"]), since,
                                                                               key="directory"))
 

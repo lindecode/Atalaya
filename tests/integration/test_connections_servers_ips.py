@@ -66,6 +66,11 @@ def test_connections_page_has_servers_and_ips_tabs_with_names(tmp_path, monkeypa
     assert "Clientes de Internet" in servers["Atención"].iloc[0]
     directory = app.dataframe(key="table-ip-directory").value
     assert directory.set_index("IP").loc["93.184.216.34", "Nombre"] == "example.com"
+    # Dates arrive as real datetimes (sortable, shown as DD/MM/AAAA HH:MM:SS), not ISO text
+    import pandas as pd
+    for frame, columns in ((servers, ("Último cliente", "Visto por primera vez")), (directory, ("Primera vez", "Última vez"))):
+        for column in columns:
+            assert pd.api.types.is_datetime64_any_dtype(frame[column]), column
 
 
 def test_a_label_saved_from_the_ip_profile_names_the_ip_everywhere(tmp_path, monkeypatch):
