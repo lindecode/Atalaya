@@ -58,6 +58,14 @@ _STYLE = """
 .nl-about hr {width: 40px; margin: 14px auto;}
 .nl-about p {margin: 0 0 2px 0; opacity: .75;}
 .nl-about b {font-size: 1.1rem; letter-spacing: .06em; color: var(--nl-brand);}
+[data-testid="stSidebarNav"] .stMarkdownBadge {
+  background-color: #EF4444 !important; color: #FFFFFF !important;
+  border-radius: 999px !important; padding: 1px 6px !important;
+  font-size: 0.68rem !important; font-weight: 700 !important;
+  vertical-align: middle !important; line-height: 1.2 !important;
+  margin-left: 6px !important; display: inline-block !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25) !important;
+}
 </style>
 """
 

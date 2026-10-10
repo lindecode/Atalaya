@@ -4,6 +4,8 @@ import streamlit as st
 
 from bootstrap import build_automation_config_service
 from infrastructure.logging_config import configure_logging
+from infrastructure.sqlite.queries import SQLiteQueryRepository
+from interfaces.gui.components import apply_style
 from settings import Settings
 from shared.about import DISPLAY_NAME, ICON_PATH
 from shared.i18n import DEFAULT_LANGUAGE, t
@@ -13,6 +15,7 @@ configure_logging("gui")
 
 st.set_page_config(page_title=DISPLAY_NAME, page_icon=str(ICON_PATH) if ICON_PATH.exists() else "🛡️",
                    layout="wide", initial_sidebar_state="expanded")
+apply_style()
 
 settings = Settings()
 try:
@@ -21,6 +24,21 @@ try:
 except Exception:
     lang = st.session_state.get("language") or settings.language or DEFAULT_LANGUAGE
 st.session_state["language"] = lang
+
+
+def _alerts_page_title(lang: str, settings: Settings) -> str:
+    base = t("nav.pages.alerts", lang=lang)
+    try:
+        if not settings.database_path.exists():
+            return base
+        count = sum(SQLiteQueryRepository(settings).open_alerts_by_severity().values())
+        if count <= 0:
+            return base
+        badge = "99+" if count > 99 else str(count)
+        return f"{base} :red-badge[{badge}]"
+    except Exception:
+        return base
+
 
 # Each page script is standalone (tests run them directly); this file only groups them into sections.
 # The scripts live in views/, not pages/: Streamlit would otherwise also build its automatic file menu.
@@ -31,7 +49,7 @@ navigation = st.navigation({
                 icon=":material/menu_book:", url_path="guia"),
         st.Page("views/01_Panel.py", title=t("nav.pages.overview", lang=lang), icon=":material/dashboard:", default=True),
         st.Page("views/02_En_vivo.py", title=t("nav.pages.live", lang=lang), icon=":material/pulse_alert:", url_path="en-vivo"),
-        st.Page("views/03_Alertas.py", title=t("nav.pages.alerts", lang=lang), icon=":material/notification_important:", url_path="alertas"),
+        st.Page("views/03_Alertas.py", title=_alerts_page_title(lang, settings), icon=":material/notification_important:", url_path="alertas"),
     ],
     t("nav.sections.investigate", lang=lang): [
         st.Page("views/10_Buscar.py", title=t("nav.pages.search", lang=lang), icon=":material/search:", url_path="buscar"),
