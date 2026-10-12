@@ -15,6 +15,8 @@ if ($task) {
     Unregister-ScheduledTask -TaskName $taskName -Confirm:$false
     Write-Ok "Tarea programada eliminada"
 } else { Write-Ok "No habia una tarea programada" }
+# Un ciclo ya lanzado por la tarea sigue vivo y bloquea los archivos del programa
+if (Test-Path (Join-Path $Root '.venv')) { Stop-VenvProcesses (Join-Path $Root '.venv') }
 
 if (-not $DesdeDesinstalador) {
     Write-Paso "Accesos directos e inicio automatico"
@@ -50,8 +52,15 @@ if (-not $estado) {
 if (-not $DesdeDesinstalador) {
     $ownVenv = Join-Path $Root '.venv'
     if ((Test-Path $ownVenv) -and (Confirm-Paso "Borrar el entorno de Python de Atalaya ($ownVenv)?" $true)) {
-        Remove-Item -LiteralPath $ownVenv -Recurse -Force
-        Write-Ok "Entorno eliminado"
+        Stop-VenvProcesses $ownVenv
+        Start-Sleep -Milliseconds 500   # Windows libera los archivos un instante despues de terminar el proceso
+        try {
+            Remove-Item -LiteralPath $ownVenv -Recurse -Force -ErrorAction Stop
+            Write-Ok "Entorno eliminado"
+        } catch {
+            Write-Aviso "No se pudo borrar todo el entorno: $($_.Exception.Message)"
+            Write-Aviso "Cierre los programas que usen Atalaya y borre a mano $ownVenv (instalar.bat lo vuelve a crear)."
+        }
     }
 }
 

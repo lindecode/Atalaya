@@ -135,6 +135,17 @@ function Get-GuiProcesses {
         Where-Object { $_.CommandLine -match 'interfaces[\\/]gui[\\/]app\.py' -or $_.CommandLine -match 'main\.py"?\s+(gui|watch|tray)\b' }
 }
 
+function Stop-VenvProcesses([string]$venv) {
+    # Cualquier Python de este entorno (tambien el 'main.py cycle' de la tarea programada) bloquea sus archivos
+    $prefix = (Resolve-Path -LiteralPath $venv).Path.TrimEnd('\') + '\'
+    Get-CimInstance Win32_Process -Filter "Name='python.exe' OR Name='pythonw.exe'" |
+        Where-Object { $_.ExecutablePath -and $_.ExecutablePath.StartsWith($prefix, [StringComparison]::OrdinalIgnoreCase) } |
+        ForEach-Object {
+            try { Stop-Process -Id $_.ProcessId -Force -ErrorAction Stop; Write-Ok "Detenido PID $($_.ProcessId)" }
+            catch { Write-Aviso "PID $($_.ProcessId) ya habia terminado" }
+        }
+}
+
 function New-Shortcut([string]$path, [string]$target, [string]$description, [int]$windowStyle = 1,
                       [string]$arguments = '', [string]$workingDirectory = $StartDir) {
     $shell = New-Object -ComObject WScript.Shell
