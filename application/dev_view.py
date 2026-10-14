@@ -11,12 +11,8 @@ SCOPE_COLORS = {dev.SCOPE_LOCAL: "#22c55e", dev.SCOPE_LAN: "#f59e0b", dev.SCOPE_
 ORIGIN_COLORS = {"local": "#94a3b8", "lan": "#3b82f6", "internet": "#ef4444"}
 
 
-WINDOWS_SERVICES = {"?", "system", "svchost.exe", "lsass.exe", "wininit.exe", "services.exe", "spoolsv.exe"}
-
-
 def _windows_service(entry: dict) -> bool:
-    """Windows' own listeners (RPC 135 and the 49152+ range, SMB 445, NetBIOS 139): normal, not the developer's."""
-    return str(entry["process"]).casefold() in WINDOWS_SERVICES
+    return dev.windows_service(entry["process"])
 
 
 def servers(snapshot: dict, include_all: bool = False, port_names: dict[int, str] | None = None) -> list[dict]:
@@ -219,3 +215,48 @@ def graph(server_rows: list[dict], history: list[dict] | None = None, lang: str 
         server.pop("_angle", None)
     has_clients = any(node["kind"] == "client" for node in nodes)
     return {"nodes": nodes, "edges": edges, "extent": (outer if has_clients else inner) + 55}
+
+
+# How to bind each kind of server to this computer only (shown as a hint, never run)
+LOCAL_BIND_HINTS = {
+    "java": "server.address=127.0.0.1 (Spring) o -Dserver.address=127.0.0.1",
+    "node": "--host 127.0.0.1 (Vite/Next) o HOST=127.0.0.1",
+    "python": "--host 127.0.0.1 (uvicorn/Flask) o --bind 127.0.0.1 (gunicorn)",
+    "dotnet": "--urls http://127.0.0.1:PUERTO",
+    "db": "listen_addresses='localhost' (PostgreSQL) o bind-address=127.0.0.1 (MySQL)",
+    "ruby": "-b 127.0.0.1", "php": "php -S 127.0.0.1:PUERTO",
+}
+SEVERITY_ORDER = {"high": 0, "medium": 1, "low": 2}
+
+
+def recommendations(server_rows: list[dict], docker_data: dict | None = None, ssh_data: dict | None = None) -> list[dict]:
+    """What to fix first across servers, Docker and SSH: {severity, text: (es, en), fix}, most severe first."""
+    found = []
+    for row in server_rows:
+        if row["scope"] == dev.SCOPE_LOCAL:
+            continue
+        where = f":{row['port']} ({row['process']})"
+        if row.get("debug"):
+            found.append({"severity": "high", "fix": "127.0.0.1",
+                          "text": (f"{where}: {row['debug']} abierto a la red; quien lo alcance ejecuta código.",
+                                   f"{where}: {row['debug']} open to the network; whoever reaches it runs code.")})
+        elif row["runtime"] in dev.DEV_RUNTIMES and row["runtime"] != "container":
+            found.append({"severity": "medium", "fix": LOCAL_BIND_HINTS.get(row["runtime"], "127.0.0.1"),
+                          "text": (f"{where} escucha en todas las redes; si solo lo usa usted, haga que escuche en 127.0.0.1.",
+                                   f"{where} listens on every network; if only you use it, bind it to 127.0.0.1.")})
+        elif row["runtime"] != "container":
+            found.append({"severity": "low", "fix": None,
+                          "text": (f"{where} acepta conexiones de la red; si no lo necesita, bloquéelo en el firewall.",
+                                   f"{where} accepts network connections; if you do not need that, block it in the firewall.")})
+    for container in (docker_data or {}).get("containers", []) if (docker_data or {}).get("available") else []:
+        for risk in container.get("risks", []):
+            found.append({"severity": "high" if risk["severity"] in {"high", "critical"} else "medium",
+                          "fix": risk["fix"] if risk["fix"].startswith("-p ") else None,
+                          "text": (f"Docker {container['name']}: {risk['detail']}. {risk['fix'] if not risk['fix'].startswith('-p ') else ''}".strip(),
+                                   f"Docker {container['name']}: {risk['detail']}.")})
+    for session in (ssh_data or {}).get("sessions", []):
+        for risk in session.get("risks", []):
+            where = f"SSH {session.get('name') or session['remote']}:{session['port']}"
+            found.append({"severity": risk["severity"], "fix": None,
+                          "text": (f"{where}: {risk['text'][0]}", f"{where}: {risk['text'][1]}")})
+    return sorted(found, key=lambda item: SEVERITY_ORDER.get(item["severity"], 3))

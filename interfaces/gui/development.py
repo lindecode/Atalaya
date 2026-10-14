@@ -63,13 +63,15 @@ def _uptime(started: str | None, lang: str) -> str:
 
 
 def development_page():
-    settings, _, _, since = context()
+    settings, _, query, since = context()
     lang = st.session_state.get("language") or "es"
     tr = lambda es, en: en if lang == "en" else es
     hero("🧑‍💻 Desarrollo", "Servidores de este equipo, quién se conecta a ellos, en qué lenguaje corren y los avisos de red.",
          page_key="development", lang=lang)
+    from interfaces.gui.page_views import _section_summary
+    _section_summary(query, settings, "desarrollo")
 
-    controls = st.columns([2, 2, 2, 3], vertical_alignment="bottom")
+    controls = st.columns([2, 2, 2, 2], vertical_alignment="bottom")
     live = controls[0].toggle(tr("Actualización automática", "Auto-refresh"), value=True, key="dev-live")
     include_all = controls[1].toggle(tr("Todos los servidores", "All servers"), value=False, key="dev-all",
                                      help=tr("Incluye ayudantes locales de programas comunes (plugins del editor, "
@@ -78,8 +80,12 @@ def development_page():
     local_clients = controls[2].toggle(tr("Clientes de este equipo", "Clients from this computer"), value=False,
                                        key="dev-local", help=tr("Muestra en el mapa las conexiones desde localhost.",
                                                                 "Shows localhost connections on the map."))
-    controls[3].caption(tr("Servidores y procesos: en vivo. Avisos: ventana temporal de la barra lateral.",
-                           "Servers and processes: live. Notices: sidebar time window."))
+    controls[3].number_input(tr("¿Quién usa el puerto?", "Who uses the port?"), min_value=1, max_value=65535,
+                             value=None, step=1, placeholder="8080", key="dev-port",
+                             help=tr("Para «el puerto 3000 ya está en uso»: qué programa lo tiene abierto.",
+                                     "For “port 3000 is already in use”: which program holds it."))
+    st.caption(tr("Servidores y procesos: en vivo. Avisos: ventana temporal de la barra lateral.",
+                  "Servers and processes: live. Notices: sidebar time window."))
 
     if not _drops_detectable(str(settings.firewall_log_path)):
         st.warning(tr("Los pings y escaneos no se detectan: falta la auditoría de paquetes descartados. Vaya a Ajustes → "
@@ -94,21 +100,19 @@ def development_page():
         except Exception as exc:
             st.error(tr(f"No se pudo leer el estado de la red: {exc}", f"Could not read the network state: {exc}"))
             return
+        port = st.session_state.get("dev-port")
+        if port:
+            with st.container(border=True):
+                _port_lookup(snapshot, int(port), lang, tr)
         rows = dev_view.servers(snapshot, include_all=include_all, port_names=_docker_names())
         notices = _notices(settings, since)
         _kpis(rows, notices, tr)
-        exposed_debug = [row for row in rows if row["debug"] and row["scope"] != dev.SCOPE_LOCAL]
-        for row in exposed_debug:
-            st.error(tr(f"Puerto de depuración expuesto: {row['debug']} en :{row['port']} ({plain_label(row['process'])}). "
-                        "Quien lo alcance puede ejecutar código; hágalo escuchar solo en 127.0.0.1.",
-                        f"Exposed debug port: {row['debug']} on :{row['port']} ({plain_label(row['process'])}). "
-                        "Whoever reaches it can run code; bind it to 127.0.0.1."), icon=":material/bug_report:")
-        map_tab, servers_tab, docker_tab_, ssh_tab_, timeline_tab, languages_tab, port_tab, notices_tab = st.tabs([
+        _review(settings, snapshot, rows, since, lang, tr)
+        map_tab, servers_tab, docker_tab_, ssh_tab_, timeline_tab, languages_tab, notices_tab = st.tabs([
             ":material/hub: " + tr("Mapa", "Map"), ":material/dns: " + tr("Servidores", "Servers"),
             ":material/deployed_code: Docker", ":material/vpn_key: SSH",
             ":material/timeline: " + tr("Línea de tiempo", "Timeline"),
             ":material/code: " + tr("Lenguajes", "Languages"),
-            ":material/search: " + tr("¿Quién usa el puerto?", "Who uses the port?"),
             ":material/notifications: " + tr("Avisos de red", "Network notices")])
         with map_tab:
             _map(rows, notices, local_clients, lang, tr)
@@ -124,12 +128,50 @@ def development_page():
             _timeline(str(settings.database_path), since, include_all, lang, tr)
         with languages_tab:
             _languages(snapshot, lang, tr)
-        with port_tab:
-            _port_lookup(snapshot, lang, tr)
         with notices_tab:
             _notice_history(notices, lang, tr)
 
     body()
+
+
+CHAT_QUESTIONS = (
+    ("¿Quién se conectó a mis servidores hoy?", "Who connected to my servers today?"),
+    ("¿Qué servidores tengo expuestos a la red y cómo los cierro?", "Which servers are exposed to the network and how do I close them?"),
+    ("¿Mis contenedores de Docker tienen algún riesgo?", "Do my Docker containers have any risk?"),
+)
+
+
+def _review(settings, snapshot, rows, since, lang, tr):
+    """What to fix first (deterministic, across servers, Docker and SSH) and quick questions for the chat."""
+    from interfaces.gui.docker_tab import _inventory
+    from interfaces.gui.ssh_tab import _history, _names
+    from application import ssh_view
+    history = _history(str(settings.database_path), since)
+    ips = tuple(sorted({row["remote_address"] for row in history if row.get("remote_address")}))
+    items = dev_view.recommendations(rows, _inventory(), ssh_view.model(history, snapshot,
+                                                                         _names(str(settings.database_path), ips)))
+    for item in (item for item in items if item["severity"] == "high"):
+        st.error(plain_label(item["text"][lang == "en"]) + (f" → `{item['fix'].replace('`', '')}`" if item["fix"] else ""),
+                 icon=":material/priority_high:")
+    others = [item for item in items if item["severity"] != "high"]
+    label = tr(f"Qué revisar ({len(others)})", f"What to review ({len(others)})") if others else \
+        tr("Qué revisar: nada más pendiente", "What to review: nothing else pending")
+    with st.expander(label, icon=":material/checklist:"):
+        for item in others:
+            mark = ":orange[●]" if item["severity"] == "medium" else ":gray[●]"
+            st.markdown(f"{mark} {plain_label(item['text'][lang == 'en'])}"
+                        + (f"  \n`{item['fix'].replace('`', '')}`" if item["fix"] else ""))
+        st.caption(tr("Lista determinista a partir de lo que se ve ahora; no usa el LLM.",
+                      "Deterministic list from what is visible now; it does not use the LLM."))
+        st.markdown("**" + tr("Preguntar al chat", "Ask the chat") + "**")
+        for index, (column, question) in enumerate(zip(st.columns(len(CHAT_QUESTIONS)), CHAT_QUESTIONS)):
+            text = question[lang == "en"]
+            if column.button(text, key=f"dev-ask-{index}", width="stretch", icon=":material/forum:"):
+                st.session_state["chat-pending"] = text
+                try:
+                    st.switch_page("views/21_Chat.py")
+                except Exception:  # page run on its own (tests): no navigation to switch to
+                    st.info(tr("Abra Chat para ver la respuesta.", "Open Chat to see the answer."))
 
 
 def _kpis(rows, notices, tr):
@@ -303,13 +345,9 @@ def _timeline(database: str, since: str, include_all: bool, lang, tr):
                   "a start outside your usual hours deserves a look."))
 
 
-def _port_lookup(snapshot, lang, tr):
-    port = st.number_input(tr("Puerto", "Port"), min_value=1, max_value=65535, value=None, step=1,
-                           placeholder="8080", key="dev-port")
-    if port is None:
-        st.caption(tr("Escriba un puerto para ver qué programa lo tiene abierto (p. ej. cuando «el puerto 3000 ya está "
-                      "en uso»).", "Type a port to see which program holds it (e.g. when “port 3000 is already in use”)."))
-        return
+def _port_lookup(snapshot, port: int, lang, tr):
+    st.markdown("**:material/search: " + tr(f"Puerto {port}", f"Port {port}") + "**  ")
+    st.caption(tr("Borre el número de la cabecera para cerrar este recuadro.", "Clear the number in the header to close this box."))
     processes = {row["pid"]: row for row in snapshot.get("processes", [])}
     listeners = [row for row in snapshot.get("connections", [])
                  if row.get("lport") == port and row.get("direction") == "listen"]

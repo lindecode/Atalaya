@@ -53,6 +53,14 @@ TUNNELS = {"ngrok": "ngrok", "cloudflared": "Cloudflare Tunnel", "lt": "localtun
            "code-tunnel": "VS Code Tunnels", "frpc": "frp", "bore": "bore", "zrok": "zrok", "pinggy": "Pinggy",
            "tailscale-funnel": "Tailscale Funnel", "localxpose": "LocalXpose", "loclx": "LocalXpose"}
 
+# Windows' own listeners (RPC 135 and the 49152+ range, SMB 445, NetBIOS 139): normal, not the developer's
+WINDOWS_SERVICES = {"?", "", "none", "system", "svchost.exe", "lsass.exe", "wininit.exe", "services.exe", "spoolsv.exe"}
+
+
+def windows_service(process: str | None) -> bool:
+    return str(process or "").casefold() in WINDOWS_SERVICES
+
+
 SCOPE_LOCAL, SCOPE_LAN, SCOPE_ALL = "local", "lan", "all"
 SCOPE_LABELS = {SCOPE_LOCAL: ("Solo este equipo", "This computer only"), SCOPE_LAN: ("Red local", "Local network"),
                 SCOPE_ALL: ("Todas las redes", "Every network")}

@@ -40,7 +40,7 @@ def test_development_page_shows_servers_debug_warning_and_notices(tmp_path, monk
     assert metrics["En marcha"] == "2/3" and metrics["Con riesgos"] == "2" and metrics["Imágenes huérfanas"] == "1"
     assert any("5432/tcp (PostgreSQL)" in error.value.replace("\\", "") for error in app.error)  # R21 on the card
     assert any("`-p 127.0.0.1:5432:5432`" in error.value for error in app.error)           # with its fix
-    assert any("Inspector de Node.js" in error.value for error in app.error)
+    assert any("Inspector de Node.js" in error.value.replace("\\", "") for error in app.error)  # in "Qué revisar"
     assert any("app.jar" in text.value for text in app.text)  # the Java card names the jar, not just java.exe
     assert any("Aún no hay recolecciones" in info.value for info in app.info)  # empty timeline, no crash
 

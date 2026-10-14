@@ -11,7 +11,7 @@ from application.automation import _CycleLock
 
 SECTIONS = {
     "panel": "Panel de seguridad", "conexiones": "Conexiones", "accesos": "Accesos", "archivos": "Archivos",
-    "persistencia": "Persistencia", "firewall": "Firewall", "procesos": "Procesos y RAM",
+    "persistencia": "Persistencia", "firewall": "Firewall", "procesos": "Procesos y RAM", "desarrollo": "Desarrollo",
 }
 LLM_BUSY = "El LLM local está ocupado con otro resumen; inténtelo en un momento"
 

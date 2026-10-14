@@ -119,6 +119,10 @@ def _ollama_roles(settings):
         if role == "chat" and size is not None and size < 3:
             column.warning(f"Modelo pequeño (~{size:g}B efectivos): el chat será poco fiable al elegir herramientas "
                            "y redactar. Use uno de 4B o más (p. ej. qwen3.5:4b) o uno de 7-8B si la GPU lo permite.")
+        elif role in {"summary", "analysis"} and size is not None and size < 1.5:
+            # Measured: qwen3.5:0.8b contradicted the facts of a Desarrollo digest that 4B summarised correctly
+            column.warning(f"Modelo muy pequeño (~{size:g}B): sus resúmenes pueden contradecir los datos. Use uno de "
+                           "2B o más (p. ej. gemma4:e2b o qwen3.5:4b).")
         if selected and selected != current:
             model_service.select(selected, role)
             refresh_ai_status()

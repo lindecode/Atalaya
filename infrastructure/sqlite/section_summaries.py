@@ -54,6 +54,8 @@ class SQLiteSectionDigests:
             "persistencia": {"nuevos": "SELECT COUNT(*) FROM persistence_items WHERE first_seen>=? AND first_seen<?"},
             "firewall": {"bloqueos": "SELECT COUNT(*) FROM firewall_events WHERE ts>=? AND ts<?"},
             "procesos": {"finalizados": "SELECT COUNT(*) FROM process_lifecycle WHERE ended_at>=? AND ended_at<?"},
+            "desarrollo": {"clientes_entrantes": """SELECT COUNT(DISTINCT raddr) FROM connections WHERE ts>=? AND ts<?
+                                                  AND direction='inbound' AND raddr NOT IN ('127.0.0.1','::1')"""},
         }
         return {name: _scalar(db, sql, between) for name, sql in queries.get(section, {}).items()}
 
@@ -169,6 +171,77 @@ class SQLiteSectionDigests:
                 WHERE run_id={latest} AND ({suspicious}) LIMIT 8""", SUSPICIOUS_DIRS),
             "finalizados_en_ventana": _scalar(db, "SELECT COUNT(*) FROM process_lifecycle WHERE ended_at>=?", (since,)),
             "nuevos_en_ventana": _scalar(db, "SELECT COUNT(*) FROM process_lifecycle WHERE first_seen>=?", (since,)),
+        }
+
+    def _desarrollo(self, db, since, now):
+        """Servers and their reach, who reached them, Docker containers and SSH sessions (no command lines)."""
+        from domain import dev
+        servers = {}
+        for row in _rows(db, """SELECT DISTINCT lport, process_name, laddr FROM connections
+                                WHERE ts>=? AND direction='listen'""", (since,)):
+            runtime = dev.runtime(row["process_name"])
+            reach = dev.scope(row["laddr"])
+            if runtime.key not in dev.DEV_RUNTIMES and (reach == dev.SCOPE_LOCAL or dev.windows_service(row["process_name"])):
+                continue
+            entry = servers.setdefault((row["lport"], row["process_name"]), {
+                "puerto": row["lport"], "proceso": row["process_name"], "lenguaje": runtime.label, "alcance": reach,
+                "depuracion": dev.debug_port(row["lport"])})
+            if reach == dev.SCOPE_ALL or (reach == dev.SCOPE_LAN and entry["alcance"] == dev.SCOPE_LOCAL):
+                entry["alcance"] = reach
+        listed = sorted(servers.values(), key=lambda s: (s["alcance"] == dev.SCOPE_LOCAL, s["puerto"] or 0))
+        tables = {row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        containers = []
+        if "docker_observations" in tables:
+            for row in _rows(db, """SELECT data_json FROM docker_observations WHERE id IN (
+                                      SELECT MAX(id) FROM docker_observations WHERE ts>=? GROUP BY container_id)""", (since,)):
+                data = json.loads(row["data_json"] or "{}") if isinstance(row["data_json"], str) else {}
+                containers.append({"nombre": data.get("name"), "imagen": data.get("image"), "estado": data.get("state"),
+                                   "salud": data.get("health"), "reinicios": data.get("restart_count"),
+                                   "riesgos": sorted({r.get("kind") for r in data.get("risks", [])})})
+        # Facts already phrased: a small model summarises sentences reliably, it misreads loose field names
+        reach_words = {dev.SCOPE_ALL: "todas las redes (0.0.0.0/::)", dev.SCOPE_LAN: "la red local"}
+        exposed = [f"{s['proceso']} ({s['lenguaje']}) en el puerto {s['puerto']} acepta conexiones de {reach_words[s['alcance']]}"
+                   + (f"; es un puerto de depuración: {s['depuracion']}" if s["depuracion"] else "")
+                   for s in listed if s["alcance"] != dev.SCOPE_LOCAL]
+        local = [f"{s['proceso']} :{s['puerto']}" for s in listed if s["alcance"] == dev.SCOPE_LOCAL]
+        clients = [f"{r['ip']} se conectó al puerto {r['puerto_local']} ({r['proceso']}), {r['n']} observaciones"
+                   for r in _rows(db, """
+                SELECT raddr ip, lport puerto_local, process_name proceso, COUNT(*) n FROM connections
+                WHERE ts>=? AND direction='inbound' AND raddr NOT IN ('127.0.0.1','::1') AND raddr NOT LIKE '127.%'
+                GROUP BY raddr, lport, process_name ORDER BY n DESC LIMIT 8""", (since,))]
+        tunnel_words = {"socks": "proxy SOCKS (-D)", "local": "túnel local (-L)", "reverse": "túnel inverso (-R)"}
+        ssh = []
+        for row in _rows(db, """
+                SELECT remote_address servidor, remote_port puerto, GROUP_CONCAT(DISTINCT tunnel_types) tuneles,
+                       MAX(COALESCE(agent_forwarding, 0)) reenvio FROM ssh_observations
+                WHERE ts>=? AND kind='session' AND direction='outbound' AND remote_address IS NOT NULL
+                  AND remote_address NOT IN ('127.0.0.1','::1')
+                GROUP BY remote_address, remote_port ORDER BY MAX(ts) DESC LIMIT 8""", (since,)):
+            kinds = sorted({t for value in str(row["tuneles"] or "").split(",") for t in [value.strip()] if t})
+            ssh.append(f"Este equipo abrió una sesión SSH hacia {row['servidor']}:{row['puerto']}"
+                       + (" con " + ", ".join(tunnel_words.get(k, k) for k in kinds) if kinds else "")
+                       + ("; reenvía el agente SSH (-A)" if row["reenvio"] else ""))
+        docker_lines = [f"Contenedor {c['nombre']} ({c['imagen']}) {c['estado']}"
+                        + (f", salud {c['salud']}" if c["salud"] else "")
+                        + (f", {c['reinicios']} reinicios" if c["reinicios"] else "")
+                        + (f"; riesgos: {', '.join(c['riesgos'])}" if c["riesgos"] else "") for c in containers[:12]]
+        review = ([f"Puerto de depuración abierto a la red: {s['proceso']} :{s['puerto']} ({s['depuracion']})"
+                   for s in listed if s["depuracion"] and s["alcance"] != dev.SCOPE_LOCAL]
+                  + [f"{s['proceso']} :{s['puerto']} escucha en {reach_words[s['alcance']]}; si solo lo usa este equipo, "
+                     "debería escuchar en 127.0.0.1" for s in listed if s["alcance"] != dev.SCOPE_LOCAL and not s["depuracion"]
+                     and dev.runtime(s["proceso"]).key in dev.DEV_RUNTIMES]
+                  + [f"Contenedor {c['nombre']}: {', '.join(c['riesgos'])}" for c in containers if c["riesgos"]]
+                  + [line for line in ssh if "inverso" in line or "-A" in line])
+        return {
+            "puntos_a_revisar": review or ["Nada destacable"],
+            "servidores_expuestos_a_la_red": exposed or ["Ningún servidor acepta conexiones de fuera de este equipo"],
+            "servidores_solo_de_este_equipo": {"cantidad": len(local), "ejemplos": local[:8]},
+            "clientes_externos_de_mis_servidores": clients or ["Ningún equipo externo se conectó a estos servidores"],
+            "avisos_de_red_por_tipo": {row["kind"]: row["n"] for row in _rows(db, """
+                SELECT kind, COUNT(*) n FROM network_notices WHERE ts>=? GROUP BY kind""", (since,))}
+            if "network_notices" in tables else {},
+            "contenedores_docker": docker_lines or ["Sin contenedores observados"],
+            "sesiones_ssh_salientes": ssh or ["Sin sesiones SSH hacia otros equipos"],
         }
 
 

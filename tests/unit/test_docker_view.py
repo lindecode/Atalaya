@@ -79,3 +79,37 @@ def test_docker_watch_notifies_problems_once_and_survives_a_stopped_engine():
     clock["now"] += timedelta(seconds=30)
     assert watcher.poll() == [] and watcher.port_names == {}
     assert len(EVENTS) == 7
+
+
+def test_recommendations_rank_debug_docker_and_ssh_with_their_fixes():
+    from application import ssh_view
+    from tests.unit.test_ssh_view import HISTORY, SNAPSHOT as SSH_SNAPSHOT
+    items = dev_view.recommendations(dev_view.servers(SNAPSHOT), INVENTORY, ssh_view.model(HISTORY, SSH_SNAPSHOT))
+    severities = [item["severity"] for item in items]
+    assert severities == sorted(severities, key=dev_view.SEVERITY_ORDER.get)        # most severe first
+    texts = " | ".join(item["text"][0] for item in items)
+    assert "Inspector de Node.js" in texts and ":8080 (java.exe) escucha en todas las redes" in texts
+    assert "Docker shop-db-1" in texts and "SSH 10.0.0.5:22" in texts
+    java = next(item for item in items if ":8080" in item["text"][0])
+    assert java["fix"].startswith("server.address=127.0.0.1")
+    assert any(item["fix"] == "-p 127.0.0.1:5432:5432" for item in items)
+
+
+def test_development_digest_for_the_llm(tmp_path):
+    from dataclasses import replace
+    from infrastructure.sqlite.connection import connect
+    from infrastructure.sqlite.repositories import SQLiteRepository
+    from infrastructure.sqlite.section_summaries import SQLiteSectionDigests
+    from settings import Settings
+    settings = replace(Settings(), database_path=tmp_path / "d.db")
+    SQLiteRepository(settings).initialize()
+    now = datetime.now(timezone.utc).isoformat()
+    with connect(settings.database_path) as db:
+        for lport, process, laddr in ((8080, "java.exe", "0.0.0.0"), (135, None, "0.0.0.0"), (6850, "Lights.exe", "127.0.0.1")):
+            db.execute("INSERT INTO connections(ts, source, direction, laddr, lport, process_name) VALUES (?,?,?,?,?,?)",
+                       (now, "psutil", "listen", laddr, lport, process))
+    digest = SQLiteSectionDigests(settings).digest("desarrollo", 24, now)
+    assert digest["datos"]["servidores_expuestos_a_la_red"] == ["java.exe (Java) en el puerto 8080 acepta conexiones de todas las redes (0.0.0.0/::)"]
+    assert digest["datos"]["servidores_solo_de_este_equipo"]["cantidad"] == 0 and digest["ventana_anterior"] == {"clientes_entrantes": 0}  # RPC and local helpers left out
+    from application.section_summaries import SECTIONS
+    assert SECTIONS["desarrollo"] == "Desarrollo"
