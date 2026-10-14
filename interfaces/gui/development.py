@@ -96,9 +96,9 @@ def development_page():
                         "Quien lo alcance puede ejecutar código; hágalo escuchar solo en 127.0.0.1.",
                         f"Exposed debug port: {row['debug']} on :{row['port']} ({plain_label(row['process'])}). "
                         "Whoever reaches it can run code; bind it to 127.0.0.1."), icon=":material/bug_report:")
-        map_tab, servers_tab, docker_tab_, timeline_tab, languages_tab, port_tab, notices_tab = st.tabs([
+        map_tab, servers_tab, docker_tab_, ssh_tab_, timeline_tab, languages_tab, port_tab, notices_tab = st.tabs([
             ":material/hub: " + tr("Mapa", "Map"), ":material/dns: " + tr("Servidores", "Servers"),
-            ":material/deployed_code: Docker",
+            ":material/deployed_code: Docker", ":material/vpn_key: SSH",
             ":material/timeline: " + tr("Línea de tiempo", "Timeline"),
             ":material/code: " + tr("Lenguajes", "Languages"),
             ":material/search: " + tr("¿Quién usa el puerto?", "Who uses the port?"),
@@ -110,6 +110,9 @@ def development_page():
         with docker_tab_:
             from interfaces.gui.docker_tab import docker_tab
             docker_tab(settings, lang, tr)
+        with ssh_tab_:
+            from interfaces.gui.ssh_tab import ssh_tab
+            ssh_tab(settings, snapshot, since, lang, tr)
         with timeline_tab:
             _timeline(str(settings.database_path), since, include_all, lang, tr)
         with languages_tab:
