@@ -43,6 +43,17 @@ class FirewallTail:
         return [asdict(item) for item in result.items]
 
 
+def drops_detectable(path: Path) -> bool:
+    """Pings and scans can be seen: Security already holds 5152 drops (audit on) or pfirewall.log is readable."""
+    try:
+        from infrastructure.windows.wfp import latest_record
+        if latest_record():
+            return True
+    except Exception:
+        pass
+    return firewall_readable(path)
+
+
 def firewall_readable(path: Path) -> bool:
     """MpsSvc recreates the log without the folder's read permission: existing is not enough."""
     try:

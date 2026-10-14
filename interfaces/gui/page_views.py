@@ -2003,16 +2003,16 @@ def _features(settings):
                 st.error(str(exc))
 
     from application.doctor import _security_log_readable
-    from infrastructure.windows.live_network import firewall_readable
+    from infrastructure.windows.live_network import drops_detectable
     readable, _ = _security_log_readable()
-    firewall = firewall_readable(settings.firewall_log_path)
+    firewall = drops_detectable(settings.firewall_log_path)
     with st.container(border=True):
         left, right = st.columns([5, 2], vertical_alignment="center")
         left.markdown("**Permisos ampliados**")
         left.caption("Leer los accesos (registro Security) y el log del firewall sin ejecutar Atalaya como "
                      "administrador. Se configura una vez y Windows pide confirmación.")
         left.markdown(f"Accesos: {':green[legibles]' if readable else ':orange[sin permiso]'} · "
-                      f"Firewall: {':green[registro legible]' if firewall else ':orange[sin registro o sin permiso de lectura]'}")
+                      f"Pings y escaneos: {':green[se detectan]' if firewall else ':orange[sin auditoría de paquetes descartados]'}")
         if right.button("Configurar permisos", icon=":material/admin_panel_settings:", width="stretch",
                         key="feature-permissions", disabled=readable and firewall):
             from infrastructure.windows.system_features import open_permissions_setup

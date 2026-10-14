@@ -3,6 +3,9 @@
 #      registros Security (accesos, RDP, fuerza bruta) y Sysmon sin ser administrador.
 #   2. Activa el log de paquetes bloqueados del firewall en %ProgramData%\Atalaya\firewall,
 #      una carpeta que el usuario puede leer (la ruta por defecto en System32 exige administrador).
+#   3. Activa la auditoria "Descarte de paquetes de la Plataforma de filtrado" (evento 5152 en Security):
+#      es la fuente fiable de pings y escaneos, porque MpsSvc vuelve a cerrar los permisos de pfirewall.log.
+#      Agranda el registro Security a 128 MB para que esos eventos no desplacen los inicios de sesion.
 # Antes de cambiar nada guarda el estado previo en %ProgramData%\Atalaya\estado-previo.json;
 # -Revertir restaura exactamente ese estado y borra %ProgramData%\Atalaya.
 # -MostrarEstado imprime el estado actual sin cambiar nada (no necesita administrador).
@@ -17,6 +20,9 @@ $StateFile = Join-Path $DataDir 'estado-previo.json'
 $LegacyDataDir = Join-Path $env:ProgramData 'network-llm'
 $LegacyStateFile = Join-Path $LegacyDataDir 'estado-previo.json'
 $OurFirewallLogs = @($FirewallLog, (Join-Path $LegacyDataDir 'firewall\pfirewall.log'))
+# Subcategoria "Filtering Platform Packet Drop" por GUID: el nombre cambia con el idioma de Windows
+$PacketDropGuid = '{0CCE9225-69AE-11D9-BED3-505054503030}'
+$SecurityLogBytes = 128MB
 # Valores de fabrica de Windows: se usan al revertir una configuracion hecha sin estado guardado
 $WindowsDefaults = @{ LogBlocked = 'NotConfigured'; LogFileName = '%systemroot%\system32\LogFiles\Firewall\pfirewall.log'; LogMaxSizeKilobytes = 4096 }
 
@@ -40,7 +46,34 @@ function Get-CurrentState([string]$sid) {
             [ordered]@{ Name = [string]$_.Name; LogBlocked = [string]$_.LogBlocked
                         LogFileName = [string]$_.LogFileName; LogMaxSizeKilobytes = [int]$_.LogMaxSizeKilobytes }
         })
+        packetDropAudit  = $(try { Get-PacketDropAudit } catch { $null })
+        securityLogBytes = $(try { Get-SecurityLogBytes } catch { $null })
     }
+}
+
+function Get-PacketDropAudit {
+    # 0 sin auditoria, 1 aciertos, 2 errores, 3 ambos (columna numerica de auditpol /backup, independiente del idioma)
+    $file = Join-Path $env:TEMP "atalaya-audit-$PID.csv"
+    try {
+        & auditpol /backup /file:$file 2>$null | Out-Null
+        $row = Import-Csv $file | Where-Object { $_.'Subcategory GUID' -eq $PacketDropGuid } | Select-Object -First 1
+        if ($row -and $row.'Setting Value' -match '^\d+$') { return [int]$row.'Setting Value' }
+        return 0
+    } finally { Remove-Item -LiteralPath $file -Force -ErrorAction SilentlyContinue }
+}
+
+function Set-PacketDropAudit([int]$value) {
+    $success = if ($value -band 1) { 'enable' } else { 'disable' }
+    $failure = if ($value -band 2) { 'enable' } else { 'disable' }
+    & auditpol /set /subcategory:$PacketDropGuid /success:$success /failure:$failure | Out-Null
+    if ($LASTEXITCODE) { throw "auditpol termino con codigo $LASTEXITCODE" }
+}
+
+function Get-SecurityLogBytes { [long](Get-WinEvent -ListLog Security).MaximumSizeInBytes }
+
+function Set-SecurityLogBytes([long]$bytes) {
+    & wevtutil sl Security /ms:$bytes | Out-Null
+    if ($LASTEXITCODE) { throw "wevtutil termino con codigo $LASTEXITCODE" }
 }
 
 function Get-DefaultFirewallState {
@@ -100,6 +133,7 @@ if (-not $Elevado) {
         Write-Host "Se pedira permiso de administrador (UAC) UNA vez para:"
         Write-Host "  - Anadir su usuario al grupo 'Lectores del registro de eventos'"
         Write-Host "  - Registrar en $FirewallDir los paquetes que bloquea el firewall"
+        Write-Host "  - Auditar los paquetes descartados (pings y escaneos) en el registro Security, de 128 MB"
         Write-Host "El estado actual se guarda antes para poder revertirlo (configurar-permisos.bat revertir)."
         Write-Host "Despues Atalaya no necesita ejecutarse como administrador."
     }
@@ -145,6 +179,14 @@ if ($Revertir) {
         $profiles = Get-DefaultFirewallState
     }
     try { Set-Membership $sid $wasMember } catch { Write-Fallo "Grupo de lectores de eventos: $($_.Exception.Message)"; $failed = $true }
+    if ($saved -and $null -ne $previous.packetDropAudit) {
+        try { Set-PacketDropAudit ([int]$previous.packetDropAudit); Write-Ok "Auditoria de paquetes descartados restaurada" }
+        catch { Write-Fallo "Auditoria: $($_.Exception.Message)"; $failed = $true }
+    }
+    if ($saved -and $previous.securityLogBytes) {
+        try { Set-SecurityLogBytes ([long]$previous.securityLogBytes); Write-Ok "Tamano del registro Security restaurado" }
+        catch { Write-Fallo "Registro Security: $($_.Exception.Message)"; $failed = $true }
+    }
     foreach ($fwProfile in $profiles) {
         try {
             Set-NetFirewallProfile -Name $fwProfile.Name -LogBlocked $fwProfile.LogBlocked -LogFileName $fwProfile.LogFileName `
@@ -163,6 +205,14 @@ if ($Revertir) {
         New-Item -ItemType Directory -Force -Path $FirewallDir | Out-Null
         if (Test-Path $StateFile) {
             Write-Ok "Estado previo ya guardado; se conserva el original"
+            $previous = Get-Content $StateFile -Raw | ConvertFrom-Json
+            if (-not ($previous.PSObject.Properties.Name -contains 'packetDropAudit')) {
+                # Guardado por una version anterior: la auditoria y el registro aun tienen sus valores originales
+                $previous | Add-Member -NotePropertyName packetDropAudit -NotePropertyValue (Get-PacketDropAudit)
+                $previous | Add-Member -NotePropertyName securityLogBytes -NotePropertyValue (Get-SecurityLogBytes)
+                $previous | ConvertTo-Json -Depth 5 | Set-Content -Path $StateFile -Encoding UTF8
+                Write-Ok "Estado previo completado con la auditoria y el tamano del registro Security"
+            }
         } elseif (Test-Path $LegacyStateFile) {
             Copy-Item -LiteralPath $LegacyStateFile -Destination $StateFile
             Write-Ok "Estado previo recuperado de la carpeta anterior ($LegacyDataDir)"
@@ -184,6 +234,18 @@ if ($Revertir) {
         exit 1
     }
     try { Set-Membership $UsuarioSid $true } catch { Write-Fallo "Grupo de lectores de eventos: $($_.Exception.Message)"; $failed = $true }
+    try {
+        # Solo los descartes (errores), no los paquetes permitidos: es lo que delata pings y escaneos
+        $audit = Get-PacketDropAudit
+        Set-PacketDropAudit ($audit -bor 2)
+        Write-Ok "Auditoria de paquetes descartados activa (evento 5152)"
+        if ((Get-SecurityLogBytes) -lt $SecurityLogBytes) {
+            Set-SecurityLogBytes $SecurityLogBytes
+            Write-Ok "Registro Security ampliado a 128 MB"
+        }
+    } catch {
+        Write-Fallo "Auditoria de paquetes descartados: $($_.Exception.Message)"; $failed = $true
+    }
     try {
         # El servicio del firewall (MpsSvc) debe poder escribir; el usuario, solo leer
         & icacls $FirewallDir /grant 'NT SERVICE\mpssvc:(OI)(CI)M' /grant "*${UsuarioSid}:(OI)(CI)RX" | Out-Null

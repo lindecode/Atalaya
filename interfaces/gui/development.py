@@ -29,6 +29,14 @@ def _snapshot() -> dict:
     return snapshot()
 
 
+@st.cache_data(ttl=300, show_spinner=False)
+def _drops_detectable(firewall_log: str) -> bool:
+    from pathlib import Path
+
+    from infrastructure.windows.live_network import drops_detectable
+    return drops_detectable(Path(firewall_log))
+
+
 def _docker_names() -> dict[int, str]:
     from domain import docker
     from interfaces.gui.docker_tab import _inventory
@@ -73,12 +81,11 @@ def development_page():
     controls[3].caption(tr("Servidores y procesos: en vivo. Avisos: ventana temporal de la barra lateral.",
                            "Servers and processes: live. Notices: sidebar time window."))
 
-    from infrastructure.windows.live_network import firewall_readable
-    if not firewall_readable(settings.firewall_log_path):
-        st.warning(tr("No se puede leer el log del firewall: los pings y escaneos no se detectan. Vaya a Ajustes → "
-                      "Permisos ampliados → Configurar permisos.", "The firewall log cannot be read: pings and scans "
-                      "are not detected. Go to Settings → Extended permissions → Configure permissions."),
-                   icon=":material/lock:")
+    if not _drops_detectable(str(settings.firewall_log_path)):
+        st.warning(tr("Los pings y escaneos no se detectan: falta la auditoría de paquetes descartados. Vaya a Ajustes → "
+                      "Permisos ampliados → Configurar permisos (una vez, pide administrador).",
+                      "Pings and scans are not detected: the dropped-packet audit is missing. Go to Settings → Extended "
+                      "permissions → Configure permissions (once, asks for administrator)."), icon=":material/lock:")
 
     @st.fragment(run_every="10s" if live else None)
     def body():

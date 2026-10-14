@@ -7,6 +7,13 @@ from pathlib import Path
 from domain.models import CollectionRequest, CollectionResult, FirewallEvent
 
 
+def packet_key(ts: str, action, proto, src_ip, src_port, dst_ip, dst_port) -> str:
+    """Same packet, same key, whether read from pfirewall.log or from Security event 5152 (second precision)."""
+    second = datetime.fromisoformat(ts).astimezone(timezone.utc).strftime("%Y%m%d%H%M%S")
+    return hashlib.sha256("|".join(str(part) for part in (second, action, proto, src_ip, src_port, dst_ip, dst_port))
+                          .encode("utf-8")).hexdigest()
+
+
 def _integer(value: str | None) -> int | None:
     try: return int(value) if value and value != "-" else None
     except ValueError: return None
@@ -56,12 +63,10 @@ class FirewallLogCollector:
                 except (KeyError, ValueError):
                     warnings.append("Fecha de firewall inválida")
                     continue
-                events.append(FirewallEvent(
-                    timestamp, row.get("action"), row.get("protocol", "").casefold() or None,
-                    row.get("src-ip"), _integer(row.get("src-port")), row.get("dst-ip"),
-                    _integer(row.get("dst-port")), row.get("direction"),
-                    hashlib.sha256("|".join(values).encode("utf-8")).hexdigest(),
-                ))
+                proto = row.get("protocol", "").casefold() or None
+                packet = (timestamp, row.get("action"), proto, row.get("src-ip"), _integer(row.get("src-port")),
+                          row.get("dst-ip"), _integer(row.get("dst-port")))
+                events.append(FirewallEvent(*packet, row.get("direction"), packet_key(*packet)))
             next_offset = stream.tell()
         return CollectionResult(self.name, "firewall_events", tuple(events), "partial" if warnings else "ok",
                                 tuple(sorted(set(warnings))), {"offset": next_offset, "size": stat.st_size, "file_id": stat.st_ino})

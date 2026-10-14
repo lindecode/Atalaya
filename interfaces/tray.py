@@ -186,9 +186,13 @@ def build_network_watch(settings: Settings, notify: Callable[[str, str], None]) 
     from infrastructure.docker.cli import DockerCLI
 
     clock = SystemClock()
-    tail = live_network.FirewallTail(settings.firewall_log_path)
+    from infrastructure.windows.wfp import WfpTail
+
+    tail, drops = live_network.FirewallTail(settings.firewall_log_path), WfpTail()
     containers = DockerWatcher(DockerCLI(), clock.now_iso)
-    watcher = NetworkWatcher(lambda: live_network.connections(clock.now_iso()), lambda: tail(clock.now_iso()),
+    # Both sources: the 5152 audit (reliable) and pfirewall.log while it stays readable
+    watcher = NetworkWatcher(lambda: live_network.connections(clock.now_iso()),
+                             lambda: drops(clock.now_iso()) + tail(clock.now_iso()),
                              live_network.local_addresses, clock.now_iso, scan_ports=settings.port_scan_count,
                              port_names=lambda: containers.port_names)
     store = SQLiteNetworkNotices(settings)

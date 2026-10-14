@@ -44,6 +44,7 @@ from infrastructure.windows.firewall import FirewallLogCollector
 from infrastructure.windows.persistence import WindowsPersistenceCollector
 from infrastructure.windows.processes import PsutilProcessCollector
 from infrastructure.docker.collector import DockerCollector
+from infrastructure.windows.wfp import WfpDropCollector
 from infrastructure.windows.notifier import WindowsNotifier
 from infrastructure.windows.sysmon import SysmonCollector
 from infrastructure.windows.ssh import SSHObservationCollector
@@ -58,7 +59,7 @@ def build_repository(settings: Settings | None = None) -> SQLiteRepository:
 
 COLLECTOR_PROFILES = {
     "quick": {"psutil_connections", "psutil_processes", "security_events", "rdp_events", "windows_firewall", "sysmon_network",
-              "sysmon_process_registry", "ssh_observability", "ip_names", "docker"},
+              "sysmon_process_registry", "ssh_observability", "ip_names", "docker", "wfp_drops"},
     "standard": None,
     "deep": None,
 }
@@ -79,6 +80,7 @@ def build_collect_service(settings: Settings | None = None, profile: str = "stan
         RecentFileCollector(effective),
         WindowsPersistenceCollector(effective),
         FirewallLogCollector(effective.firewall_log_path),
+        WfpDropCollector(),
         SysmonCollector("sysmon_network", (3,), "connections"),
         SysmonCollector("sysmon_files", (11, 23), "file_events"),
         SysmonCollector("sysmon_process_registry", (1, 12, 13), "sysmon_events"),
