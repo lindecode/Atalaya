@@ -39,8 +39,12 @@ export default function(component) {
   if (!root) { root = document.createElement("div"); root.className = "map"; parentElement.appendChild(root); }
   root.replaceChildren();
   if (!data || !Array.isArray(data.nodes)) return;
-  const extent = Number(data.extent) || 400;
-  const svg = el("svg", { viewBox: `${-extent} ${-extent} ${extent * 2} ${extent * 2}`,
+  // Fit the drawing to the nodes (labels included) instead of a square around the centre
+  const xs = data.nodes.flatMap((n) => [Number(n.x) - (Number(n.r) || 10) - 75, Number(n.x) + (Number(n.r) || 10) + 75]);
+  const ys = data.nodes.flatMap((n) => [Number(n.y) - (Number(n.r) || 10) - 20, Number(n.y) + (Number(n.r) || 10) + 34]);
+  const [left, right, top, bottom] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)];
+  const width = Math.max(right - left, 560), height = Math.max(bottom - top, 380);  // sparse maps: no giant labels
+  const svg = el("svg", { viewBox: `${left - (width - (right - left)) / 2} ${top - (height - (bottom - top)) / 2} ${width} ${height}`,
                           role: "img", "aria-label": String(data.label || "") });
   const edgesLayer = el("g"), nodesLayer = el("g");
   svg.append(edgesLayer, nodesLayer);

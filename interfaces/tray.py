@@ -174,23 +174,30 @@ class NetworkWatchLoop:
             time.sleep(self.interval)
 
 
-def build_network_watch(settings: Settings, notify: Callable[[str, str], None]) -> NetworkWatchLoop:
+def build_network_watch(settings: Settings, notify: Callable[[str, str], None]) -> tuple[NetworkWatchLoop, NetworkWatchLoop]:
+    """The network loop (every 5 s) and the Docker loop (every 30 s); both store notices and share the switch."""
     from application.network_watch import NetworkWatcher
     from bootstrap import build_automation_config_service
     from infrastructure.clock import SystemClock
     from infrastructure.sqlite.network_notices import SQLiteNetworkNotices
     from infrastructure.windows import live_network
 
+    from application.docker_watch import DockerWatcher
+    from infrastructure.docker.cli import DockerCLI
+
     clock = SystemClock()
     tail = live_network.FirewallTail(settings.firewall_log_path)
+    containers = DockerWatcher(DockerCLI(), clock.now_iso)
     watcher = NetworkWatcher(lambda: live_network.connections(clock.now_iso()), lambda: tail(clock.now_iso()),
-                             live_network.local_addresses, clock.now_iso, scan_ports=settings.port_scan_count)
+                             live_network.local_addresses, clock.now_iso, scan_ports=settings.port_scan_count,
+                             port_names=lambda: containers.port_names)
     store = SQLiteNetworkNotices(settings)
     try:
         store.prune()
     except Exception:
         log.exception("network notices prune failed")
-    return NetworkWatchLoop(watcher, store, notify, build_automation_config_service(settings).load)
+    load = build_automation_config_service(settings).load
+    return NetworkWatchLoop(watcher, store, notify, load), NetworkWatchLoop(containers, store, notify, load, interval=30)
 
 
 class TrayController:
@@ -413,9 +420,8 @@ def run_tray(open_browser: bool = True, monitor: bool = False, force_browser: bo
         if not open_browser:
             notify(APP_NAME, "Atalaya está en segundo plano. Use este icono junto al reloj para abrirlo o salir.")
         try:
-            network = build_network_watch(settings, notify)
-            threading.Thread(target=network.run, args=(lambda: _icon.visible,), daemon=True,
-                             name="network-watch").start()
+            for loop, name in zip(build_network_watch(settings, notify), ("network-watch", "docker-watch")):
+                threading.Thread(target=loop.run, args=(lambda: _icon.visible,), daemon=True, name=name).start()
         except Exception:
             log.exception("network watch did not start")
         while True:

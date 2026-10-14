@@ -29,6 +29,7 @@ CASES = (
     EvalCase("¿Alguien se conectó por RDP?", ("get_auth_events",)),
     EvalCase("¿Qué puertos tengo abiertos?", ("get_connections",)),
     EvalCase("¿Quién se conectó a mi servidor del 8080?", ("get_dev_servers",), must_match=(r"8080",)),
+    EvalCase("¿Mis contenedores de Docker tienen algún riesgo?", ("get_containers",), cite_ids=False),
     EvalCase("¿A qué IPs remotas se conecta el equipo?", ("get_connections",)),
     EvalCase("¿Qué procesos consumen más memoria?", ("get_processes",)),
     EvalCase("¿Se agregó persistencia nueva en los últimos 7 días?", ("get_persistence_new",)),

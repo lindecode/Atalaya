@@ -25,6 +25,8 @@ INTENTS = (
      r"sospech|suspicious|revisar primero|look at first)", "get_alerts", {}),
     (r"\b(rdp|escritorio remoto|remote desktop|inicio(s)? de sesion|logon|login|inicia(r|ron) sesion|acceso|"
      r"contrasena|password|autentic|authentic|fuerza bruta|brute|4625|4624|1149)", "get_auth_events", {}),
+    (r"\b(docker|contenedor|container|compose|imagen(es)? de docker|docker images?|volumen(es)?|volumes?|"
+     r"kubernetes|k8s)", "get_containers", {}),
     (r"\b(mis? servidor|my servers?|servidor(es)? de desarrollo|dev servers?|mis puertos|my ports|"
      r"(quien|alguien) se conect\w* a mis?|who connected to my|depuracion|debug port|spring|tomcat|localhost)",
      "get_dev_servers", {}),
@@ -92,8 +94,9 @@ def plan(question: str) -> list[tuple[str, dict]]:
                 name == "get_dev_servers" for name, _ in calls):
             continue  # the live server list already answers "which ports are open"
         if re.search(pattern, text) and all(name != tool for name, _ in calls):
-            # get_dev_servers is live: it takes no period
-            calls.append((tool, {**args, "since": when} if when and tool != "get_dev_servers" else dict(args)))
+            # the live tools take no period
+            live = tool in {"get_dev_servers", "get_containers"}
+            calls.append((tool, {**args, "since": when} if when and not live else dict(args)))
     for index, (name, args) in enumerate(calls):
         bare = re.search(r"\b(\d{4,5})\b", text)  # "mi servidor del 8080"
         if name == "get_dev_servers" and "port" not in args and bare and int(bare.group(1)) <= 65535:

@@ -86,7 +86,7 @@ class FakeRunner:
         self.running, self.calls = running, []
 
     def __call__(self, command, **kwargs):
-        args = command[1:]
+        args = tuple(command[1:])
         self.calls.append(args)
         out = lambda text: type("Done", (), {"returncode": 0, "stdout": text, "stderr": ""})()
         if not self.running:

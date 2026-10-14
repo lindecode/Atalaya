@@ -35,6 +35,7 @@ class Notice:
             "ping": (f"Ping from {where}" if en else f"Ping desde {where}"),
             "scan": (f"Port scan from {where}" if en else f"Escaneo de puertos desde {where}"),
             "exposed": ("New server exposed to the network" if en else "Nuevo servidor expuesto a la red"),
+            "docker": ("Container in trouble" if en else "Contenedor con problemas"),
         }[self.kind]
 
     def message(self, lang: str = "es") -> str:
@@ -47,6 +48,8 @@ class Notice:
             return f"{self.remote_ip} " + ("checked whether this computer exists" if en else "comprobó si este equipo existe")
         if self.kind == "scan":
             return f"{self.remote_ip}: {self.detail}"
+        if self.kind == "docker":
+            return f"{process}: {self.detail}"
         return (f"{process} listens on port {self.lport} ({self.detail})" if en
                 else f"{process} escucha en el puerto {self.lport} ({self.detail})")
 
@@ -70,8 +73,11 @@ class NetworkWatcher:
 
     def __init__(self, connections: Callable[[], Iterable[dict]], firewall: Callable[[], Iterable[dict]],
                  local_addresses: Callable[[], set[str]], now_iso: Callable[[], str],
-                 trusted: tuple = (), scan_ports: int = 20, monotonic: Callable[[], float] = time.monotonic):
+                 trusted: tuple = (), scan_ports: int = 20, monotonic: Callable[[], float] = time.monotonic,
+                 port_names: Callable[[], dict[int, str]] = dict):
+        """`port_names()` maps host ports to Docker containers, so a client of com.docker.backend is named."""
         self.connections, self.firewall, self.local_addresses = connections, firewall, local_addresses
+        self.port_names = port_names
         self.now_iso, self.monotonic = now_iso, monotonic
         self.trusted, self.scan_ports = trusted, scan_ports
         self.muted: dict[tuple, float] = {}
@@ -111,7 +117,8 @@ class NetworkWatcher:
             if (row.get("direction") != "inbound" or network not in {"lan", "internet"} or remote in own
                     or self._trusted(remote) or not self._once(("client", remote, row.get("lport")))):
                 continue
-            notices.append(Notice(ts, "client", network, remote, row.get("lport"), row.get("process_name"), ""))
+            target = self.port_names().get(row.get("lport")) if dev.runtime(row.get("process_name")).key == "container" else None
+            notices.append(Notice(ts, "client", network, remote, row.get("lport"), target or row.get("process_name"), ""))
         notices += self._firewall(ts)
         return notices
 

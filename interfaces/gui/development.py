@@ -20,13 +20,20 @@ from interfaces.gui.node_map import node_map
 from interfaces.gui.table_formatting import local_series, to_local_datetime
 
 NOTICE_KINDS = {"client": ("Conexión", "Connection"), "ping": ("Ping", "Ping"), "scan": ("Escaneo", "Scan"),
-                "exposed": ("Servidor expuesto", "Exposed server")}
+                "exposed": ("Servidor expuesto", "Exposed server"), "docker": ("Contenedor", "Container")}
 
 
 @st.cache_data(ttl=5, show_spinner=False)
 def _snapshot() -> dict:
     from infrastructure.windows.dev_inventory import snapshot
     return snapshot()
+
+
+def _docker_names() -> dict[int, str]:
+    from domain import docker
+    from interfaces.gui.docker_tab import _inventory
+    data = _inventory()
+    return docker.port_names(data.get("containers", [])) if data.get("available") else {}
 
 
 def _notices(settings, since: str) -> list[dict]:
@@ -80,7 +87,7 @@ def development_page():
         except Exception as exc:
             st.error(tr(f"No se pudo leer el estado de la red: {exc}", f"Could not read the network state: {exc}"))
             return
-        rows = dev_view.servers(snapshot, include_all=include_all)
+        rows = dev_view.servers(snapshot, include_all=include_all, port_names=_docker_names())
         notices = _notices(settings, since)
         _kpis(rows, notices, tr)
         exposed_debug = [row for row in rows if row["debug"] and row["scope"] != dev.SCOPE_LOCAL]
@@ -89,8 +96,9 @@ def development_page():
                         "Quien lo alcance puede ejecutar código; hágalo escuchar solo en 127.0.0.1.",
                         f"Exposed debug port: {row['debug']} on :{row['port']} ({plain_label(row['process'])}). "
                         "Whoever reaches it can run code; bind it to 127.0.0.1."), icon=":material/bug_report:")
-        map_tab, servers_tab, timeline_tab, languages_tab, port_tab, notices_tab = st.tabs([
+        map_tab, servers_tab, docker_tab_, timeline_tab, languages_tab, port_tab, notices_tab = st.tabs([
             ":material/hub: " + tr("Mapa", "Map"), ":material/dns: " + tr("Servidores", "Servers"),
+            ":material/deployed_code: Docker",
             ":material/timeline: " + tr("Línea de tiempo", "Timeline"),
             ":material/code: " + tr("Lenguajes", "Languages"),
             ":material/search: " + tr("¿Quién usa el puerto?", "Who uses the port?"),
@@ -99,6 +107,9 @@ def development_page():
             _map(rows, notices, local_clients, lang, tr)
         with servers_tab:
             _servers(rows, lang, tr)
+        with docker_tab_:
+            from interfaces.gui.docker_tab import docker_tab
+            docker_tab(settings, lang, tr)
         with timeline_tab:
             _timeline(str(settings.database_path), since, include_all, lang, tr)
         with languages_tab:

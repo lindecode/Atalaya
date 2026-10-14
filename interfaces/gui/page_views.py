@@ -1974,13 +1974,21 @@ def _features(settings):
         save(backup_daily=changed)
 
     changed = _feature("Avisos de red en vivo", "Notificación de Windows cuando alguien de la red local o de Internet se "
-                       "conecta a un servidor de este equipo, le hace ping o escanea sus puertos, y cuando un servidor "
-                       "nuevo queda expuesto. Requiere Atalaya junto al reloj; todo queda también en Desarrollo.",
+                       "conecta a un servidor de este equipo, le hace ping o escanea sus puertos, cuando un servidor "
+                       "nuevo queda expuesto y cuando un contenedor de Docker se reinicia en bucle, se queda sin "
+                       "memoria o deja de estar sano. Requiere Atalaya junto al reloj; todo queda también en Desarrollo.",
                        ":green[● Activado]" if config.network_notifications else
                        ":gray[● Desactivado]: se siguen registrando en Desarrollo, sin notificar.",
                        config.network_notifications, "network")
     if changed is not None:
         save(network_notifications=changed)
+    changed = _feature("Docker Scout", "Busca vulnerabilidades conocidas en sus imágenes desde la pestaña Docker de "
+                       "Desarrollo, solo cuando usted lo pide. Envía la lista de paquetes de la imagen al servicio de "
+                       "Docker, por eso está desactivado por defecto.",
+                       ":green[● Activado]" if config.docker_scout else ":gray[● Desactivado]", config.docker_scout,
+                       "scout")
+    if changed is not None:
+        save(docker_scout=changed)
     with st.container(border=True):
         st.markdown("**IPs de confianza**")
         st.caption("No generan avisos de red (p. ej. su celular o su NAS). Separe con comas; admite redes como "

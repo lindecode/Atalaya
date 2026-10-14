@@ -25,6 +25,11 @@ def test_development_page_shows_servers_debug_warning_and_notices(tmp_path, monk
                                                "45.1.2.3", 8080, "java.exe", "")])
     import infrastructure.windows.dev_inventory as inventory
     monkeypatch.setattr(inventory, "snapshot", lambda now_iso=None: SNAPSHOT)
+    import infrastructure.docker.inventory as docker_inventory
+    from infrastructure.docker.cli import DockerCLI
+    from tests.docker_fixtures import FakeRunner
+    real = docker_inventory.inventory
+    monkeypatch.setattr(docker_inventory, "inventory", lambda cli=None: real(DockerCLI("docker", FakeRunner())))
 
     app = AppTest.from_file(ROOT / "interfaces/gui/views/04_Desarrollo.py", default_timeout=30).run()
     assert not app.exception
@@ -32,6 +37,9 @@ def test_development_page_shows_servers_debug_warning_and_notices(tmp_path, monk
     assert metrics["Servidores"] == "3" and metrics["Expuestos a la red"] == "2"
     assert metrics["Depuración expuesta"] == "1" and metrics["Clientes externos ahora"] == "2"
     assert metrics["Avisos de red"] == "1"
+    assert metrics["En marcha"] == "2/3" and metrics["Con riesgos"] == "2" and metrics["Imágenes huérfanas"] == "1"
+    assert any("5432/tcp (PostgreSQL)" in error.value.replace("\\", "") for error in app.error)  # R21 on the card
+    assert any("`-p 127.0.0.1:5432:5432`" in error.value for error in app.error)           # with its fix
     assert any("Inspector de Node.js" in error.value for error in app.error)
     assert any("app.jar" in text.value for text in app.text)  # the Java card names the jar, not just java.exe
     assert any("Aún no hay recolecciones" in info.value for info in app.info)  # empty timeline, no crash

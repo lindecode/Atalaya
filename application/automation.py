@@ -28,6 +28,7 @@ class AutomationConfig:
     language: str = "es"
     network_notifications: bool = True  # live: connections to my servers (LAN and Internet), pings, scans
     trusted_ips: str = ""               # comma-separated IPs or networks that never notify (e.g. my phone)
+    docker_scout: bool = False          # Docker Scout sends an image's package list to Docker: opt-in only
 
     def validated(self) -> "AutomationConfig":
         if self.profile not in {"quick", "standard", "deep"}: raise ValueError("Perfil inválido")

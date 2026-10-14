@@ -46,6 +46,11 @@ TOOL_SCHEMAS = [
          {"port": {"type": "integer", "description": "Puerto exacto, p. ej. 8080."},
           "process": {"type": "string", "description": "Parte del nombre del proceso o el lenguaje, p. ej. java."},
           "include_all": {"type": "boolean", "description": "true = incluir servicios de Windows y ayudantes locales."}}),
+        ("get_containers", "Contenedores de Docker AHORA: estado y salud, reinicios, OOM, puertos publicados con su "
+         "alcance (local/lan/all), riesgos (privilegios, socket de Docker, secretos en variables) con su corrección, "
+         "redes, CPU y memoria, más imágenes huérfanas y volúmenes sin uso.",
+         {"name": {"type": "string", "description": "Parte del nombre del contenedor o de la imagen."},
+          "only_risky": {"type": "boolean", "description": "true = solo contenedores con riesgos."}}),
         ("get_processes", "Procesos activos del equipo ordenados por memoria privada (MB), de mayor a menor.",
          {"process": {"type": "string", "description": "Parte del nombre del proceso."},
           "active": {"type": "boolean", "description": "true (por defecto) = sólo los activos ahora."}, "since": SINCE}),
@@ -82,6 +87,7 @@ TOOL_NAME = re.compile(r"`?\b(get_[a-z_]+|search_knowledge)\b`?")
 TOOL_LABELS = {
     "get_overview": ("panorama general", "overview"), "get_alerts": ("alertas", "alerts"),
     "get_dev_servers": ("servidores de este equipo", "this computer's servers"),
+    "get_containers": ("contenedores de Docker", "Docker containers"),
     "get_auth_events": ("inicios de sesión", "logons"), "get_connections": ("conexiones", "connections"),
     "get_processes": ("procesos", "processes"), "get_file_events": ("cambios de archivos", "file changes"),
     "get_file_reputation": ("reputación de ejecutables", "executable reputation"),

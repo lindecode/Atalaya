@@ -144,8 +144,15 @@ def build_chat_service(settings: Settings | None = None, model: str | None = Non
     effective = _with_model(settings, model)
     effective, _, client, _, _ = build_components(effective)
     rag = build_rag_service(effective)
-    return ChatService(effective, SecureToolRouter(SQLiteQueryTools(effective), rag, _dev_servers_tool(effective)),
-                       client)
+    return ChatService(effective, SecureToolRouter(SQLiteQueryTools(effective), rag, _dev_servers_tool(effective),
+                                                   _containers_tool), client)
+
+
+def _containers_tool(args: dict) -> dict:
+    """get_containers: Docker read now (read-only CLI); says so when Docker Desktop is off."""
+    from application.docker_view import tool_result
+    from infrastructure.docker.inventory import inventory
+    return tool_result(inventory(), args)
 
 
 def _dev_servers_tool(settings: Settings):

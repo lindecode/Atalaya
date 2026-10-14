@@ -19,7 +19,7 @@ def _windows_service(entry: dict) -> bool:
     return str(entry["process"]).casefold() in WINDOWS_SERVICES
 
 
-def servers(snapshot: dict, include_all: bool = False) -> list[dict]:
+def servers(snapshot: dict, include_all: bool = False, port_names: dict[int, str] | None = None) -> list[dict]:
     """One entry per (port, process): widest reach over its addresses, runtime, debug label, clients now.
 
     By default only development servers and anything reachable beyond this computer; `include_all` adds the
@@ -46,7 +46,10 @@ def servers(snapshot: dict, include_all: bool = False) -> list[dict]:
                 "path": row.get("process_path"), "runtime": runtime.key, "language": runtime.label,
                 "color": runtime.color, "scope": reach, "addresses": [], "debug": dev.debug_port(key[0]),
                 "started": process.get("started"), "memory_mb": process.get("memory_mb"),
-                "command": process.get("command"), "target": process.get("target"),
+                "command": process.get("command"),
+                # Docker Desktop listens for its containers: name the container, not com.docker.backend
+                "target": (port_names or {}).get(key[0]) if runtime.key == "container" and (port_names or {}).get(key[0])
+                else process.get("target"),
                 "clients": clients.get(key[0], []),
             }
         if row.get("laddr") not in entry["addresses"]:
@@ -195,7 +198,7 @@ def graph(server_rows: list[dict], history: list[dict] | None = None, lang: str 
         if notice.get("kind") == "client" and server and notice.get("remote_ip"):
             links.setdefault((notice["remote_ip"], server["id"]),
                              {"live": False, "count": 1, "origin": notice.get("network")})
-    spread = math.pi / count * 0.8
+    spread = min(math.pi / count * 0.8, 0.9)  # a lone server must not fan its clients around the whole ring
     per_server = defaultdict(list)
     for (ip, server_id), _ in links.items():
         if ip not in placed:
