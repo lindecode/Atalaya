@@ -25,6 +25,9 @@ INTENTS = (
      r"sospech|suspicious|revisar primero|look at first)", "get_alerts", {}),
     (r"\b(rdp|escritorio remoto|remote desktop|inicio(s)? de sesion|logon|login|inicia(r|ron) sesion|acceso|"
      r"contrasena|password|autentic|authentic|fuerza bruta|brute|4625|4624|1149)", "get_auth_events", {}),
+    (r"\b(mis? servidor|my servers?|servidor(es)? de desarrollo|dev servers?|mis puertos|my ports|"
+     r"(quien|alguien) se conect\w* a mis?|who connected to my|depuracion|debug port|spring|tomcat|localhost)",
+     "get_dev_servers", {}),
     (r"\b(puerto|port|escucha|listen|servidor|server|expuest|exposed)", "get_connections", {"direction": "listen"}),
     (r"\b(conexion|conexiones|connections?|ips?|red|redes|network|trafico|traffic|remot|destino|destination|"
      r"se conecta|connects?)\b", "get_connections", {}),
@@ -51,6 +54,8 @@ def period(question: str) -> str | None:
 IP = re.compile(r"\b(\d{1,3}(?:\.\d{1,3}){3})\b")
 RULE = re.compile(r"\br(\d{2})\b")
 EXECUTABLE = re.compile(r"\b([\w-]+\.exe)\b")
+# "puerto 8080", "port 3000", ":5173", "localhost:8080"; not the minutes of "10:30"
+PORT = re.compile(r"(?:\b(?:puerto|port)\s+|(?<![\d:]):)(\d{2,5})\b")
 
 
 def _entities(text: str, when: str | None) -> list[tuple[str, dict]]:
@@ -62,6 +67,8 @@ def _entities(text: str, when: str | None) -> list[tuple[str, dict]]:
                   ("get_auth_events", {"source_ip": match.group(1), **wide})]
     if match := RULE.search(text):
         calls.append(("get_alerts", {"rule": f"R{match.group(1)}", **({"since": when} if when else {})}))
+    if (match := PORT.search(text)) and int(match.group(1)) <= 65535:
+        calls.append(("get_dev_servers", {"port": int(match.group(1))}))
     if match := EXECUTABLE.search(text):
         calls += [("get_processes", {"process": match.group(1), **wide}),
                   ("get_connections", {"process": match.group(1), **wide})]
@@ -81,6 +88,14 @@ def plan(question: str) -> list[tuple[str, dict]]:
     for pattern, tool, args in INTENTS:
         if len(calls) >= MAX_TOOLS:
             break
+        if tool == "get_connections" and args.get("direction") == "listen" and any(
+                name == "get_dev_servers" for name, _ in calls):
+            continue  # the live server list already answers "which ports are open"
         if re.search(pattern, text) and all(name != tool for name, _ in calls):
-            calls.append((tool, {**args, "since": when} if when else dict(args)))
+            # get_dev_servers is live: it takes no period
+            calls.append((tool, {**args, "since": when} if when and tool != "get_dev_servers" else dict(args)))
+    for index, (name, args) in enumerate(calls):
+        bare = re.search(r"\b(\d{4,5})\b", text)  # "mi servidor del 8080"
+        if name == "get_dev_servers" and "port" not in args and bare and int(bare.group(1)) <= 65535:
+            calls[index] = (name, {**args, "port": int(bare.group(1))})
     return calls

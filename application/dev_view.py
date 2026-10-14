@@ -77,6 +77,85 @@ def runtimes(snapshot: dict) -> list[dict]:
     return sorted(groups.values(), key=lambda group: -group["memory_mb"])
 
 
+def timeline(history: dict, include_all: bool = False) -> list[dict]:
+    """When each server was up: runs of consecutive collections that saw it listening.
+
+    A collection without it means it was down; a gap much longer than the usual interval (computer off or
+    asleep) also ends the run instead of drawing it as up all night.
+    """
+    from datetime import datetime, timedelta
+
+    snapshots = [datetime.fromisoformat(ts) for ts in history.get("snapshots", [])]
+    if not snapshots:
+        return []
+    index = {ts: position for position, ts in enumerate(history["snapshots"])}
+    deltas = sorted((b - a).total_seconds() for a, b in zip(snapshots, snapshots[1:])) or [300.0]
+    usual = max(deltas[len(deltas) // 2], 60.0)
+    seen: dict[tuple, dict] = {}
+    for row in history.get("rows", []):
+        key = (row["lport"], row.get("process_name") or "?")
+        entry = seen.setdefault(key, {"positions": set(), "scope": dev.SCOPE_LOCAL, "path": row.get("process_path")})
+        entry["positions"].add(index[row["ts"]])
+        reach = dev.scope(row.get("laddr"))
+        if SCOPE_RANK[reach] > SCOPE_RANK[entry["scope"]]:
+            entry["scope"] = reach
+    segments = []
+    for (port, process), entry in seen.items():
+        runtime = dev.runtime(process, entry["path"])
+        candidate = {"process": process, "runtime": runtime.key, "scope": entry["scope"]}
+        if not include_all and not (runtime.key in dev.DEV_RUNTIMES or (
+                entry["scope"] != dev.SCOPE_LOCAL and not _windows_service(candidate))):
+            continue
+        positions = sorted(entry["positions"])
+        start = previous = positions[0]
+        for position in positions[1:] + [None]:
+            continuous = (position == previous + 1 and
+                          (snapshots[position] - snapshots[previous]).total_seconds() <= 3 * usual) if position is not None else False
+            if continuous:
+                previous = position
+                continue
+            end = snapshots[previous] if previous > start else snapshots[start] + timedelta(seconds=usual)
+            segments.append({"server": f":{port} · {process.removesuffix('.exe')}", "port": port, "process": process,
+                             "language": runtime.label, "color": runtime.color, "scope": entry["scope"],
+                             "start": snapshots[start].isoformat(), "end": end.isoformat()})
+            if position is not None:
+                start = previous = position
+    return sorted(segments, key=lambda segment: (segment["port"], segment["start"]))
+
+
+TOOL_ARGS = {"port", "process", "include_all"}
+
+
+def tool_result(snapshot: dict, notices: list[dict], args: dict) -> dict:
+    """get_dev_servers for the chat: compact rows (id = port) plus totals, with past clients from the notices."""
+    unexpected = set(args) - TOOL_ARGS
+    if unexpected:
+        raise ValueError(f"Argumentos no permitidos: {sorted(unexpected)}")
+    port = int(args["port"]) if args.get("port") not in (None, "") else None
+    process = str(args.get("process") or "").casefold().removesuffix(".exe")
+    rows = servers(snapshot, include_all=bool(args.get("include_all")) or port is not None)
+    rows = [row for row in rows if (port is None or row["port"] == port)
+            and (not process or process in row["process"].casefold() or process in row["language"].casefold())]
+    result = []
+    for row in rows[:25]:
+        past = [{"ip": n.get("remote_ip"), "network": n.get("network"), "ts": n.get("ts")} for n in notices
+                if n.get("kind") == "client" and n.get("lport") == row["port"]][:10]
+        result.append({
+            "id": row["port"], "port": row["port"], "process": row["process"], "language": row["language"],
+            "reach": row["scope"], "addresses": row["addresses"], "debug_port": row["debug"],
+            "application": row.get("target"), "started": row.get("started"), "memory_mb": row.get("memory_mb"),
+            "clients_now": [f"{c['ip']} ({c['origin']})" for c in row["clients"] if c["origin"] != "local"][:10],
+            "local_clients_now": sum(c["origin"] == "local" for c in row["clients"]),
+            "recent_external_clients": past,
+        })
+    summary = {"servers": len(rows), "returned": len(result),
+               "exposed": sum(row["scope"] != dev.SCOPE_LOCAL for row in rows),
+               "debug_exposed": sum(bool(row["debug"]) and row["scope"] != dev.SCOPE_LOCAL for row in rows),
+               "external_clients_now": sum(c["origin"] in {"lan", "internet"} for row in rows for c in row["clients"]),
+               "reach_legend": "local = solo este equipo, lan = red local, all = todas las redes (0.0.0.0/::)"}
+    return {"summary": summary, "rows": result}
+
+
 def _short(text: str, limit: int = 16) -> str:
     return text if len(text) <= limit else text[:limit - 1] + "…"
 

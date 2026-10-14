@@ -6,12 +6,15 @@ class SecureToolRouter:
 
     SQL_TOOLS = {"get_overview", "get_alerts", "get_auth_events", "get_connections", "get_processes", "get_file_events", "get_file_reputation", "get_persistence_new", "get_ssh_observations"}
 
-    def __init__(self, sql_tools, rag_service):
-        self.sql_tools, self.rag_service = sql_tools, rag_service
+    def __init__(self, sql_tools, rag_service, dev_servers=None):
+        """`dev_servers(args)` answers get_dev_servers from the live sockets (not SQL); None disables the tool."""
+        self.sql_tools, self.rag_service, self.dev_servers = sql_tools, rag_service, dev_servers
 
     def call(self, name, args):
         if name in self.SQL_TOOLS:
             return self.sql_tools.call(name, args)
+        if name == "get_dev_servers" and self.dev_servers is not None:
+            return self.dev_servers(dict(args or {}))
         if name == "search_knowledge":
             unexpected = set(args) - {"query", "top_k"}
             if unexpected: raise ValueError(f"Argumentos no permitidos: {sorted(unexpected)}")

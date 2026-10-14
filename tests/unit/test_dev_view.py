@@ -57,3 +57,46 @@ def test_graph_places_servers_and_external_clients_and_keeps_past_clients_dashed
     assert [(edge["from"], edge["to"]) for edge in dashed] == [("c:45.1.2.3", "s:8080:java.exe")]
     assert "c:127.0.0.1" in {node["id"] for node in dev_view.graph(rows, include_local_clients=True)["nodes"]}
     assert all("_angle" not in row for row in rows)
+
+
+def test_timeline_splits_on_missing_collections_and_long_gaps():
+    snapshots = ["2026-10-14T10:00:00+00:00", "2026-10-14T10:05:00+00:00", "2026-10-14T10:10:00+00:00",
+                 "2026-10-14T10:15:00+00:00", "2026-10-14T18:00:00+00:00", "2026-10-14T18:05:00+00:00"]
+    row = lambda ts, port=8080, process="java.exe", address="0.0.0.0": {
+        "ts": ts, "lport": port, "process_name": process, "process_path": None, "laddr": address}
+    history = {"snapshots": snapshots, "rows": [
+        row(snapshots[0]), row(snapshots[1]),                        # up, then missing at 10:10 (stopped)
+        row(snapshots[3]), row(snapshots[4]), row(snapshots[5]),    # 10:15, then the computer was off until 18:00
+        row(snapshots[0], 135, None), row(snapshots[1], 6850, "Lights.exe", "127.0.0.1")]}
+    segments = dev_view.timeline(history)
+    assert [(s["start"][11:16], s["end"][11:16]) for s in segments] == [("10:00", "10:05"), ("10:15", "10:20"),
+                                                                        ("18:00", "18:05")]
+    assert {s["server"] for s in segments} == {":8080 · java"} and segments[0]["scope"] == "all"
+    assert {s["port"] for s in dev_view.timeline(history, include_all=True)} == {8080, 135, 6850}
+    assert dev_view.timeline({"snapshots": [], "rows": []}) == []
+
+
+def test_chat_tool_filters_by_port_or_language_and_adds_past_clients():
+    notices = [{"kind": "client", "lport": 8080, "remote_ip": "45.1.2.3", "network": "internet", "ts": "t"},
+               {"kind": "ping", "lport": None, "remote_ip": "192.168.1.1", "network": "lan", "ts": "t"}]
+    result = dev_view.tool_result(SNAPSHOT, notices, {"port": 8080})
+    assert [row["id"] for row in result["rows"]] == [8080]
+    java = result["rows"][0]
+    assert java["application"] == "app.jar" and java["reach"] == "all"
+    assert java["clients_now"] == ["192.168.1.20 (lan)", "8.8.8.8 (internet)"]
+    assert java["recent_external_clients"][0]["ip"] == "45.1.2.3"
+    assert [row["port"] for row in dev_view.tool_result(SNAPSHOT, [], {"process": "node"})["rows"]] == [9229, 5173]
+    assert dev_view.tool_result(SNAPSHOT, [], {})["summary"]["debug_exposed"] == 1
+    assert dev_view.tool_result(SNAPSHOT, [], {"port": 135})["rows"][0]["process"] == "?"  # a port asks for everything
+    import pytest
+    with pytest.raises(ValueError, match="no permitidos"):
+        dev_view.tool_result(SNAPSHOT, [], {"sql": "DROP TABLE"})
+
+
+def test_router_serves_dev_servers_only_when_wired():
+    import pytest
+    from application.tool_router import SecureToolRouter
+    router = SecureToolRouter(None, None, lambda args: {"summary": {}, "rows": [{"id": args["port"]}]})
+    assert router.call("get_dev_servers", {"port": 3000})["rows"] == [{"id": 3000}]
+    with pytest.raises(ValueError, match="no permitida"):
+        SecureToolRouter(None, None).call("get_dev_servers", {})

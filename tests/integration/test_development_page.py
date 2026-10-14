@@ -34,3 +34,10 @@ def test_development_page_shows_servers_debug_warning_and_notices(tmp_path, monk
     assert metrics["Avisos de red"] == "1"
     assert any("Inspector de Node.js" in error.value for error in app.error)
     assert any("app.jar" in text.value for text in app.text)  # the Java card names the jar, not just java.exe
+    assert any("Aún no hay recolecciones" in info.value for info in app.info)  # empty timeline, no crash
+
+    app.number_input(key="dev-port").set_value(8080).run()
+    assert not app.exception
+    assert any(code.value == "Stop-Process -Id 10" for code in app.code)
+    app.number_input(key="dev-port").set_value(4444).run()
+    assert any("está libre" in success.value for success in app.success)

@@ -142,7 +142,25 @@ def build_chat_service(settings: Settings | None = None, model: str | None = Non
     effective = _with_model(settings, model)
     effective, _, client, _, _ = build_components(effective)
     rag = build_rag_service(effective)
-    return ChatService(effective, SecureToolRouter(SQLiteQueryTools(effective), rag), client)
+    return ChatService(effective, SecureToolRouter(SQLiteQueryTools(effective), rag, _dev_servers_tool(effective)),
+                       client)
+
+
+def _dev_servers_tool(settings: Settings):
+    """get_dev_servers: live sockets plus the last day of network notices, read only when the model asks."""
+    def call(args: dict) -> dict:
+        from datetime import datetime, timedelta, timezone
+
+        from application.dev_view import tool_result
+        from infrastructure.sqlite.network_notices import SQLiteNetworkNotices
+        from infrastructure.windows.dev_inventory import snapshot
+        since = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
+        try:
+            notices = SQLiteNetworkNotices(settings).recent(since)
+        except Exception:  # database from before the network_notices migration
+            notices = []
+        return tool_result(snapshot(), notices, args)
+    return call
 
 
 def build_doctor_service(settings: Settings | None = None) -> DoctorService:

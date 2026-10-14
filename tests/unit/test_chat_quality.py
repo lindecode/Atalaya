@@ -145,7 +145,7 @@ def test_evals_score_a_model_and_survive_errors():
             if "RDP" in question:
                 raise RuntimeError("boom")
             tool = next(case.tools[0] for case in CASES if case.question == question)
-            text = "The alert 3 is open." if lang == "en" else "La alerta 3 es la más grave de las abiertas."
+            text = "The alert 3 is open." if lang == "en" else "La alerta 3 del puerto 8080 es la más grave de las abiertas."
             return {"answer": text, "tool_calls": [{"name": tool, "ids": [3]}]}
 
     report = run(Chat())
@@ -161,3 +161,10 @@ def test_small_chat_models_are_detected_by_effective_size():
     assert effective_billions("qwen3.5:0.8b", "873.44M") == pytest.approx(0.873, abs=1e-3)
     assert effective_billions("qwen3.5:4b", "4.7B") == 4.7
     assert effective_billions("x", None) is None
+
+
+def test_ports_and_my_servers_go_to_the_live_server_list():
+    assert chat_intents.plan("¿Quién se conectó a mi servidor del 8080?") == [("get_dev_servers", {"port": 8080})]
+    assert chat_intents.plan("¿Qué hay en localhost:5173?") == [("get_dev_servers", {"port": 5173})]
+    assert chat_intents.plan("¿Tengo puertos de depuración abiertos hoy?") == [("get_dev_servers", {})]
+    assert chat_intents.plan("¿Qué puertos tengo abiertos?") == [("get_connections", {"direction": "listen"})]

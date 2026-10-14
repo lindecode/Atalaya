@@ -89,16 +89,22 @@ def development_page():
                         "Quien lo alcance puede ejecutar código; hágalo escuchar solo en 127.0.0.1.",
                         f"Exposed debug port: {row['debug']} on :{row['port']} ({plain_label(row['process'])}). "
                         "Whoever reaches it can run code; bind it to 127.0.0.1."), icon=":material/bug_report:")
-        map_tab, servers_tab, languages_tab, notices_tab = st.tabs([
+        map_tab, servers_tab, timeline_tab, languages_tab, port_tab, notices_tab = st.tabs([
             ":material/hub: " + tr("Mapa", "Map"), ":material/dns: " + tr("Servidores", "Servers"),
+            ":material/timeline: " + tr("Línea de tiempo", "Timeline"),
             ":material/code: " + tr("Lenguajes", "Languages"),
+            ":material/search: " + tr("¿Quién usa el puerto?", "Who uses the port?"),
             ":material/notifications: " + tr("Avisos de red", "Network notices")])
         with map_tab:
             _map(rows, notices, local_clients, lang, tr)
         with servers_tab:
             _servers(rows, lang, tr)
+        with timeline_tab:
+            _timeline(str(settings.database_path), since, include_all, lang, tr)
         with languages_tab:
             _languages(snapshot, lang, tr)
+        with port_tab:
+            _port_lookup(snapshot, lang, tr)
         with notices_tab:
             _notice_history(notices, lang, tr)
 
@@ -242,6 +248,74 @@ def _languages(snapshot, lang, tr):
                     tr("Comando", "Command"): p.get("command")} for p in group["processes"]],
                   key=f"dev-runtime-{group['key']}", windowed=False, lang=lang, searchable=False,
                   dates=(tr("Inicio", "Started"),))
+
+
+@st.cache_data(ttl=60, show_spinner=False)
+def _listen_history(database: str, since: str) -> dict:
+    from dataclasses import replace
+    from pathlib import Path
+
+    from infrastructure.sqlite.dev_queries import SQLiteDevQueries
+    from settings import Settings
+    return SQLiteDevQueries(replace(Settings(), database_path=Path(database))).listen_history(since)
+
+
+def _timeline(database: str, since: str, include_all: bool, lang, tr):
+    segments = dev_view.timeline(_listen_history(database, since), include_all)
+    if not segments:
+        empty(tr("Aún no hay recolecciones con servidores en la ventana.", "No collections with servers in the window yet."))
+        return
+    frame = pd.DataFrame(segments)
+    frame["start"], frame["end"] = local_series(frame["start"]), local_series(frame["end"])
+    frame["alcance"] = frame["scope"].map(lambda scope: dev.SCOPE_LABELS[scope][lang == "en"])
+    colors = {row["language"]: row["color"] for row in segments}
+    figure = px.timeline(frame, x_start="start", x_end="end", y="server", color="language",
+                         color_discrete_map=colors, hover_data={"alcance": True, "language": False},
+                         labels={"server": "", "language": "", "alcance": tr("Alcance", "Reach")})
+    figure.update_yaxes(autorange="reversed")
+    figure.update_layout(height=120 + 28 * frame["server"].nunique(), margin=dict(l=0, r=0, t=10, b=0),
+                         legend=dict(orientation="h", y=1.08))
+    chart(figure, key="dev-timeline")
+    st.caption(tr("Cada barra es el tiempo en que las recolecciones vieron el servidor escuchando. Un hueco es una caída "
+                  "o el equipo apagado; un arranque fuera de horario merece una mirada.",
+                  "Each bar is the time collections saw the server listening. A gap is a stop or the computer off; "
+                  "a start outside your usual hours deserves a look."))
+
+
+def _port_lookup(snapshot, lang, tr):
+    port = st.number_input(tr("Puerto", "Port"), min_value=1, max_value=65535, value=None, step=1,
+                           placeholder="8080", key="dev-port")
+    if port is None:
+        st.caption(tr("Escriba un puerto para ver qué programa lo tiene abierto (p. ej. cuando «el puerto 3000 ya está "
+                      "en uso»).", "Type a port to see which program holds it (e.g. when “port 3000 is already in use”)."))
+        return
+    processes = {row["pid"]: row for row in snapshot.get("processes", [])}
+    listeners = [row for row in snapshot.get("connections", [])
+                 if row.get("lport") == port and row.get("direction") == "listen"]
+    connected = [row for row in snapshot.get("connections", [])
+                 if row.get("lport") == port and row.get("direction") == "inbound"]
+    if not listeners:
+        st.success(tr(f"Nadie escucha en el puerto {port}: está libre.", f"Nothing listens on port {port}: it is free."))
+        return
+    for pid in dict.fromkeys(row.get("pid") for row in listeners):
+        rows = [row for row in listeners if row.get("pid") == pid]
+        process = processes.get(pid, {})
+        name = rows[0].get("process_name") or "?"
+        with st.container(border=True):
+            runtime = dev.runtime(name, rows[0].get("process_path"))
+            st.markdown(f"**{plain_label(name)}** · PID {pid} · {plain_label(runtime.label)}")
+            st.text(tr("Escucha en: ", "Listens on: ") + ", ".join(str(row.get("laddr")) for row in rows))
+            if rows[0].get("process_path"):
+                st.text(rows[0]["process_path"])
+            if process.get("command"):
+                st.code(process["command"], language=None, wrap_lines=True)
+            st.caption(tr(f"{sum(row.get('pid') == pid for row in connected)} conexiones activas a este puerto. "
+                          "Atalaya no detiene procesos; si quiere liberar el puerto, copie uno de estos comandos:",
+                          f"{sum(row.get('pid') == pid for row in connected)} active connections to this port. "
+                          "Atalaya does not stop processes; to free the port, copy one of these commands:"))
+            if pid:
+                st.code(f"Stop-Process -Id {int(pid)}", language="powershell")
+                st.code(f"taskkill /PID {int(pid)} /F", language="batch")
 
 
 def _notice_history(notices, lang, tr):

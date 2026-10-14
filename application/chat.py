@@ -39,6 +39,13 @@ TOOL_SCHEMAS = [
           "process": {"type": "string", "description": "Parte del nombre del proceso, p. ej. chrome."},
           "remote_ip": {"type": "string", "description": "IP remota exacta."},
           "include_local": {"type": "boolean", "description": "true = incluir 127.0.0.1/::1."}, "since": SINCE}),
+        ("get_dev_servers", "Servidores que este equipo ejecuta AHORA (desarrollo y todo lo expuesto a la red): puerto, "
+         "proceso, lenguaje, aplicación Java, alcance (local/lan/all), puerto de depuración, clientes conectados ahora "
+         "y clientes externos de las últimas 24 h. Úsala para «mis servidores», «quién se conectó a mi servidor», "
+         "«qué hay en el puerto 8080».",
+         {"port": {"type": "integer", "description": "Puerto exacto, p. ej. 8080."},
+          "process": {"type": "string", "description": "Parte del nombre del proceso o el lenguaje, p. ej. java."},
+          "include_all": {"type": "boolean", "description": "true = incluir servicios de Windows y ayudantes locales."}}),
         ("get_processes", "Procesos activos del equipo ordenados por memoria privada (MB), de mayor a menor.",
          {"process": {"type": "string", "description": "Parte del nombre del proceso."},
           "active": {"type": "boolean", "description": "true (por defecto) = sólo los activos ahora."}, "since": SINCE}),
@@ -74,6 +81,7 @@ DEFERS_TO_USER = re.compile(
 TOOL_NAME = re.compile(r"`?\b(get_[a-z_]+|search_knowledge)\b`?")
 TOOL_LABELS = {
     "get_overview": ("panorama general", "overview"), "get_alerts": ("alertas", "alerts"),
+    "get_dev_servers": ("servidores de este equipo", "this computer's servers"),
     "get_auth_events": ("inicios de sesión", "logons"), "get_connections": ("conexiones", "connections"),
     "get_processes": ("procesos", "processes"), "get_file_events": ("cambios de archivos", "file changes"),
     "get_file_reputation": ("reputación de ejecutables", "executable reputation"),
