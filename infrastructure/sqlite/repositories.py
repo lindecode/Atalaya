@@ -20,9 +20,9 @@ TABLES = (
     "runs", "connections", "auth_events", "file_events", "firewall_events",
     "persistence_items", "baseline", "alerts", "llm_analyses", "cursors", "sysmon_events", "preferences",
     "knowledge_chunks", "rag_audit", "file_reputation", "ssh_observations", "conversation_chunks", "analysis_cache",
-    "process_snapshots", "process_lifecycle", "ip_names", "ip_labels",
+    "process_snapshots", "process_lifecycle", "ip_names", "ip_labels", "docker_observations",
 )
-BASELINE_RULES = ("R03", "R04", "R05", "R06", "R07", "R10", "R17", "R18", "R20")
+BASELINE_RULES = ("R03", "R04", "R05", "R06", "R07", "R10", "R17", "R18", "R20", "R21", "R23", "R24")
 
 
 class SQLiteRepository:
@@ -192,6 +192,15 @@ class SQLiteRepository:
                         (v["first_seen"], v["last_seen"], v["kind"], v["location"], v["name"] or "", v["command"]),
                     )
                     inserted += int(not existed)
+            elif result.item_kind == "docker_observations":
+                for item in result.items:
+                    v = asdict(item)
+                    db.execute("""INSERT INTO docker_observations
+                                  (run_id, ts, container_id, name, image, project, state, health, data_json)
+                                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                               (run_id, v["ts"], v["container_id"], v["name"], v["image"], v["project"], v["state"],
+                                v["health"], json.dumps(v["data"], ensure_ascii=False)))
+                    inserted += 1
             elif result.item_kind == "ip_names":
                 for item in result.items:
                     v = asdict(item)
@@ -282,6 +291,13 @@ class SQLiteRepository:
                       SELECT MIN(id) FROM process_snapshots WHERE ts>=? GROUP BY process_key
                       UNION SELECT MAX(id) FROM process_snapshots WHERE ts>=? GROUP BY process_key
                     ) ORDER BY ts""", (since, since, since)),
+                # The newest observation of each container: rules judge its current settings, not every cycle
+                docker_observations=tuple(
+                    {**{k: v for k, v in row.items() if k != "data_json"}, "data": json.loads(row["data_json"] or "{}")}
+                    for row in self._rows(db, """
+                    SELECT * FROM docker_observations WHERE id IN (
+                      SELECT MAX(id) FROM docker_observations WHERE ts>=? GROUP BY container_id) ORDER BY ts""",
+                    (since,))),
                 baseline=baseline,
             )
 
@@ -390,6 +406,17 @@ class SQLiteRepository:
                 observed.add(baseline_key("R10", dict(row)))
             for row in db.execute("SELECT DISTINCT raddr, lport FROM connections WHERE direction='inbound'"):
                 observed.add(baseline_key("R17", dict(row)))
+            for (data_json,) in db.execute("""SELECT data_json FROM docker_observations WHERE id IN
+                                              (SELECT MAX(id) FROM docker_observations GROUP BY container_id)"""):
+                data = json.loads(data_json or "{}")
+                kinds = {risk.get("kind") for risk in data.get("risks", [])}
+                for port in data.get("published", []):
+                    if port.get("scope") != "local":
+                        observed.add(baseline_key("R21", {"name": data.get("name"), "host_port": str(port.get("host_port"))}))
+                if kinds & {"privileged", "capabilities", "docker_socket", "host_root", "host_network"}:
+                    observed.add(baseline_key("R23", data))
+                if "env_secrets" in kinds:
+                    observed.add(baseline_key("R24", data))
             observed.discard(None)
             counts: dict[str, int] = {}
             for kind, value in observed:
@@ -511,6 +538,7 @@ class SQLiteRepository:
             "rag_audit": "DELETE FROM rag_audit WHERE ts<?",
             "file_reputation": "DELETE FROM file_reputation WHERE checked_at<?",
             "ssh_observations": "DELETE FROM ssh_observations WHERE ts<?",
+            "docker_observations": "DELETE FROM docker_observations WHERE ts<?",
             "ip_names": "DELETE FROM ip_names WHERE last_seen<?",
             "process_lifecycle": "DELETE FROM process_lifecycle WHERE active=0 AND last_seen<?",
             "runs": "DELETE FROM runs WHERE started_at<? AND id NOT IN (SELECT run_id FROM llm_analyses WHERE run_id IS NOT NULL)",

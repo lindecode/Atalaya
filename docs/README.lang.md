@@ -25,7 +25,7 @@ Atalaya implementa soporte bilingüe (**Español / Inglés**) con arquitectura m
    - Sentido de tráfico (`direction`: Entrante, Saliente, En escucha).
    - Encabezados de diagramas Sankey, mapas de exposición (treemap) y evolución temporal.
 3. **Reglas de detección** (`rules`):
-   - Descripciones operativas de lo que detecta cada regla R01–R20 (`detects`) y acciones recomendadas de revisión (`check`).
+   - Descripciones operativas de lo que detecta cada regla R01–R24 (`detects`) y acciones recomendadas de revisión (`check`).
 4. **Modelos LLM e IA local** (`llm`):
    - Directivas explícitas de idioma en el system prompt del LLM (`summary_system_prompt`, `chat_system_policy`).
    - Instrucciones estructuradas para el informe y exportación de incidentes (`export_instructions`).

@@ -54,4 +54,12 @@ RULES: dict[str, RuleHelp] = {
                     "En la red local suele ser un router, una impresora o un escáner de inventario. Desde Internet es reconocimiento; revise si le siguen escaneos de puertos (R12) desde la misma IP."),
     "R20": RuleHelp("Una herramienta de túnel (ngrok, cloudflared, localtunnel, Dev Tunnels…) está conectada: un servidor local es accesible desde Internet.",
                     "Confirme qué servidor publica y que lo inició usted. Si no, cierre el proceso y revise cómo llegó al equipo."),
+    "R21": RuleHelp("Un contenedor publica un puerto en todas las interfaces (p. ej. -p 5432:5432): es accesible desde la red, no solo desde este equipo. Alta si es una base de datos o un panel de administración.",
+                    "Publíquelo solo en este equipo con -p 127.0.0.1:PUERTO:PUERTO (o «127.0.0.1:5432:5432» en Compose); apruébelo solo si debe ser accesible desde la red."),
+    "R22": RuleHelp("La API de Docker escucha en tcp 2375 sin TLS («Expose daemon on tcp://localhost:2375»).",
+                    "Quien la alcance controla Docker y, a través de él, el equipo. Desactive esa opción en Docker Desktop (Settings → General) salvo que una herramienta la necesite de verdad."),
+    "R23": RuleHelp("Un contenedor tiene poder sobre el equipo: --privileged, el socket de Docker montado, la raíz del disco montada, --network host o capacidades como SYS_ADMIN.",
+                    "Confirme que la imagen es de confianza y retire lo que no necesite; un contenedor así comprometido compromete el equipo."),
+    "R24": RuleHelp("Variables de entorno de un contenedor contienen contraseñas o tokens (solo se guardan sus nombres).",
+                    "Cualquiera que pueda hacer docker inspect las lee. Use secretos de Docker/Compose o variables *_FILE."),
 }

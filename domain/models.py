@@ -87,6 +87,19 @@ class SysmonEvent:
 
 
 @dataclass(frozen=True, slots=True)
+class DockerObservation:
+    """One container as one collection saw it; `data` is domain.docker.container() (no environment values)."""
+    ts: str
+    container_id: str
+    name: str
+    image: str | None
+    project: str | None
+    state: str | None
+    health: str | None
+    data: dict[str, Any]
+
+
+@dataclass(frozen=True, slots=True)
 class SSHObservation:
     ts: str
     kind: str
@@ -149,7 +162,7 @@ class CollectionRequest:
 @dataclass(frozen=True, slots=True)
 class CollectionResult:
     collector: str
-    item_kind: Literal["connections", "auth_events", "file_events", "firewall_events", "persistence_items", "sysmon_events", "ssh_observations", "process_snapshots"]
+    item_kind: Literal["connections", "auth_events", "file_events", "firewall_events", "persistence_items", "sysmon_events", "ssh_observations", "process_snapshots", "docker_observations"]
     items: tuple[Any, ...]
     status: CollectionStatus
     warnings: tuple[str, ...] = ()
@@ -183,4 +196,5 @@ class EvidenceView:
     firewall_events: tuple[dict[str, Any], ...] = ()
     persistence_items: tuple[dict[str, Any], ...] = ()
     process_snapshots: tuple[dict[str, Any], ...] = ()
+    docker_observations: tuple[dict[str, Any], ...] = ()  # latest per container; `data` already decoded
     baseline: frozenset[tuple[str, str]] = frozenset()

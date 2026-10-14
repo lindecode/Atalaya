@@ -56,6 +56,10 @@ def baseline_key(rule_id: str, row: dict[str, Any]) -> tuple[str, str] | None:
         return ("debug_port", f"{row.get('process_name') or '?'}|{row.get('lport')}")
     if rule_id == "R20" and row.get("process_name"):
         return ("tunnel", str(row.get("process_path") or row["process_name"]).replace("/", "\\").casefold())
+    if rule_id == "R21" and row.get("name"):
+        return ("docker_publish", f"{row['name']}|{row.get('host_port')}")
+    if rule_id in {"R23", "R24"} and row.get("name"):
+        return ("docker_privileges" if rule_id == "R23" else "docker_env", str(row["name"]))
     if rule_id == "R10" and row.get("kind"):
         return ("persistence", f"{row['kind']}|{row.get('location') or ''}|{row.get('name') or ''}")
     return None

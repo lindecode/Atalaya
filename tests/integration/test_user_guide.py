@@ -17,7 +17,7 @@ def test_user_guide_describes_sections_and_all_rules(tmp_path, monkeypatch):
     assert not app.exception
     assert len(app.tabs) == 5
     rules = next(frame.value for frame in app.dataframe if "Regla" in frame.value.columns)
-    assert rules["Regla"].tolist() == [f"R{number:02d}" for number in range(1, 21)]
+    assert rules["Regla"].tolist() == [f"R{number:02d}" for number in range(1, 25)]
     assert set(rules["Estado"]) == {"Activa"}
     text = " ".join(item.value for item in app.markdown)
     assert "Guía de Atalaya" in text and "Panel" in text and "IA local" in text

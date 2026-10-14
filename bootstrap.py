@@ -43,6 +43,7 @@ from infrastructure.windows.files import RecentFileCollector
 from infrastructure.windows.firewall import FirewallLogCollector
 from infrastructure.windows.persistence import WindowsPersistenceCollector
 from infrastructure.windows.processes import PsutilProcessCollector
+from infrastructure.docker.collector import DockerCollector
 from infrastructure.windows.notifier import WindowsNotifier
 from infrastructure.windows.sysmon import SysmonCollector
 from infrastructure.windows.ssh import SSHObservationCollector
@@ -57,7 +58,7 @@ def build_repository(settings: Settings | None = None) -> SQLiteRepository:
 
 COLLECTOR_PROFILES = {
     "quick": {"psutil_connections", "psutil_processes", "security_events", "rdp_events", "windows_firewall", "sysmon_network",
-              "sysmon_process_registry", "ssh_observability", "ip_names"},
+              "sysmon_process_registry", "ssh_observability", "ip_names", "docker"},
     "standard": None,
     "deep": None,
 }
@@ -83,6 +84,7 @@ def build_collect_service(settings: Settings | None = None, profile: str = "stan
         SysmonCollector("sysmon_process_registry", (1, 12, 13), "sysmon_events"),
         SSHObservationCollector(),
         IpNameCollector(),
+        DockerCollector(),
     )
     if profile not in COLLECTOR_PROFILES: raise ValueError(f"Perfil de recolección inválido: {profile}")
     allowed = COLLECTOR_PROFILES[profile]

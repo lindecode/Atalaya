@@ -380,4 +380,20 @@ MIGRATIONS: tuple[str, ...] = (
     );
     CREATE INDEX idx_network_notices_ts ON network_notices(ts);
     """,
+    """
+    CREATE TABLE docker_observations (
+      id INTEGER PRIMARY KEY,
+      run_id INTEGER REFERENCES runs(id),
+      ts TEXT NOT NULL,
+      container_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      image TEXT,
+      project TEXT,
+      state TEXT,
+      health TEXT,
+      data_json TEXT NOT NULL
+    );
+    CREATE INDEX idx_docker_observations_ts ON docker_observations(ts);
+    CREATE INDEX idx_docker_observations_container ON docker_observations(container_id, ts);
+    """,
 )

@@ -278,5 +278,70 @@ def r20(view, cfg):
     return alerts
 
 
+def _docker_risks(view, kinds: set[str]):
+    for row in view.docker_observations:
+        data = row.get("data") or {}
+        found = [risk for risk in data.get("risks", []) if risk.get("kind") in kinds]
+        if found:
+            yield row, data, found
+
+
+def r21(view, cfg):
+    """A container port published on every interface: reachable from the network, not only from this computer."""
+    alerts = []
+    for row, data, found in _docker_risks(view, {"published"}):
+        for risk in found:
+            port = risk["detail"].split("->")[0].rsplit(":", 1)[-1]
+            key = baseline_key("R21", {"name": data.get("name"), "host_port": port})
+            if key in view.baseline:
+                continue
+            alerts.append(candidate("R21", risk["severity"], "Puerto de contenedor publicado a la red", key[1], [row],
+                                    "docker_observation", {"container": data.get("name"), "image": data.get("image"),
+                                                           "binding": risk["detail"], "fix": risk["fix"]},
+                                    row["ts"], "first"))
+    return alerts
+
+
+def r22(view, cfg):
+    """The Docker API (tcp 2375, no TLS) is listening: whoever reaches it controls Docker and its host."""
+    alerts, seen = [], set()
+    for r in view.connections:
+        if r.get("direction") != "listen" or r.get("lport") != 2375 or r.get("laddr") in seen:
+            continue
+        seen.add(r.get("laddr"))
+        exposed = dev.scope(r.get("laddr")) != dev.SCOPE_LOCAL
+        alerts.append(candidate("R22", "critical" if exposed else "high", "API de Docker sin TLS", f"{r.get('laddr')}:2375",
+                                [r], "connection", {"address": r.get("laddr"), "process": r.get("process_name")},
+                                r["ts"], _day(r["ts"])))
+    return alerts
+
+
+def r23(view, cfg):
+    """A container with powers over the host: privileged, Docker socket, host root folder, host network, capabilities."""
+    alerts = []
+    for row, data, found in _docker_risks(view, {"privileged", "capabilities", "docker_socket", "host_root", "host_network"}):
+        key = baseline_key("R23", {"name": data.get("name")})
+        if key in view.baseline:
+            continue
+        severity = "high" if any(risk["severity"] == "high" for risk in found) else "medium"
+        alerts.append(candidate("R23", severity, "Contenedor con privilegios sobre el equipo", key[1], [row],
+                                "docker_observation", {"container": data.get("name"), "image": data.get("image"),
+                                                       "settings": [risk["detail"] for risk in found]}, row["ts"], "first"))
+    return alerts
+
+
+def r24(view, cfg):
+    """Passwords or tokens in a container's environment: anyone who can inspect it reads them (names only kept)."""
+    alerts = []
+    for row, data, found in _docker_risks(view, {"env_secrets"}):
+        key = baseline_key("R24", {"name": data.get("name")})
+        if key in view.baseline:
+            continue
+        alerts.append(candidate("R24", "medium", "Secretos en variables de entorno de un contenedor", key[1], [row],
+                                "docker_observation", {"container": data.get("name"), "variables": found[0]["detail"]},
+                                row["ts"], "first"))
+    return alerts
+
+
 ALL_RULES: tuple[Rule, ...] = (r01, r02, r03, r04, r05, r06, r07, r08, r09, r10, r11, r12, r13, r14, r15, r16, r17,
-                               r18, r19, r20)
+                               r18, r19, r20, r21, r22, r23, r24)
