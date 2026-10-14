@@ -125,7 +125,7 @@ def _glossary():
         "Alerta": "Hallazgo creado por una regla determinista y vinculado con evidencia.",
         "Baseline": "Comportamiento aprobado como habitual para reducir falsos positivos.",
         "Evidencia": "Dato observado en Windows; se conserva como información no confiable.",
-        "Regla": "Comprobación reproducible R01–R17 que detecta un patrón concreto.",
+        "Regla": "Comprobación reproducible R01–R20 que detecta un patrón concreto.",
         "LLM": "Modelo local que explica o resume; no sustituye a las reglas.",
         "RAG": "Búsqueda de fragmentos relevantes antes de responder una pregunta.",
         "Embedding": "Vector que representa texto para búsqueda semántica; no es un modelo de chat.",

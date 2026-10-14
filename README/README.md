@@ -58,7 +58,7 @@ python -m venv .venv
 .\.venv\Scripts\python.exe main.py baseline approve remote_ip 192.0.2.10
 ```
 
-`analyze` siempre ejecuta R01–R17. Después intenta explicar las alertas con
+`analyze` siempre ejecuta R01–R20. Después intenta explicar las alertas con
 Ollama en loopback. Si Ollama o el modelo no están disponibles, registra el
 error y conserva las alertas deterministas. Los datos se delimitan y recortan
 antes de entrar al prompt; nombres de archivo y demás evidencia nunca se

@@ -6,6 +6,7 @@ from datetime import timedelta
 from pathlib import PureWindowsPath
 from typing import Callable
 
+from domain import dev
 from domain.models import AlertCandidate, EvidenceView
 from domain.rules.base import INVALID_IPS, baseline_key, candidate, dt, has_distinct_window, has_window
 
@@ -230,4 +231,52 @@ def r17(view, cfg):
     return alerts
 
 
-ALL_RULES: tuple[Rule, ...] = (r01, r02, r03, r04, r05, r06, r07, r08, r09, r10, r11, r12, r13, r14, r15, r16, r17)
+def r18(view, cfg):
+    """A debugger, notebook or devtools port listens beyond this machine: whoever reaches it can run code."""
+    alerts, seen = [], set()
+    for r in view.connections:
+        label = dev.debug_port(r.get("lport"))
+        if r.get("direction") != "listen" or not label or dev.scope(r.get("laddr")) == dev.SCOPE_LOCAL:
+            continue
+        key = baseline_key("R18", r)
+        if key in view.baseline or key in seen:
+            continue
+        seen.add(key)
+        alerts.append(candidate("R18", "high", "Puerto de depuración expuesto a la red", key[1], [r], "connection",
+                                {"service": label, "address": r.get("laddr"), "port": r.get("lport"),
+                                 "process": r.get("process_name")}, r["ts"], "first"))
+    return alerts
+
+
+def r19(view, cfg):
+    """Pings (ICMP) blocked by the firewall: someone is checking whether this computer exists."""
+    alerts = []
+    pings = [r for r in view.firewall_events if r.get("proto") == "icmp" and dev.origin(r.get("src_ip")) in {"lan", "internet"}
+             and str(r.get("direction") or "receive").casefold() != "send"]
+    for ip, rows in _group(pings, "src_ip").items():
+        internet = dev.origin(ip) == "internet"
+        alerts.append(candidate("R19", "medium" if internet else "low", "Ping recibido", ip, rows, "firewall_event",
+                                {"source_ip": ip, "count": len(rows), "network": "internet" if internet else "lan"},
+                                rows[-1]["ts"]))
+    return alerts
+
+
+def r20(view, cfg):
+    """A tunnelling tool (ngrok, cloudflared…) is connected: some local server is reachable from the Internet."""
+    alerts, seen = [], set()
+    for r in view.connections:
+        name = dev.tunnel(r.get("process_name"))
+        if not name or not r.get("raddr") or dev.origin(r.get("raddr")) != "internet":
+            continue
+        key = baseline_key("R20", r)
+        if key in view.baseline or key in seen:
+            continue
+        seen.add(key)
+        alerts.append(candidate("R20", "high", "Túnel público activo", name, [r], "connection",
+                                {"tool": name, "process": r.get("process_name"), "path": r.get("process_path")},
+                                r["ts"], _day(r["ts"])))
+    return alerts
+
+
+ALL_RULES: tuple[Rule, ...] = (r01, r02, r03, r04, r05, r06, r07, r08, r09, r10, r11, r12, r13, r14, r15, r16, r17,
+                               r18, r19, r20)

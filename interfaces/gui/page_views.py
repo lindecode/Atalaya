@@ -860,7 +860,7 @@ def _ips_tab(query, directory: list[dict], names: dict, flows: list[dict], since
 # --- Alertas ---------------------------------------------------------------------------------------
 
 MAX_ALERTS_SHOWN = 100
-BASELINE_RULES = {"R03", "R04", "R05", "R06", "R07", "R10", "R17"}
+BASELINE_RULES = {"R03", "R04", "R05", "R06", "R07", "R10", "R17", "R18", "R20"}
 
 
 def _bulk_learn(repository):

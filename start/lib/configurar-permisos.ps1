@@ -190,6 +190,16 @@ if ($Revertir) {
         if ($LASTEXITCODE) { throw "icacls termino con codigo $LASTEXITCODE" }
         Set-NetFirewallProfile -All -LogBlocked True -LogMaxSizeKilobytes 16384 -LogFileName $FirewallLog -ErrorAction Stop
         Write-Ok "Firewall registrando paquetes bloqueados en $FirewallLog"
+        # MpsSvc crea pfirewall.log con permisos propios, sin heredar los de la carpeta: el usuario
+        # necesita la lectura sobre el archivo mismo (y sobre el .old que deja al rotar)
+        for ($i = 0; $i -lt 20 -and -not (Test-Path $FirewallLog); $i++) { Start-Sleep -Milliseconds 500 }
+        foreach ($log in @($FirewallLog, "$FirewallLog.old")) {
+            if (Test-Path $log) {
+                & icacls $log /grant "*${UsuarioSid}:R" | Out-Null
+                if ($LASTEXITCODE) { throw "icacls $log termino con codigo $LASTEXITCODE" }
+            }
+        }
+        Write-Ok "Lectura del log del firewall concedida"
         if (Test-Path $LegacyDataDir) {
             # El firewall ya no escribe en la carpeta antigua y el estado previo se copio: sobra
             Start-Sleep -Seconds 2

@@ -27,7 +27,7 @@ IPV4 = re.compile(r"(?<![\d.])(?:\d{1,3}\.){3}\d{1,3}(?![\d.])")
 INSTRUCTIONS = """## Instrucciones para la IA
 
 Actúa como analista sénior de respuesta a incidentes revisando **un único equipo Windows**. Atalaya, una herramienta
-local de solo lectura, recolectó la evidencia de este documento y le aplicó reglas deterministas (R01–R17); un LLM
+local de solo lectura, recolectó la evidencia de este documento y le aplicó reglas deterministas (R01–R20); un LLM
 local pequeño hizo una primera interpretación.
 
 Reglas para tu análisis:

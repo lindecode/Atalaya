@@ -27,6 +27,12 @@ class FirewallLogCollector:
         offset = int(cursor.get("offset", 0))
         if cursor.get("file_id") != stat.st_ino or stat.st_size < offset:
             offset = 0
+        try:
+            self.path.open("rb").close()
+        except PermissionError:
+            # MpsSvc recreates the file without the folder's read permission (see configurar-permisos.ps1)
+            return CollectionResult(self.name, "firewall_events", (), "skipped", (
+                "Sin permiso para leer el log del firewall: ejecute start\\configurar-permisos.bat",))
         fields = ["date", "time", "action", "protocol", "src-ip", "dst-ip", "src-port", "dst-port", "size", "tcpflags", "tcpsyn", "tcpack", "tcpwin", "icmptype", "icmpcode", "info", "path", "direction"]
         events = []
         warnings = []

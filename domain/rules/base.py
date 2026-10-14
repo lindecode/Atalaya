@@ -52,6 +52,10 @@ def baseline_key(rule_id: str, row: dict[str, Any]) -> tuple[str, str] | None:
         return ("remote_port", f"{row.get('process_name') or '?'}|{row.get('rport')}")
     if rule_id == "R17" and row.get("raddr") and row.get("lport") is not None:
         return ("inbound_client", f"{row['raddr']}|{row['lport']}")
+    if rule_id == "R18" and row.get("lport") is not None:
+        return ("debug_port", f"{row.get('process_name') or '?'}|{row.get('lport')}")
+    if rule_id == "R20" and row.get("process_name"):
+        return ("tunnel", str(row.get("process_path") or row["process_name"]).replace("/", "\\").casefold())
     if rule_id == "R10" and row.get("kind"):
         return ("persistence", f"{row['kind']}|{row.get('location') or ''}|{row.get('name') or ''}")
     return None

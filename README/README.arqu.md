@@ -75,7 +75,7 @@ flowchart TB
 
     subgraph DOM["domain/ — reglas puras"]
         dmodels["models.py<br/>NetworkConnection · AuthEvent<br/>FileEvent · AlertCandidate…"]
-        rules["rules/catalog.py<br/>R01–R17"]
+        rules["rules/catalog.py<br/>R01–R20"]
         rbase["rules/base.py<br/>ventanas · baseline_key"]
         know["knowledge.py<br/>KnowledgeChunk · TrustLevel"]
     end
@@ -120,7 +120,7 @@ sequenceDiagram
     participant W as Recolectores Windows
     participant DB as SQLite
     participant A as AnalyzeService
-    participant R as Reglas R01–R17
+    participant R as Reglas R01–R20
     participant L as OllamaAnalyzer
     participant O as Ollama (local)
     participant Rep as ReportService
@@ -393,7 +393,7 @@ erDiagram
 | [main.py](../main.py) | Punto de entrada; delega en `interfaces/cli.py` |
 | [bootstrap.py](../bootstrap.py) | Composición: construye cada servicio con sus adaptadores y el modelo elegido |
 | [settings.py](../settings.py) | Configuración: rutas, umbrales de reglas, modelo, RAG y validación de loopback |
-| `domain/` | Modelos inmutables y reglas R01–R17 como funciones puras |
+| `domain/` | Modelos inmutables y reglas R01–R20 como funciones puras |
 | `application/` | Casos de uso: collect, analyze, watch, report, chat, models, rag y evals |
 | `ports/` | Contratos (`Protocol`) entre los casos de uso y la infraestructura |
 | `infrastructure/windows/` | Lectura del sistema: psutil, Visor de eventos, firewall, archivos, persistencia y Sysmon |

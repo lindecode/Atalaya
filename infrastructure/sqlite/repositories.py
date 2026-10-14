@@ -8,6 +8,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+from domain.dev import debug_port
 from domain.models import AlertCandidate, CollectionResult, EvidenceView
 from domain.rules.base import INVALID_IPS, baseline_key
 from infrastructure.sqlite.connection import connect
@@ -21,7 +22,7 @@ TABLES = (
     "knowledge_chunks", "rag_audit", "file_reputation", "ssh_observations", "conversation_chunks", "analysis_cache",
     "process_snapshots", "process_lifecycle", "ip_names", "ip_labels",
 )
-BASELINE_RULES = ("R03", "R04", "R05", "R06", "R07", "R10", "R17")
+BASELINE_RULES = ("R03", "R04", "R05", "R06", "R07", "R10", "R17", "R18", "R20")
 
 
 class SQLiteRepository:
@@ -381,6 +382,8 @@ class SQLiteRepository:
             observed = {(row[0], row[1]) for row in db.execute("SELECT kind, value FROM baseline WHERE approved=0")}
             for row in db.execute("SELECT DISTINCT process_name, lport FROM connections WHERE direction='listen'"):
                 observed.add(baseline_key("R05", dict(row)))
+                if debug_port(row["lport"]):
+                    observed.add(baseline_key("R18", dict(row)))
             for row in db.execute("SELECT DISTINCT source_ip FROM auth_events WHERE event_id=4624"):
                 observed.add(baseline_key("R03", dict(row)))
             for row in db.execute("SELECT kind, location, name FROM persistence_items WHERE active=1"):

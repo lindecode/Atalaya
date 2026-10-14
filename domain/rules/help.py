@@ -48,4 +48,10 @@ RULES: dict[str, RuleHelp] = {
                     "¿Ese servicio debe ser accesible desde Internet? Si no, ciérrelo o limítelo en el firewall; si sí, apruebe el cliente como normal."),
     "R16": RuleHelp("Un proceso activo se ejecuta desde una ruta sospechosa y lo lanzó un intérprete (PowerShell, cmd, "
                     "wscript…) o consume mucha memoria.", "Revise su línea de comandos, su proceso padre y su firma."),
+    "R18": RuleHelp("Un puerto de depuración o de cuadernos (JDWP 5005, inspector de Node 9229, Chrome DevTools 9222, debugpy 5678, Jupyter 8888, Delve 2345) escucha fuera de este equipo.",
+                    "Quien alcance ese puerto puede ejecutar código en su equipo. Hágalo escuchar solo en 127.0.0.1 (p. ej. --inspect=127.0.0.1:9229, address=127.0.0.1:5005) o ciérrelo; apruébelo solo si es intencional."),
+    "R19": RuleHelp("El firewall bloqueó pings (ICMP) dirigidos a este equipo: alguien comprobó si existe.",
+                    "En la red local suele ser un router, una impresora o un escáner de inventario. Desde Internet es reconocimiento; revise si le siguen escaneos de puertos (R12) desde la misma IP."),
+    "R20": RuleHelp("Una herramienta de túnel (ngrok, cloudflared, localtunnel, Dev Tunnels…) está conectada: un servidor local es accesible desde Internet.",
+                    "Confirme qué servidor publica y que lo inició usted. Si no, cierre el proceso y revise cómo llegó al equipo."),
 }
