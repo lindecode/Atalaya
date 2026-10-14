@@ -243,9 +243,10 @@ class DoctorService:
                         "Legible" if readable else "Sin permiso de lectura: se omiten accesos, RDP y fuerza bruta",
                         "" if readable else "Ejecute Configurar permisos (una vez, pide administrador) y cierre sesión")]
         log = self.settings.firewall_log_path
-        try:
-            exists = log.exists() and os.access(log, os.R_OK)
-        except OSError:  # the default System32 folder denies even the existence check without admin
+        try:  # os.access ignores Windows ACLs, and MpsSvc recreates the log without the folder's read permission
+            log.open("rb").close()
+            exists = True
+        except OSError:  # also the default System32 folder, which denies even the existence check without admin
             exists = False
         checks.append(Check("firewall", "Fuentes", "Log del firewall", "ok" if exists else "info",
                             str(log) if exists else "No configurado: se omiten los intentos de conexión bloqueados",

@@ -1973,16 +1973,38 @@ def _features(settings):
     if changed is not None:
         save(backup_daily=changed)
 
+    changed = _feature("Avisos de red en vivo", "Notificación de Windows cuando alguien de la red local o de Internet se "
+                       "conecta a un servidor de este equipo, le hace ping o escanea sus puertos, y cuando un servidor "
+                       "nuevo queda expuesto. Requiere Atalaya junto al reloj; todo queda también en Desarrollo.",
+                       ":green[● Activado]" if config.network_notifications else
+                       ":gray[● Desactivado]: se siguen registrando en Desarrollo, sin notificar.",
+                       config.network_notifications, "network")
+    if changed is not None:
+        save(network_notifications=changed)
+    with st.container(border=True):
+        st.markdown("**IPs de confianza**")
+        st.caption("No generan avisos de red (p. ej. su celular o su NAS). Separe con comas; admite redes como "
+                   "192.168.1.0/24. Se aplica en menos de un minuto.")
+        left, right = st.columns([5, 1], vertical_alignment="bottom")
+        trusted = left.text_input("IPs de confianza", value=config.trusted_ips, key="trusted-ips",
+                                  placeholder="192.168.1.50, 192.168.1.0/24", label_visibility="collapsed")
+        if right.button("Guardar", key="trusted-save", width="stretch", disabled=trusted == config.trusted_ips):
+            try:
+                save(trusted_ips=trusted.strip())
+            except ValueError as exc:
+                st.error(str(exc))
+
     from application.doctor import _security_log_readable
+    from infrastructure.windows.live_network import firewall_readable
     readable, _ = _security_log_readable()
-    firewall = settings.firewall_log_path.exists()
+    firewall = firewall_readable(settings.firewall_log_path)
     with st.container(border=True):
         left, right = st.columns([5, 2], vertical_alignment="center")
         left.markdown("**Permisos ampliados**")
         left.caption("Leer los accesos (registro Security) y el log del firewall sin ejecutar Atalaya como "
                      "administrador. Se configura una vez y Windows pide confirmación.")
         left.markdown(f"Accesos: {':green[legibles]' if readable else ':orange[sin permiso]'} · "
-                      f"Firewall: {':green[registro activo]' if firewall else ':orange[sin registro]'}")
+                      f"Firewall: {':green[registro legible]' if firewall else ':orange[sin registro o sin permiso de lectura]'}")
         if right.button("Configurar permisos", icon=":material/admin_panel_settings:", width="stretch",
                         key="feature-permissions", disabled=readable and firewall):
             from infrastructure.windows.system_features import open_permissions_setup

@@ -127,6 +127,72 @@ class AlertWatcher:
         return new
 
 
+class NetworkWatchLoop:
+    """Runs the live network watch next to the tray: notices are stored always and notified when enabled."""
+
+    MAX_TOASTS = 3  # per poll; a scan or a burst of clients becomes one summary line instead of a flood
+    CONFIG_SECONDS = 60
+
+    def __init__(self, watcher, store, notify: Callable[[str, str], None], load_config: Callable[[], object],
+                 interval: float = 5.0, monotonic: Callable[[], float] = time.monotonic):
+        self.watcher, self.store, self.notify, self.load_config = watcher, store, notify, load_config
+        self.interval, self.monotonic = interval, monotonic
+        self.config, self.loaded_at = None, None
+
+    def _refresh_config(self) -> None:
+        if self.loaded_at is not None and self.monotonic() - self.loaded_at < self.CONFIG_SECONDS:
+            return
+        from application.network_watch import parse_trusted
+        self.config, self.loaded_at = self.load_config(), self.monotonic()
+        try:
+            self.watcher.trusted = parse_trusted(getattr(self.config, "trusted_ips", ""))
+        except ValueError:
+            log.warning("trusted_ips inválido; se ignora")
+
+    def step(self) -> list:
+        self._refresh_config()
+        notices = self.watcher.poll()
+        if not notices:
+            return []
+        self.store.add(notices)
+        if getattr(self.config, "network_notifications", True):
+            lang = getattr(self.config, "language", "es")
+            for notice in notices[:self.MAX_TOASTS]:
+                self.notify(f"{APP_NAME}: {notice.title(lang)}", notice.message(lang))
+            if len(notices) > self.MAX_TOASTS:
+                extra = len(notices) - self.MAX_TOASTS
+                self.notify(APP_NAME, f"{extra} more network notices: see Development" if lang == "en"
+                            else f"{extra} avisos de red más: véalos en Desarrollo")
+        return notices
+
+    def run(self, alive: Callable[[], bool]) -> None:
+        while alive():
+            try:
+                self.step()
+            except Exception:
+                log.exception("network watch failed")
+            time.sleep(self.interval)
+
+
+def build_network_watch(settings: Settings, notify: Callable[[str, str], None]) -> NetworkWatchLoop:
+    from application.network_watch import NetworkWatcher
+    from bootstrap import build_automation_config_service
+    from infrastructure.clock import SystemClock
+    from infrastructure.sqlite.network_notices import SQLiteNetworkNotices
+    from infrastructure.windows import live_network
+
+    clock = SystemClock()
+    tail = live_network.FirewallTail(settings.firewall_log_path)
+    watcher = NetworkWatcher(lambda: live_network.connections(clock.now_iso()), lambda: tail(clock.now_iso()),
+                             live_network.local_addresses, clock.now_iso, scan_ports=settings.port_scan_count)
+    store = SQLiteNetworkNotices(settings)
+    try:
+        store.prune()
+    except Exception:
+        log.exception("network notices prune failed")
+    return NetworkWatchLoop(watcher, store, notify, build_automation_config_service(settings).load)
+
+
 class TrayController:
     def __init__(self, settings: Settings, processes: ProcessManager, alerts: AlertWatcher,
                  notify: Callable[[str, str], None], open_url: Callable[[str], object] = webbrowser.open,
@@ -346,6 +412,12 @@ def run_tray(open_browser: bool = True, monitor: bool = False, force_browser: bo
             controller.open_panel_later()  # hidden window gets the panel loaded, ready for the first "Abrir"
         if not open_browser:
             notify(APP_NAME, "Atalaya está en segundo plano. Use este icono junto al reloj para abrirlo o salir.")
+        try:
+            network = build_network_watch(settings, notify)
+            threading.Thread(target=network.run, args=(lambda: _icon.visible,), daemon=True,
+                             name="network-watch").start()
+        except Exception:
+            log.exception("network watch did not start")
         while True:
             controller.check_alerts()
             refresh()

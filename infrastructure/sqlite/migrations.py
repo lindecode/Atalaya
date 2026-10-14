@@ -367,4 +367,17 @@ MIGRATIONS: tuple[str, ...] = (
     ALTER TABLE chat_sessions ADD COLUMN archived_at TEXT;
     CREATE INDEX idx_chat_sessions_archived ON chat_sessions(archived_at, updated_at);
     """,
+    """
+    CREATE TABLE network_notices (
+      id INTEGER PRIMARY KEY,
+      ts TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      network TEXT,
+      remote_ip TEXT,
+      lport INTEGER,
+      process_name TEXT,
+      detail TEXT
+    );
+    CREATE INDEX idx_network_notices_ts ON network_notices(ts);
+    """,
 )

@@ -26,6 +26,8 @@ class AutomationConfig:
     backup_daily: bool = True
     section_summaries: bool = True  # one LLM section summary per cycle (see application/section_summaries.py)
     language: str = "es"
+    network_notifications: bool = True  # live: connections to my servers (LAN and Internet), pings, scans
+    trusted_ips: str = ""               # comma-separated IPs or networks that never notify (e.g. my phone)
 
     def validated(self) -> "AutomationConfig":
         if self.profile not in {"quick", "standard", "deep"}: raise ValueError("Perfil inválido")
@@ -35,6 +37,8 @@ class AutomationConfig:
         if not 1 <= self.deep_every_cycles <= 100_000: raise ValueError("Frecuencia deep inválida")
         if not 1 <= self.retention_days <= 3650: raise ValueError("Retención inválida")
         if self.language not in {"es", "en"}: raise ValueError("Idioma inválido")
+        from application.network_watch import parse_trusted
+        parse_trusted(self.trusted_ips)  # raises with the offending entry
         return self
 
 
