@@ -52,6 +52,7 @@ ES_TRANSLATIONS: dict[str, Any] = {
         },
         "pages": {
             "overview": "Panel",
+            "development": "Desarrollo",
             "live": "En vivo",
             "alerts": "Alertas",
             "search": "Buscar",
@@ -74,6 +75,10 @@ ES_TRANSLATIONS: dict[str, Any] = {
         "overview": {
             "title": "🛡️ Panel de seguridad",
             "subtitle": "Qué pasa ahora en este equipo: alertas abiertas, tráfico de red y exposición.",
+        },
+        "development": {
+            "title": "🧑‍💻 Desarrollo",
+            "subtitle": "Servidores de este equipo, quién se conecta a ellos, en qué lenguaje corren y los avisos de red.",
         },
         "live": {
             "title": "⚡ En vivo",
@@ -556,6 +561,7 @@ EN_TRANSLATIONS: dict[str, Any] = {
         },
         "pages": {
             "overview": "Overview",
+            "development": "Development",
             "live": "Live",
             "alerts": "Alerts",
             "search": "Search",
@@ -578,6 +584,10 @@ EN_TRANSLATIONS: dict[str, Any] = {
         "overview": {
             "title": "🛡️ Security Dashboard",
             "subtitle": "Current device status: open alerts, network traffic, and exposure.",
+        },
+        "development": {
+            "title": "🧑‍💻 Development",
+            "subtitle": "This computer's servers, who connects to them, which language runs them, and network notices.",
         },
         "live": {
             "title": "⚡ Live Monitor",

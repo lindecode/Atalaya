@@ -48,6 +48,8 @@ navigation = st.navigation({
         st.Page("views/00_Guia.py", title="User guide" if lang == "en" else "Guía de Atalaya",
                 icon=":material/menu_book:", url_path="guia"),
         st.Page("views/01_Panel.py", title=t("nav.pages.overview", lang=lang), icon=":material/dashboard:", default=True),
+        st.Page("views/04_Desarrollo.py", title=t("nav.pages.development", lang=lang), icon=":material/terminal:",
+                url_path="desarrollo"),
         st.Page("views/02_En_vivo.py", title=t("nav.pages.live", lang=lang), icon=":material/pulse_alert:", url_path="en-vivo"),
         st.Page("views/03_Alertas.py", title=_alerts_page_title(lang, settings), icon=":material/notification_important:", url_path="alertas"),
     ],
