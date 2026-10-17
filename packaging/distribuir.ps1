@@ -75,9 +75,16 @@ if (-not $SinMsi) {
     if (Test-Path $msi) { Remove-Item -LiteralPath $msi }
     # Python deja __pycache__ al probar el paquete; no debe viajar en el MSI
     Get-ChildItem $Stage -Recurse -Directory -Filter '__pycache__' | Remove-Item -Recurse -Force
-    & $wix build (Join-Path $Packaging 'atalaya.wxs') -arch x64 -ext WixToolset.Util.wixext `
-        -d "AppVersion=$Version" -d "SourceDir=$Stage" -culture es-ES -o $msi
-    if ($LASTEXITCODE) { throw "WiX fallo (codigo $LASTEXITCODE)" }
+    # El antivirus puede retener un momento las miles de DLL/.pyd recien creadas: WiX ve "ruta no encontrada"
+    # al comprimir el cabinet. Se reintenta en vez de fallar la distribucion entera.
+    foreach ($attempt in 1..3) {
+        & $wix build (Join-Path $Packaging 'atalaya.wxs') -arch x64 -ext WixToolset.Util.wixext `
+            -d "AppVersion=$Version" -d "SourceDir=$Stage" -culture es-ES -o $msi
+        if (-not $LASTEXITCODE) { break }
+        if ($attempt -eq 3) { throw "WiX fallo (codigo $LASTEXITCODE)" }
+        Write-Host "  [!] WiX fallo (intento $attempt de 3); reintento en 20 s" -ForegroundColor Yellow
+        Start-Sleep -Seconds 20
+    }
     Remove-Item -LiteralPath ([IO.Path]::ChangeExtension($msi, '.wixpdb')) -ErrorAction SilentlyContinue
     Write-Host "  $msi ($([math]::Round((Get-Item $msi).Length / 1MB)) MB)"
 }
