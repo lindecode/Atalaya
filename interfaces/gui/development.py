@@ -356,6 +356,14 @@ def _port_lookup(snapshot, port: int, lang, tr):
     if not listeners:
         st.success(tr(f"Nadie escucha en el puerto {port}: está libre.", f"Nothing listens on port {port}: it is free."))
         return
+    from application import ssh_view
+    tunnel = ssh_view.forward_for_port(snapshot, port)
+    if tunnel:
+        host, item = tunnel
+        st.info(tr(f"Es un túnel SSH: lleva a {item['target'] or 'cualquier destino (SOCKS)'} en {host}, vía {item['via']}. "
+                   "Cerrarlo corta el reenvío, no el servicio del servidor.",
+                   f"It is an SSH tunnel: it leads to {item['target'] or 'any destination (SOCKS)'} on {host}, "
+                   f"via {item['via']}. Closing it stops the forward, not the server's service."), icon=":material/route:")
     for pid in dict.fromkeys(row.get("pid") for row in listeners):
         rows = [row for row in listeners if row.get("pid") == pid]
         process = processes.get(pid, {})

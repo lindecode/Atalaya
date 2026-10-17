@@ -4,20 +4,26 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from domain import dev
+from domain.ssh_forwards import parse_command
 from infrastructure.windows import live_network
 
-def _details(process, runtime_key: str) -> dict:
+SSH_CLIENTS = {"ssh.exe", "ssh"}
+
+
+def _details(process, runtime_key: str, name: str | None = None) -> dict:
     """The costly fields, only for the processes shown (psutil's ppid() walks every process on Windows)."""
     import psutil
     values = {}
-    for name, read in (("ppid", process.ppid), ("created", process.create_time), ("memory", process.memory_info),
-                       ("cmdline", process.cmdline)):
+    for field, read in (("ppid", process.ppid), ("created", process.create_time), ("memory", process.memory_info),
+                        ("cmdline", process.cmdline)):
         try:
-            values[name] = read()
+            values[field] = read()
         except (psutil.Error, OSError):
-            values[name] = None
+            values[field] = None
     command = " ".join(values["cmdline"] or [])
-    return {"ppid": values["ppid"],
+    # Tunnels are read from the raw arguments (ports and targets only); the stored command stays redacted
+    tunnels = parse_command(values["cmdline"]) if str(name or "").casefold() in SSH_CLIENTS and values["cmdline"] else None
+    return {"ppid": values["ppid"], "ssh": tunnels,
             "started": datetime.fromtimestamp(values["created"], timezone.utc).isoformat() if values["created"] else None,
             "memory_mb": round(values["memory"].rss / 1048576) if values["memory"] else None,
             "command": dev.redact_command(command) if command else None,
@@ -35,10 +41,13 @@ def snapshot(now_iso: str | None = None) -> dict:
         info = process.info
         names[info["pid"]] = info.get("name")
         runtime = dev.runtime(info.get("name"), info.get("exe"))
-        if runtime.key not in dev.DEV_RUNTIMES and info["pid"] not in serving:
+        ssh_client = str(info.get("name") or "").casefold() in SSH_CLIENTS  # -R tunnels listen on the server, not here
+        if runtime.key not in dev.DEV_RUNTIMES and info["pid"] not in serving and not ssh_client:
             continue
         processes.append({"pid": info["pid"], "name": info.get("name"), "path": info.get("exe"),
-                          **_details(process, runtime.key)})
+                          **_details(process, runtime.key, info.get("name"))})
     for row in processes:
         row["parent"] = names.get(row["ppid"])
-    return {"taken_at": now_iso, "connections": connections, "processes": processes}
+    from infrastructure.windows.ssh_tunnels import ssh_config, vscode_forwards
+    return {"taken_at": now_iso, "connections": connections, "processes": processes,
+            "vscode_forwards": vscode_forwards(), "ssh_config": ssh_config()}

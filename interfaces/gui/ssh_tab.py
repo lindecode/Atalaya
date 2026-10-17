@@ -44,8 +44,10 @@ def ssh_tab(settings, snapshot: dict, since: str, lang: str, tr):
     a, b, c, d = st.columns(4)
     a.metric(tr("Sesiones ahora", "Sessions now"), sum(s["live"] for s in sessions))
     b.metric(tr("Servidores en la ventana", "Servers in the window"), len(sessions))
-    c.metric(tr("Túneles", "Tunnels"), sum(bool(s["tunnels"]) for s in sessions),
-             help=tr("Sesiones con -L, -R o -D.", "Sessions with -L, -R or -D."))
+    active_forwards = [(s, f) for s in sessions for f in s.get("forwards", []) if f["active"]]
+    c.metric(tr("Túneles activos", "Active tunnels"), len(active_forwards),
+             help=tr("Puertos reenviados ahora por ssh -L/-R/-D, ~/.ssh/config o VS Code Remote-SSH.",
+                     "Ports forwarded now by ssh -L/-R/-D, ~/.ssh/config or VS Code Remote-SSH."))
     d.metric(tr("Entradas a su SSH", "Into your SSH"), len(inbound),
              help=tr("Equipos de la red o de Internet que se conectaron al servidor SSH de este equipo.",
                      "Hosts on the network or the Internet that connected to this computer's SSH server."))
@@ -68,7 +70,16 @@ def ssh_tab(settings, snapshot: dict, since: str, lang: str, tr):
                   "Atalaya solo guarda las opciones de ssh (-L, -R, -D, -A), nunca destinos ni comandos.",
                   "Solid green line: session open now; dashed: a session seen in the window that has ended. "
                   "Atalaya keeps only ssh options (-L, -R, -D, -A), never destinations or commands."))
-    table([{tr("Servidor", "Server"): s["remote"], tr("Nombre", "Name"): s["name"], tr("Puerto", "Port"): s["port"],
+    if active_forwards:
+        st.markdown("**" + tr("Túneles activos", "Active tunnels") + "**")
+        table([{tr("Puerto local", "Local port"): f":{f['listen']}" if f["kind"] != "remote" else "—",
+                tr("Lleva a", "Leads to"): _leads_to(s, f, lang),
+                tr("Tipo", "Kind"): ssh_view.FORWARD_KINDS[f["kind"]][lang == "en"], tr("Vía", "Via"): f["via"],
+                tr("Escucha en", "Listens on"): dev.SCOPE_LABELS[f["scope"]][lang == "en"] if f["kind"] != "remote" else "—",
+                tr("Conexiones ahora", "Connections now"): f["users"]} for s, f in active_forwards],
+              key="ssh-forwards", windowed=False, lang=lang, searchable=False)
+    table([{tr("Servidor", "Server"): s["remote"], tr("Nombre", "Name"): s.get("alias") or s["name"],
+            tr("Puerto", "Port"): s["port"],
             tr("Ahora", "Now"): s["live"], tr("Túneles", "Tunnels"): ", ".join(
                 ssh_view.TUNNEL_LABELS.get(t, (t, t))[lang == "en"] for t in s["tunnels"]),
             tr("Reenvío de agente", "Agent forwarding"): s["agent_forwarding"],
@@ -80,6 +91,16 @@ def ssh_tab(settings, snapshot: dict, since: str, lang: str, tr):
         table([{tr("Origen", "Source"): i["remote"], tr("Nombre", "Name"): i["name"], tr("Red", "Network"): i["origin"],
                 tr("Puerto", "Port"): i["port"], tr("Última vez", "Last seen"): i["last_seen"]} for i in inbound],
               key="ssh-inbound", windowed=True, lang=lang, searchable=False, dates=(tr("Última vez", "Last seen"),))
+
+
+def _leads_to(session, item, lang) -> str:
+    server = session.get("alias") or session.get("name") or session["remote"]
+    if item["kind"] == "dynamic":
+        return ("anywhere, through " if lang == "en" else "cualquier destino, a través de ") + server
+    if item["kind"] == "remote":
+        return (f"{server} :{item['listen']} → this computer {item['target']}" if lang == "en"
+                else f"{server} :{item['listen']} → este equipo {item['target']}")
+    return f"{server} → {item['target']}"
 
 
 def _detail(selected, sessions, inbound, lang, tr):
@@ -100,11 +121,25 @@ def _detail(selected, sessions, inbound, lang, tr):
             for risk in session["risks"]:
                 st.warning(risk["text"][lang == "en"], icon=":material/warning:")
         return
-    if selected and selected.startswith("t:"):
-        port = selected[2:]
-        st.info(tr(f"Puerto :{port} que abrió ssh en este equipo: las aplicaciones que lo usan salen por el túnel.",
-                   f"Port :{port} opened by ssh on this computer: apps using it go out through the tunnel."),
-                icon=":material/route:")
+    tunnel = next(((s, f) for s in sessions for f in s.get("forwards", [])
+                   if ssh_view.tunnel_node_id(s, f) == selected), None)
+    if tunnel:
+        session, item = tunnel
+        with st.container(border=True):
+            st.markdown("**:material/route: " + ssh_view.FORWARD_KINDS[item["kind"]][lang == "en"] + "**")
+            if item["kind"] == "remote":
+                st.text(_leads_to(session, item, lang))
+                st.warning(tr("Quien llegue a ese puerto del servidor entra hasta este equipo.",
+                              "Whoever reaches that server port gets into this computer."), icon=":material/warning:")
+            else:
+                st.text(tr(f"localhost:{item['listen']} en este equipo", f"localhost:{item['listen']} on this computer"))
+                st.text("↓ SSH " + str(session.get("alias") or session["remote"]))
+                st.text(item["target"] or tr("cualquier destino (proxy SOCKS)", "any destination (SOCKS proxy)"))
+                st.caption(tr(f"Abierto por {item['owner'] or '?'} · {item['users']} conexiones ahora · "
+                              f"escucha en {dev.SCOPE_LABELS[item['scope']][0].lower()}",
+                              f"Opened by {item['owner'] or '?'} · {item['users']} connections now · "
+                              f"listens on {dev.SCOPE_LABELS[item['scope']][1].lower()}"))
+            st.caption(tr("Origen: ", "Source: ") + item["via"])
         return
     st.info(tr("Haga clic en un servidor del mapa.", "Click a server on the map."), icon=":material/touch_app:")
 
