@@ -22,9 +22,41 @@ Ambos incluyen el **Python embebido oficial** y todas las dependencias ya instal
 ## Uso
 
 ```powershell
-packaging\build.bat                     # carpeta + ZIP portable + instalador
+packaging\distribuir.bat                # .exe (Inno Setup) + .msi (WiX) listos para distribuir
+packaging\build.bat                     # carpeta + ZIP portable + instalador .exe
 packaging\build.ps1 -SinInstalador      # sin Inno Setup: solo carpeta y ZIP
 packaging\build.ps1 -SinZip -SinPrueba  # iteración rápida del instalador
+```
+
+### `distribuir.bat`: .exe y .msi
+
+Ejecuta `build.ps1` y empaqueta la misma carpeta `build\Atalaya` como MSI con `atalaya.wxs`. Deja en `dist\`
+`Atalaya-Setup-<versión>.exe`, `Atalaya-<versión>.msi` y `SHA256SUMS.txt` con los hashes. Opciones: `-ConZip`
+(también el ZIP portable), `-SinMsi`, `-SinExe`, `-SinPrueba` y `-SinPreguntar` (instala WiX sin confirmar, para CI).
+
+- **Requisitos del MSI:** SDK de .NET 6 o superior (`winget install Microsoft.DotNet.SDK.8`) y WiX Toolset **5.0.2**.
+  Si falta, el script ofrece instalarlo con `dotnet tool install --global wix --version 5.0.2`, junto con la
+  extensión `WixToolset.Util.wixext`. Se fija la versión 5 porque WiX 6 añade una cuota de mantenimiento para uso
+  comercial.
+- **Qué instala:** lo mismo que el `.exe`: por usuario y sin administrador, en `%LOCALAPPDATA%\Programs\Atalaya`.
+  Crea los mismos accesos directos del menú Inicio y programa el análisis periódico. Al desinstalar detiene Atalaya,
+  quita la tarea programada y borra la carpeta del programa. Como todo MSI, desinstala en silencio: **conserva
+  los datos y los permisos** (se revierten con `configurar-permisos.bat revertir`).
+- **Actualizaciones:** el `UpgradeCode` es fijo, así que una versión nueva sustituye a la anterior. La versión sale
+  de `APP_VERSION` y debe ser numérica (`x.y.z`).
+- **Use uno de los dos instaladores, no ambos:** comparten carpeta de instalación.
+
+Opciones del MSI para despliegues (Intune, GPO, `msiexec`):
+
+| Propiedad | Por defecto | Efecto |
+|---|---|---|
+| `DESKTOP_SHORTCUT` | `1` | Acceso directo en el escritorio |
+| `AUTOSTART` | `0` | Iniciar con Windows junto al reloj, con el monitor de archivos |
+| `CYCLE` | `1` | Análisis periódico cada 5 minutos |
+
+```powershell
+msiexec /i Atalaya-1.0.0.msi /qn AUTOSTART=1 DESKTOP_SHORTCUT=0
+msiexec /x Atalaya-1.0.0.msi /qn
 ```
 
 Para integrar `llama-server.exe` y un modelo GGUF sin exigir Ollama instalado,
