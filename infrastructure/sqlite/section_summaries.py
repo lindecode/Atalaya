@@ -192,12 +192,17 @@ class SQLiteSectionDigests:
         tables = {row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
         containers = []
         if "docker_observations" in tables:
-            for row in _rows(db, """SELECT data_json FROM docker_observations WHERE id IN (
+            # Read raw, not through _rows: its 120-character cut would break the JSON; the fields taken are short
+            for (data_json,) in db.execute("""SELECT data_json FROM docker_observations WHERE id IN (
                                       SELECT MAX(id) FROM docker_observations WHERE ts>=? GROUP BY container_id)""", (since,)):
-                data = json.loads(row["data_json"] or "{}") if isinstance(row["data_json"], str) else {}
-                containers.append({"nombre": data.get("name"), "imagen": data.get("image"), "estado": data.get("state"),
-                                   "salud": data.get("health"), "reinicios": data.get("restart_count"),
-                                   "riesgos": sorted({r.get("kind") for r in data.get("risks", [])})})
+                try:
+                    data = json.loads(data_json or "{}")
+                except ValueError:
+                    continue
+                containers.append({key: _text(value) for key, value in {
+                    "nombre": data.get("name"), "imagen": data.get("image"), "estado": data.get("state"),
+                    "salud": data.get("health"), "reinicios": data.get("restart_count"),
+                    "riesgos": ", ".join(sorted({str(r.get("kind")) for r in data.get("risks", [])}))}.items()})
         # Facts already phrased: a small model summarises sentences reliably, it misreads loose field names
         reach_words = {dev.SCOPE_ALL: "todas las redes (0.0.0.0/::)", dev.SCOPE_LAN: "la red local"}
         exposed = [f"{s['proceso']} ({s['lenguaje']}) en el puerto {s['puerto']} acepta conexiones de {reach_words[s['alcance']]}"
@@ -222,15 +227,16 @@ class SQLiteSectionDigests:
                        + (" con " + ", ".join(tunnel_words.get(k, k) for k in kinds) if kinds else "")
                        + ("; reenvía el agente SSH (-A)" if row["reenvio"] else ""))
         docker_lines = [f"Contenedor {c['nombre']} ({c['imagen']}) {c['estado']}"
-                        + (f", salud {c['salud']}" if c["salud"] else "")
+                        # Docker keeps the last health status after a stop: it only means something while running
+                        + (f", salud {c['salud']}" if c["salud"] and c["estado"] == "running" else "")
                         + (f", {c['reinicios']} reinicios" if c["reinicios"] else "")
-                        + (f"; riesgos: {', '.join(c['riesgos'])}" if c["riesgos"] else "") for c in containers[:12]]
+                        + (f"; riesgos: {c['riesgos']}" if c["riesgos"] else "") for c in containers[:12]]
         review = ([f"Puerto de depuración abierto a la red: {s['proceso']} :{s['puerto']} ({s['depuracion']})"
                    for s in listed if s["depuracion"] and s["alcance"] != dev.SCOPE_LOCAL]
                   + [f"{s['proceso']} :{s['puerto']} escucha en {reach_words[s['alcance']]}; si solo lo usa este equipo, "
                      "debería escuchar en 127.0.0.1" for s in listed if s["alcance"] != dev.SCOPE_LOCAL and not s["depuracion"]
                      and dev.runtime(s["proceso"]).key in dev.DEV_RUNTIMES]
-                  + [f"Contenedor {c['nombre']}: {', '.join(c['riesgos'])}" for c in containers if c["riesgos"]]
+                  + [f"Contenedor {c['nombre']}: {c['riesgos']}" for c in containers if c["riesgos"]]
                   + [line for line in ssh if "inverso" in line or "-A" in line])
         return {
             "puntos_a_revisar": review or ["Nada destacable"],

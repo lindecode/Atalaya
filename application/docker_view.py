@@ -15,7 +15,9 @@ ANONYMOUS = re.compile(r"^[0-9a-f]{64}$")
 
 
 def state_of(container: dict) -> str:
-    return "unhealthy" if container.get("health") == "unhealthy" else str(container.get("state") or "?")
+    # Docker keeps the last health status after a stop: "unhealthy" only counts while running
+    running = container.get("state") == "running"
+    return "unhealthy" if running and container.get("health") == "unhealthy" else str(container.get("state") or "?")
 
 
 def worst_risk(container: dict) -> str | None:
@@ -38,7 +40,7 @@ def summary(inventory: dict) -> dict:
         "running": sum(c.get("state") == "running" for c in containers), "total": len(containers),
         "exposed": sum(p["scope"] != dev.SCOPE_LOCAL for c in containers for p in c.get("published", [])),
         "at_risk": sum(bool(c.get("risks")) for c in containers),
-        "unhealthy": sum(c.get("health") == "unhealthy" or c.get("oom_killed") for c in containers),
+        "unhealthy": sum(state_of(c) == "unhealthy" or bool(c.get("oom_killed")) for c in containers),
         "dangling_images": sum(image_row(i, containers)["dangling"] for i in inventory.get("images", [])),
         "unused_volumes": sum(not row["used_by"] for row in volume_rows(inventory)),
     }

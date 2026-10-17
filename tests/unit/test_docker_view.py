@@ -113,3 +113,23 @@ def test_development_digest_for_the_llm(tmp_path):
     assert digest["datos"]["servidores_solo_de_este_equipo"]["cantidad"] == 0 and digest["ventana_anterior"] == {"clientes_entrantes": 0}  # RPC and local helpers left out
     from application.section_summaries import SECTIONS
     assert SECTIONS["desarrollo"] == "Desarrollo"
+
+
+def test_development_digest_reads_long_docker_observations(tmp_path):
+    """Regression: the digest's 120-character text cut used to break the stored container JSON."""
+    from dataclasses import replace
+    from domain.models import CollectionRequest
+    from infrastructure.docker.collector import DockerCollector
+    from infrastructure.sqlite.repositories import SQLiteRepository
+    from infrastructure.sqlite.section_summaries import SQLiteSectionDigests
+    from settings import Settings
+    settings = replace(Settings(), database_path=tmp_path / "d.db")
+    repository = SQLiteRepository(settings)
+    repository.initialize()
+    now = datetime.now(timezone.utc).isoformat()
+    result = DockerCollector(DockerCLI("docker", FakeRunner())).collect(CollectionRequest(now))
+    repository.save_collection(repository.start_run("collect", now, False), result, now)
+    data = SQLiteSectionDigests(settings).digest("desarrollo", 24, now)["datos"]
+    assert any(line.startswith("Contenedor shop-db-1 (postgres:16) running") and "published" in line
+               for line in data["contenedores_docker"])
+    assert "Contenedor portainer: capabilities, docker_socket, host_network, host_root, privileged" in data["puntos_a_revisar"]
