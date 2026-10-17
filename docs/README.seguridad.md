@@ -22,6 +22,9 @@ Estas reglas son restricciones del producto, no sugerencias.
 - Los recolectores son de lectura; una corrección se muestra al humano y no se ejecuta automáticamente.
 - No uses rutas o parámetros de eventos para invocar procesos.
 - Para subprocesos usa argumentos fijos, `shell=False`, timeout y ejecutables identificados.
+- Docker se consulta sólo con subcomandos de lectura fijos (`ps`, `inspect`, `stats`, `image ls`, `network`, `volume`, `events`, y `scout` sólo con consentimiento), con `--` antes de los nombres y sin shell. Del entorno de un contenedor sólo se guardan los nombres de variables con aspecto de secreto, nunca los valores.
+- Los túneles SSH se leen en vivo (argumentos de `ssh`, `~/.ssh/config`, lista de puertos de VS Code) y no se persisten; las líneas de comandos que se muestran pasan por `redact_command`.
+- `configurar-permisos` activa la auditoría de paquetes descartados por GUID y guarda el estado previo para revertirlo.
 - Abrir una ubicación usa exclusivamente `explorer.exe`: valida una ruta local absoluta y existente, rechaza recursos de red, URLs y enlaces simbólicos, y nunca ejecuta el archivo señalado.
 
 ## Secretos y datos

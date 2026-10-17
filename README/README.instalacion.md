@@ -39,6 +39,23 @@ según corresponda.
 5. Opcional: menú Inicio > Atalaya > **Configurar permisos**. Después, cierra sesión y vuelve a entrar.
 
 Para **actualizar**, ejecuta el instalador de la versión nueva encima: tus datos se conservan.
+
+**Configurar permisos** añade tu usuario al grupo «Lectores del registro de eventos», activa el registro del
+firewall y la auditoría de paquetes descartados (evento 5152, necesaria para detectar pings y escaneos) y amplía el
+registro Security a 128 MB. Guarda antes el estado anterior; `configurar-permisos.bat revertir` lo restaura.
+
+### Variante MSI (despliegues)
+
+`Atalaya-<versión>.msi` instala lo mismo que el `.exe`, por usuario y sin administrador, en la misma carpeta. No
+tiene asistente de Ollama y desinstala en silencio conservando datos y permisos. Use uno de los dos instaladores,
+no ambos. Opciones:
+
+```powershell
+msiexec /i Atalaya-1.0.0.msi /qn AUTOSTART=1 DESKTOP_SHORTCUT=0 CYCLE=1
+msiexec /x Atalaya-1.0.0.msi /qn
+```
+
+Cómo generar ambos: `packaging\distribuir.bat` (ver [packaging/README.md](../packaging/README.md)).
 Para **desinstalar**, ve a *Configuración > Aplicaciones > Atalaya*. Te ofrece revertir los permisos y te pregunta si borrar tus datos.
 
 ## Opción 2 · ZIP portable

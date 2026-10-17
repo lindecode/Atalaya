@@ -13,5 +13,10 @@ Por privacidad sólo se conservan indicadores como `-L`, `-R`, `-D` y `-A`.
 Destinos escritos en la línea de comandos, comandos remotos, claves privadas,
 passphrases y contenido transportado por SSH se descartan antes de persistir.
 
+**Desarrollo → SSH** dibuja estas sesiones en un mapa y añade los **túneles activos**: puertos reenviados por
+VS Code Remote-SSH, por `ssh -L/-R/-D` y por `LocalForward`/`RemoteForward`/`DynamicForward` de `~/.ssh/config`.
+Esos túneles se leen en vivo (la lista que guarda VS Code, los argumentos de los procesos `ssh` y el archivo de
+configuración) y no se guardan. Detalles en [README/README.desarrollo-red.md](README/README.desarrollo-red.md).
+
 Una sesión observada constituye evidencia, no una autorización para cerrarla.
 El LLM opera en modo de lectura y debe citar los IDs consultados.

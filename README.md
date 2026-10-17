@@ -23,6 +23,10 @@ investigación y aprendizaje sobre la actividad de un equipo Windows.
 - Chat local con herramientas e historial de conversaciones.
 - RAG híbrido local para consultar documentación propia.
 - Reputación opcional de ejecutables mediante firma Authenticode y VirusTotal.
+- Página **Desarrollo**: servidores del equipo y su alcance en un mapa de nodos, Docker (contenedores, redes,
+  volúmenes, imágenes), sesiones y túneles SSH (incluidos los de VS Code Remote-SSH) y «¿quién usa el puerto?».
+- Avisos en vivo junto al reloj: conexiones a sus servidores desde la red local o Internet, pings, escaneos de
+  puertos, servidores nuevos expuestos y contenedores con problemas.
 
 ## Privacidad y conexiones externas
 
@@ -34,6 +38,7 @@ funciones que pueden generar tráfico externo son explícitas:
 | Ollama | Sólo `localhost`, validado por la aplicación | Prompts y contexto al modelo local |
 | llama.cpp integrado | Sólo `127.0.0.1`, proceso y modelo validados | Prompts y contexto al modelo local |
 | Reputación en línea | VirusTotal, sólo al solicitar `--online` o `lookup` | Hash SHA-256; no se carga el archivo |
+| Docker Scout (opcional, desactivado) | Servicio de Docker, sólo al pulsar «Analizar con Docker Scout» | Lista de paquetes de la imagen elegida |
 | Expediente para IA externa | Ninguno: se descarga y usted decide dónde pegarlo | Alertas, resúmenes y cifras agregadas; seudonimizado por defecto (cuentas, equipo, correos e IP privadas) |
 | Instalación y modelos | PyPI, Python.org y Ollama | Descargas de dependencias o modelos |
 
@@ -58,7 +63,8 @@ administración explica cómo incorporarlo de forma controlada.
 ### Instalador
 
 Descargue `Atalaya-Setup-<versión>.exe`, complete el asistente y abra Atalaya
-desde el menú Inicio. En la primera ejecución revise el diagnóstico, ejecute una
+desde el menú Inicio. Para despliegues (Intune, GPO, `msiexec`) existe también
+`Atalaya-<versión>.msi`; ver [instalación](README/README.instalacion.md). En la primera ejecución revise el diagnóstico, ejecute una
 recolección y compruebe la configuración del análisis automático.
 
 ### ZIP portable
@@ -189,6 +195,7 @@ conocer la separación entre código abierto, servicios y módulos comerciales.
 - [Manual de administración y solución de problemas](README/README.man.md)
 - [Uso completo, comandos y seguridad](README/README.md)
 - [Arquitectura y fronteras de confianza](README/README.arqu.md)
+- [Desarrollo, red, Docker y SSH](README/README.desarrollo-red.md)
 - [Reputación de ejecutables](README.reputation.md)
 - [Construcción y firma del instalador](packaging/README.md)
 - [Análisis periódico, retención y lectura de tablas](README/ANALISIS_PERIODICO.md)

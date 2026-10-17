@@ -10,6 +10,9 @@ La IA complementa reglas deterministas; no sustituye la detección ni la decisi�
 - Separa modelos de chat/herramientas, análisis, resumen y embeddings.
 - **Sistema → IA local → Modelos por función** muestra también los modelos de embeddings instalados. Se seleccionan para indexación y búsqueda RAG; no pueden abrirse como chat.
 - Si el proveedor falla, conserva reglas, búsqueda léxica y resultados parciales.
+- El rol **resumen** necesita al menos unos 2B parámetros: con `qwen3.5:0.8b` el resumen de Desarrollo contradijo los datos que `qwen3.5:4b` resumió bien. IA local avisa por debajo de 1,5B.
+- Los digests de resumen se redactan como frases ya interpretadas (p. ej. «java.exe en el puerto 8080 acepta conexiones de todas las redes») y empiezan por `puntos_a_revisar`: los modelos pequeños resumen frases con fiabilidad y malinterpretan campos sueltos.
+- El chat tiene, además de las herramientas SQL, `get_dev_servers` (sockets en vivo y avisos de red) y `get_containers` (Docker en vivo). Ambas son de sólo lectura y devuelven filas compactas con resumen.
 
 ## Contexto y chunks
 

@@ -15,6 +15,8 @@ from shared.about import APP_VERSION, DISPLAY_NAME
 SECTIONS = (
     ("Panel", "views/01_Panel.py", ":material/dashboard:",
      "Resumen de riesgo, alertas recientes y estado general."),
+    ("Desarrollo", "views/04_Desarrollo.py", ":material/terminal:",
+     "Servidores del equipo y su alcance, Docker, SSH y túneles, «¿quién usa el puerto?» y avisos de red en vivo."),
     ("En vivo", "views/02_En_vivo.py", ":material/pulse_alert:",
      "Estado de fuentes, ejecuciones recientes y actividad que llega al sistema."),
     ("Alertas", "views/03_Alertas.py", ":material/notification_important:",

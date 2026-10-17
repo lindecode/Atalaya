@@ -166,6 +166,19 @@ Ejecute una recolección elevada y compruebe el estado:
 & $Python $Main status
 ```
 
+**Configurar permisos** usa `%ProgramData%\Atalaya\firewall\pfirewall.log` y concede lectura al usuario, pero el
+servicio del firewall (`MpsSvc`) vuelve a aplicar sus propios permisos al archivo. Por eso Atalaya lee además los
+paquetes descartados del **evento 5152** del registro Security, que el grupo «Lectores del registro de eventos»
+siempre puede leer. Para activarlo a mano (PowerShell como administrador):
+
+```powershell
+# "Filtering Platform Packet Drop" por GUID, válido en Windows en cualquier idioma
+auditpol /set /subcategory:"{0CCE9225-69AE-11D9-BED3-505054503030}" /failure:enable
+wevtutil sl Security /ms:134217728   # 128 MB, para no perder inicios de sesión
+```
+
+Ambas fuentes comparten la clave de cada paquete, así que uno visto en las dos se guarda una sola vez.
+
 El lector conserva un cursor de archivo y detecta rotación o truncamiento. Para
 usar una copia de laboratorio sin cambiar la configuración global:
 

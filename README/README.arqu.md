@@ -367,7 +367,9 @@ erDiagram
 ```
 
 - **`alert_evidence`** guarda una copia de cada fila que disparó la alerta (`snapshot_json`). Así la alerta conserva su evidencia aunque `purge` borre los datos originales.
-- **`baseline`** guarda lo que se considera normal (`listen_port`, `logon_source`, `persistence`, `process_net`, `process_net_path`, `remote_port`, `remote_ip`). Las reglas R03, R04, R05, R06, R07 y R10 solo consultan las entradas con `approved=1`.
+- **`baseline`** guarda lo que se considera normal (`listen_port`, `logon_source`, `persistence`, `process_net`, `process_net_path`, `remote_port`, `remote_ip`, `inbound_client`, `debug_port`, `tunnel`, `docker_publish`, `docker_privileges`, `docker_env`). Las reglas R03–R07, R10, R17, R18, R20, R21, R23 y R24 solo consultan las entradas con `approved=1`.
+- **`network_notices`** guarda los avisos de la bandeja (conexiones, pings, escaneos, servidores expuestos, contenedores con problemas) durante 30 días.
+- **`docker_observations`** guarda cada contenedor visto por el colector `docker`, con `data_json` sin valores del entorno; las reglas leen la observación más reciente de cada contenedor.
 - **Ciclo de vida de una alerta:** `new` → `analyzed` (la vio el LLM) → `confirmed` o `dismissed` (lo decide el usuario). `purge` nunca borra las `confirmed`.
 
 ---
@@ -396,7 +398,12 @@ erDiagram
 | `domain/` | Modelos inmutables y reglas R01–R24 como funciones puras |
 | `application/` | Casos de uso: collect, analyze, watch, report, chat, models, rag y evals |
 | `ports/` | Contratos (`Protocol`) entre los casos de uso y la infraestructura |
-| `infrastructure/windows/` | Lectura del sistema: psutil, Visor de eventos, firewall, archivos, persistencia y Sysmon |
+| `infrastructure/windows/` | Lectura del sistema: psutil, Visor de eventos, firewall (`pfirewall.log` y evento 5152 en `wfp.py`), archivos, persistencia y Sysmon |
+| `infrastructure/windows/live_network.py`, `dev_inventory.py`, `ssh_tunnels.py` | Sockets y procesos en vivo para Desarrollo y la bandeja; túneles de VS Code y `~/.ssh/config` |
+| `infrastructure/docker/` | CLI de Docker de sólo lectura, colector e inventario |
+| `domain/dev.py`, `domain/docker.py`, `domain/ssh_forwards.py` | Runtimes, alcance de un socket, puertos de depuración, riesgos de contenedores y análisis de túneles SSH |
+| `application/network_watch.py`, `docker_watch.py` | Vigilancia en vivo de la bandeja: conexiones, pings, escaneos, servidores expuestos y problemas de contenedores |
+| `application/dev_view.py`, `docker_view.py`, `ssh_view.py` | Modelos de la página Desarrollo (mapas, tablas, «Qué revisar», herramientas del chat) |
 | `infrastructure/windows/processes.py` | Snapshots de RAM y ciclo de vida; identidad estable por PID y hora de creación |
 | `infrastructure/sqlite/` | Persistencia, consultas de solo lectura, herramientas del chat y almacén de conocimiento |
 | `infrastructure/ollama/` | Análisis estructurado, catálogo de modelos, embeddings y llamada con fallback de `think` |

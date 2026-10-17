@@ -187,6 +187,15 @@ recupera documentación local marcada como confiable o derivada, exige citas
 `[K:id]`, limita el contexto y registra un hash de la consulta en lugar de su
 texto. Los embeddings se cachean por hash del contenido.
 
+## Desarrollo, red, Docker y SSH
+
+**Inicio → Desarrollo** muestra los servidores del equipo con su alcance (solo este equipo, red local o todas las
+redes) en un mapa de nodos, los contenedores, redes, volúmenes e imágenes de Docker, las sesiones y túneles SSH
+(también los puertos que reenvía VS Code Remote-SSH) y una búsqueda «¿quién usa el puerto?» en la cabecera. La
+bandeja avisa en vivo de conexiones a sus servidores, pings, escaneos, servidores nuevos expuestos y contenedores
+con problemas. Las reglas R18–R24 cubren puertos de depuración expuestos, pings, túneles públicos y riesgos de
+Docker. Guía completa: [README.desarrollo-red.md](README.desarrollo-red.md).
+
 ## Mantenimiento
 
 ```powershell
