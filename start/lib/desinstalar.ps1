@@ -16,7 +16,10 @@ if ($task) {
     Write-Ok "Tarea programada eliminada"
 } else { Write-Ok "No habia una tarea programada" }
 # Un ciclo ya lanzado por la tarea sigue vivo y bloquea los archivos del programa
-if (Test-Path (Join-Path $Root '.venv')) { Stop-VenvProcesses (Join-Path $Root '.venv') }
+# .venv en una copia de desarrollo; runtime\ en la version instalada (exe/msi) con el Python embebido
+foreach ($environment in @('.venv', 'runtime')) {
+    if (Test-Path (Join-Path $Root $environment)) { Stop-VenvProcesses (Join-Path $Root $environment) }
+}
 
 if (-not $DesdeDesinstalador) {
     Write-Paso "Accesos directos e inicio automatico"
