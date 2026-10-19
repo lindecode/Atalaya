@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import html
 from collections import defaultdict
 from datetime import datetime
 
@@ -125,7 +126,9 @@ def hero(title: str, subtitle: str, page_key: str | None = None, lang: str | Non
         title = t(f"pages.{page_key}.title", lang=lang, default=title)
         subtitle = t(f"pages.{page_key}.subtitle", lang=lang, default=subtitle)
 
-    st.markdown(f'<div class="nl-hero"><h1>{title}</h1><p>{subtitle}</p></div>', unsafe_allow_html=True)
+    safe_title = html.escape(str(title or ""))
+    safe_subtitle = html.escape(str(subtitle or ""))
+    st.markdown(f'<div class="nl-hero"><h1>{safe_title}</h1><p>{safe_subtitle}</p></div>', unsafe_allow_html=True)
 
 
 def risk_banner(level: str, detail: str, lang: str | None = None):
@@ -135,10 +138,11 @@ def risk_banner(level: str, detail: str, lang: str | None = None):
     level = level if level in SEVERITY_COLORS else "low"
     color = SEVERITY_COLORS[level]
     sev_name = t(f"tables.severity.{level}", lang=lang, default=SEVERITY_NAMES[level]).lower()
-    risk_title = f"Risk: {sev_name}" if lang == "en" else f"Riesgo {sev_name}"
+    risk_title = html.escape(f"Risk: {sev_name}" if lang == "en" else f"Riesgo {sev_name}")
+    safe_detail = html.escape(str(detail or ""))
     st.markdown(
         f'<div class="nl-risk" style="background:{color}1f"><div class="dot" style="background:{color}"></div>'
-        f'<div><b>{risk_title}</b><br><span>{detail}</span></div></div>',
+        f'<div><b>{risk_title}</b><br><span>{safe_detail}</span></div></div>',
         unsafe_allow_html=True,
     )
 
