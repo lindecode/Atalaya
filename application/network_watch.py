@@ -1,3 +1,8 @@
+﻿# Copyright (c) 2026 LindeCode S.A.S.
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
 """Live network watch: who connects to this computer's servers, pings it or scans it, and new exposed servers.
 
 The tray polls it every few seconds, so a notification arrives while it still matters, not at the next collection

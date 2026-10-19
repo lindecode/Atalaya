@@ -1,3 +1,8 @@
+﻿# Copyright (c) 2026 LindeCode S.A.S.
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
 """`atalaya doctor`: checks what Atalaya needs on this machine and says how to fix what is missing.
 
 Used by the CLI, the GUI "Primeros pasos" page and start\\diagnostico.bat. Every probe is injectable so the

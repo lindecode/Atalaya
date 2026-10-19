@@ -1,3 +1,8 @@
+﻿# Copyright (c) 2026 LindeCode S.A.S.
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
 """Clickable node map (SVG) built with st.components.v2.
 
 Components v2 are not sandboxed: the JavaScript runs in the page. Labels come from collected data (process names,

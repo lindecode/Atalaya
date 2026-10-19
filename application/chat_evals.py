@@ -1,3 +1,8 @@
+﻿# Copyright (c) 2026 LindeCode S.A.S.
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
 """Canonical chat questions with what a good answer must do, to compare models on this machine's real evidence.
 
 The checks are about behaviour, not wording: the right tool was consulted, the answer is not empty or evasive, it did

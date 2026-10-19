@@ -1,3 +1,8 @@
+﻿# Copyright (c) 2026 LindeCode S.A.S.
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
 """Names for IPs from local sources only: the DNS client cache (saved each collection so names outlive it) and hosts.
 
 An explicit reverse lookup (reverse_lookup) does send a query to the configured DNS server and only runs on request.

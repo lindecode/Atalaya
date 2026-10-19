@@ -1,3 +1,8 @@
+﻿# Copyright (c) 2026 LindeCode S.A.S.
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
 """Read-only tools for the chat model: compact, prioritized rows plus a summary a small model can reason over.
 
 Every argument is validated against a closed list (case-insensitive, Spanish or English, several values allowed) and

@@ -1,3 +1,8 @@
+﻿# Copyright (c) 2026 LindeCode S.A.S.
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
 """Docker tab of the Desarrollo page: containers by Compose project, networks (node map), volumes and images.
 
 Everything is read live and read-only. Names, images, paths and commands come from Docker, so they are shown as

@@ -1,3 +1,8 @@
+﻿# Copyright (c) 2026 LindeCode S.A.S.
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
 """What a developer's machine is running: languages, servers, how exposed they are, debug ports and tunnels.
 
 Pure functions over process names, paths and addresses, shared by the detection rules, the live network watcher and

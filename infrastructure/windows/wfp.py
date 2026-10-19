@@ -1,3 +1,8 @@
+﻿# Copyright (c) 2026 LindeCode S.A.S.
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
 """Packets the Windows Filtering Platform dropped (Security event 5152), as firewall events.
 
 This is the reliable source of pings and port scans: reading Security only needs the "Event Log Readers" group,

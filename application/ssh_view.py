@@ -1,3 +1,8 @@
+﻿# Copyright (c) 2026 LindeCode S.A.S.
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
 """SSH map model: the servers this computer connects to, the tunnels it opens, and who connects to its own SSH (pure).
 
 History comes from ssh_observations (the collector keeps only flags such as -L/-R/-D/-A, never destinations from the

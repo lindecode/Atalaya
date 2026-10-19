@@ -1,3 +1,8 @@
+﻿# Copyright (c) 2026 LindeCode S.A.S.
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
 """Windows features behind the Ajustes switches: the real state, and changes made with the same scripts as the installers.
 
 Nothing here takes free text: the task name and script paths are fixed and the interval is a validated integer.

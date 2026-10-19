@@ -1,3 +1,8 @@
+﻿# Copyright (c) 2026 LindeCode S.A.S.
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
 """How each evidence table is shown: Spanish labels, internal columns hidden, values formatted by kind.
 
 The GUI keeps the raw row next to the displayed one, so selecting a row can still show every stored field.

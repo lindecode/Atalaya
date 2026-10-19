@@ -1,3 +1,8 @@
+﻿# Copyright (c) 2026 LindeCode S.A.S.
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
 """Where SSH tunnels are declared: VS Code Remote-SSH forwarded ports and ~/.ssh/config (read-only, local files).
 
 Nothing here is stored: the Desarrollo page reads it live to explain which local port leads where.
