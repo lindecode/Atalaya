@@ -1,4 +1,4 @@
-﻿# Copyright (c) 2026 LindeCode S.A.S.
+# Copyright (c) 2026 LindeCode S.A.S.
 # This Source Code Form is subject to the terms of the Mozilla Public
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
@@ -187,6 +187,7 @@ ES_TRANSLATIONS: dict[str, Any] = {
         "mode_list": "Lista de alertas",
         "mode_by_rule": "Agrupadas por Regla",
         "mode_by_path": "Agrupadas por ruta",
+        "mode_by_process": "Agrupadas por proceso",
         "dismiss_rule_btn": "Descartar las {count} de {rule}",
         "group_count": "Alertas (#)",
     },
@@ -712,6 +713,7 @@ EN_TRANSLATIONS: dict[str, Any] = {
         "mode_list": "Alert list",
         "mode_by_rule": "Grouped by Rule",
         "mode_by_path": "Grouped by path",
+        "mode_by_process": "Grouped by process",
         "dismiss_rule_btn": "Dismiss all {count} of {rule}",
         "group_count": "Alerts (#)",
     },

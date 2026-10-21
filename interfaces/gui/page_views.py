@@ -1,4 +1,4 @@
-﻿# Copyright (c) 2026 LindeCode S.A.S.
+# Copyright (c) 2026 LindeCode S.A.S.
 # This Source Code Form is subject to the terms of the Mozilla Public
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
@@ -1112,11 +1112,12 @@ def alerts():
                         _set_status(repository, [r["id"] for r in filtered_open], "dismissed", note_input)
                         st.rerun()
 
-            col_mode, _ = st.columns([2, 3])
+            col_mode, _ = st.columns([3, 2])
             mode = col_mode.radio(t("alerts.mode_label", lang=lang, default="Modo de visualización"),
                                   [t("alerts.mode_list", lang=lang, default="Lista de alertas"),
                                    t("alerts.mode_by_rule", lang=lang, default="Agrupadas por Regla"),
-                                   t("alerts.mode_by_path", lang=lang, default="Agrupadas por ruta")],
+                                   t("alerts.mode_by_path", lang=lang, default="Agrupadas por ruta"),
+                                   t("alerts.mode_by_process", lang=lang, default="Agrupadas por proceso")],
                                   horizontal=True, label_visibility="collapsed", key="active-view-mode")
 
             if mode == t("alerts.mode_by_rule", lang=lang, default="Agrupadas por Regla"):
@@ -1211,6 +1212,60 @@ def alerts():
                                       f"Sin ruta identificada ({len(without_path)})"), expanded=False):
                         _render_alerts_table(repository, query, without_path, curr_status_names, lang, requested,
                                              key_prefix="sub-path-none")
+            elif mode == t("alerts.mode_by_process", lang=lang, default="Agrupadas por proceso"):
+                from collections import defaultdict
+                procs_by_alert = query.alert_processes([row["id"] for row in filtered_open])
+                proc_groups = defaultdict(list)
+                without_proc = []
+                for alert in filtered_open:
+                    procs = procs_by_alert.get(alert["id"], [])
+                    if procs:
+                        proc_groups[procs[0]].append(alert)
+                    else:
+                        without_proc.append(alert)
+
+                proc_rows = []
+                for proc, proc_alerts in sorted(proc_groups.items(), key=lambda item: (-len(item[1]), item[0].casefold())):
+                    severities = sorted({alert["severity"] for alert in proc_alerts}, key=lambda value: rank.get(value, 4))
+                    proc_rows.append({
+                        "Process" if lang == "en" else "Proceso": proc,
+                        "Severity" if lang == "en" else "Severidad": _severity_name(severities[0], lang=lang),
+                        "Count" if lang == "en" else "Alertas (#)": len(proc_alerts),
+                        "Date" if lang == "en" else "Fecha": to_local_datetime(max(alert["ts"] for alert in proc_alerts)),
+                    })
+
+                if proc_rows:
+                    proc_column = "Process" if lang == "en" else "Proceso"
+                    count_column = "Count" if lang == "en" else "Alertas (#)"
+                    date_column = "Date" if lang == "en" else "Fecha"
+                    proc_event = st.dataframe(
+                        pd.DataFrame(proc_rows), hide_index=True, width="stretch", key="alerts-proc-grouped",
+                        selection_mode="single-row", on_select="rerun",
+                        column_config={count_column: st.column_config.NumberColumn(format="%d"),
+                                       date_column: st.column_config.DatetimeColumn(format=COLUMN_FORMAT)},
+                    )
+                    selected_procs = list(getattr(getattr(proc_event, "selection", None), "rows", None) or [])
+                    if selected_procs and selected_procs[0] < len(proc_rows):
+                        selected_index = selected_procs[0]
+                        selected_proc = proc_rows[selected_index][proc_column]
+                        alerts_in_proc = proc_groups[selected_proc]
+                        with st.container(border=True):
+                            st.markdown(f"**{_plain(selected_proc)}** · {len(alerts_in_proc)} " +
+                                        ("alerts" if lang == "en" else "alertas"))
+                            _render_alerts_table(repository, query, alerts_in_proc, curr_status_names, lang, requested,
+                                                 key_prefix=f"sub-proc-{selected_index}")
+                    elif filtered_open:
+                        st.caption("Select a process to view its alerts." if lang == "en" else
+                                   "Seleccione un proceso para ver sus alertas.")
+                else:
+                    empty("No alerts contain an identifiable process." if lang == "en" else
+                          "Ninguna alerta contiene un proceso identificable.")
+
+                if without_proc:
+                    with st.expander((f"Without an identifiable process ({len(without_proc)})" if lang == "en" else
+                                      f"Sin proceso identificado ({len(without_proc)})"), expanded=False):
+                        _render_alerts_table(repository, query, without_proc, curr_status_names, lang, requested,
+                                             key_prefix="sub-proc-none")
             else:
                 _render_alerts_table(repository, query, filtered_open, curr_status_names, lang, requested, key_prefix="alerts")
 
