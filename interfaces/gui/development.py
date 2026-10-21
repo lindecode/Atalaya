@@ -1,4 +1,4 @@
-﻿# Copyright (c) 2026 LindeCode S.A.S.
+# Copyright (c) 2026 LindeCode S.A.S.
 # This Source Code Form is subject to the terms of the Mozilla Public
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
@@ -19,6 +19,7 @@ import streamlit as st
 
 from application import dev_view
 from domain import dev
+from infrastructure.sqlite.queries import since_hours
 from interfaces.gui.common import context
 from interfaces.gui.components import chart, empty, hero, legend, plain_label, table
 from interfaces.gui.node_map import node_map
@@ -26,6 +27,15 @@ from interfaces.gui.table_formatting import local_series, to_local_datetime
 
 NOTICE_KINDS = {"client": ("Conexión", "Connection"), "ping": ("Ping", "Ping"), "scan": ("Escaneo", "Scan"),
                 "exposed": ("Servidor expuesto", "Exposed server"), "docker": ("Contenedor", "Container")}
+
+DEV_WINDOW_HOURS = {"1 hora": 1, "24 horas": 24, "3 días": 72, "7 días": 168, "30 días": 720}
+DEV_WINDOW_LABELS = {
+    "1 hora": ("1 hora", "1 hour"),
+    "24 horas": ("24 horas", "24 hours"),
+    "3 días": ("3 días", "3 days"),
+    "7 días": ("7 días", "7 days"),
+    "30 días": ("30 días", "30 days"),
+}
 
 
 @st.cache_data(ttl=5, show_spinner=False)
@@ -68,7 +78,7 @@ def _uptime(started: str | None, lang: str) -> str:
 
 
 def development_page():
-    settings, _, query, since = context()
+    settings, _, query, _ = context(window_applies=False)
     lang = st.session_state.get("language") or "es"
     tr = lambda es, en: en if lang == "en" else es
     hero("🧑‍💻 Desarrollo", "Servidores de este equipo, quién se conecta a ellos, en qué lenguaje corren y los avisos de red.",
@@ -76,7 +86,7 @@ def development_page():
     from interfaces.gui.page_views import _section_summary
     _section_summary(query, settings, "desarrollo")
 
-    controls = st.columns([2, 2, 2, 2], vertical_alignment="bottom")
+    controls = st.columns([2, 2, 2, 2, 2], vertical_alignment="bottom")
     live = controls[0].toggle(tr("Actualización automática", "Auto-refresh"), value=True, key="dev-live")
     include_all = controls[1].toggle(tr("Todos los servidores", "All servers"), value=False, key="dev-all",
                                      help=tr("Incluye ayudantes locales de programas comunes (plugins del editor, "
@@ -85,12 +95,21 @@ def development_page():
     local_clients = controls[2].toggle(tr("Clientes de este equipo", "Clients from this computer"), value=False,
                                        key="dev-local", help=tr("Muestra en el mapa las conexiones desde localhost.",
                                                                 "Shows localhost connections on the map."))
-    controls[3].number_input(tr("¿Quién usa el puerto?", "Who uses the port?"), min_value=1, max_value=65535,
+    controls[3].selectbox(
+        tr("Filtro de tiempo", "Time filter"),
+        list(DEV_WINDOW_HOURS),
+        index=2,
+        key="dev-window",
+        format_func=lambda opt: DEV_WINDOW_LABELS.get(opt, (opt, opt))[lang == "en"],
+        help=tr("Ventana temporal para el mapa de conexiones entrantes, avisos y línea de tiempo (por defecto 3 días).",
+                "Time window for the inbound connections map, notices, and timeline (default 3 days)."),
+    )
+    controls[4].number_input(tr("¿Quién usa el puerto?", "Who uses the port?"), min_value=1, max_value=65535,
                              value=None, step=1, placeholder="8080", key="dev-port",
                              help=tr("Para «el puerto 3000 ya está en uso»: qué programa lo tiene abierto.",
                                      "For “port 3000 is already in use”: which program holds it."))
-    st.caption(tr("Servidores y procesos: en vivo. Avisos: ventana temporal de la barra lateral.",
-                  "Servers and processes: live. Notices: sidebar time window."))
+    st.caption(tr("Servidores y procesos: en vivo. Conexiones pasadas y avisos: según el filtro de tiempo.",
+                  "Servers and processes: live. Past connections and notices: based on the time filter."))
 
     if not _drops_detectable(str(settings.firewall_log_path)):
         st.warning(tr("Los pings y escaneos no se detectan: falta la auditoría de paquetes descartados. Vaya a Ajustes → "
@@ -109,6 +128,8 @@ def development_page():
         if port:
             with st.container(border=True):
                 _port_lookup(snapshot, int(port), lang, tr)
+        window_hours = DEV_WINDOW_HOURS.get(st.session_state.get("dev-window"), 72)
+        since = since_hours(window_hours)
         rows = dev_view.servers(snapshot, include_all=include_all, port_names=_docker_names())
         notices = _notices(settings, since)
         _kpis(rows, notices, tr)

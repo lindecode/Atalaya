@@ -1,4 +1,4 @@
-﻿# Copyright (c) 2026 LindeCode S.A.S.
+# Copyright (c) 2026 LindeCode S.A.S.
 # This Source Code Form is subject to the terms of the Mozilla Public
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
@@ -25,9 +25,13 @@ def test_development_page_shows_servers_debug_warning_and_notices(tmp_path, monk
     monkeypatch.setenv("ATALAYA_REPORTS", str(tmp_path / "reports"))
     settings = replace(Settings(), database_path=database)
     SQLiteRepository(settings).initialize()
-    from datetime import datetime, timezone
-    SQLiteNetworkNotices(settings).add([Notice(datetime.now(timezone.utc).isoformat(), "client", "internet",
-                                               "45.1.2.3", 8080, "java.exe", "")])
+    from datetime import datetime, timedelta, timezone
+    now = datetime.now(timezone.utc)
+    SQLiteNetworkNotices(settings).add([
+        Notice(now.isoformat(), "client", "internet", "45.1.2.3", 8080, "java.exe", ""),
+        Notice((now - timedelta(days=2)).isoformat(), "client", "internet", "45.1.2.4", 8080, "java.exe", ""),
+        Notice((now - timedelta(days=5)).isoformat(), "client", "internet", "45.1.2.5", 8080, "java.exe", ""),
+    ])
     import infrastructure.windows.dev_inventory as inventory
     monkeypatch.setattr(inventory, "snapshot", lambda now_iso=None: SNAPSHOT)
     import infrastructure.docker.inventory as docker_inventory
@@ -41,7 +45,7 @@ def test_development_page_shows_servers_debug_warning_and_notices(tmp_path, monk
     metrics = {metric.label: metric.value for metric in app.metric}
     assert metrics["Servidores"] == "3" and metrics["Expuestos a la red"] == "2"
     assert metrics["Depuración expuesta"] == "1" and metrics["Clientes externos ahora"] == "2"
-    assert metrics["Avisos de red"] == "1"
+    assert metrics["Avisos de red"] == "2"  # now + 2-day notice included; 5-day excluded by default 3 days
     assert metrics["En marcha"] == "2/3" and metrics["Con riesgos"] == "2" and metrics["Imágenes huérfanas"] == "1"
     assert any("5432/tcp (PostgreSQL)" in error.value.replace("\\", "") for error in app.error)  # R21 on the card
     assert any("`-p 127.0.0.1:5432:5432`" in error.value for error in app.error)           # with its fix
@@ -49,8 +53,20 @@ def test_development_page_shows_servers_debug_warning_and_notices(tmp_path, monk
     assert any("app.jar" in text.value for text in app.text)  # the Java card names the jar, not just java.exe
     assert any("Aún no hay recolecciones" in info.value for info in app.info)  # empty timeline, no crash
 
+    assert app.selectbox(key="dev-window").value == "3 días"
+    app.selectbox(key="dev-window").select("7 días").run()
+    assert not app.exception
+    metrics_7d = {metric.label: metric.value for metric in app.metric}
+    assert metrics_7d["Avisos de red"] == "3"
+
+    app.selectbox(key="dev-window").select("24 horas").run()
+    assert not app.exception
+    metrics_24h = {metric.label: metric.value for metric in app.metric}
+    assert metrics_24h["Avisos de red"] == "1"
+
     app.number_input(key="dev-port").set_value(8080).run()
     assert not app.exception
     assert any(code.value == "Stop-Process -Id 10" for code in app.code)
     app.number_input(key="dev-port").set_value(4444).run()
     assert any("está libre" in success.value for success in app.success)
+

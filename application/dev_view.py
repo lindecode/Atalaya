@@ -1,4 +1,4 @@
-﻿# Copyright (c) 2026 LindeCode S.A.S.
+# Copyright (c) 2026 LindeCode S.A.S.
 # This Source Code Form is subject to the terms of the Mozilla Public
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
@@ -197,6 +197,8 @@ def graph(server_rows: list[dict], history: list[dict] | None = None, lang: str 
     for notice in history or []:
         server = by_port.get(notice.get("lport"))
         if notice.get("kind") == "client" and server and notice.get("remote_ip"):
+            if notice.get("network") in (None, "local") and not include_local_clients:
+                continue
             links.setdefault((notice["remote_ip"], server["id"]),
                              {"live": False, "count": 1, "origin": notice.get("network")})
     spread = min(math.pi / count * 0.8, 0.9)  # a lone server must not fan its clients around the whole ring

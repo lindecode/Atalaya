@@ -1,4 +1,4 @@
-﻿# Copyright (c) 2026 LindeCode S.A.S.
+# Copyright (c) 2026 LindeCode S.A.S.
 # This Source Code Form is subject to the terms of the Mozilla Public
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
@@ -14,7 +14,7 @@ from shared.i18n import t, DEFAULT_LANGUAGE, SUPPORTED_LANGUAGES
 
 
 QUERY_TTL_SECONDS = 60
-WINDOW_HOURS = {"1 hora": 1, "24 horas": 24, "7 días": 168, "30 días": 720}
+WINDOW_HOURS = {"1 hora": 1, "24 horas": 24, "3 días": 72, "7 días": 168, "30 días": 720}
 
 
 def selected_window_hours() -> int:
@@ -176,6 +176,7 @@ def context(window_applies: bool = True):
     window_labels = {
         "1 hora": "1 hour" if lang == "en" else "1 hora",
         "24 horas": "24 hours" if lang == "en" else "24 horas",
+        "3 días": "3 days" if lang == "en" else "3 días",
         "7 días": "7 days" if lang == "en" else "7 días",
         "30 días": "30 days" if lang == "en" else "30 días",
     }
