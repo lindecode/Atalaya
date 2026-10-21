@@ -1,4 +1,4 @@
-﻿# Copyright (c) 2026 LindeCode S.A.S.
+# Copyright (c) 2026 LindeCode S.A.S.
 # This Source Code Form is subject to the terms of the Mozilla Public
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
@@ -153,9 +153,15 @@ class SQLiteQueryRepository:
         with connect(self.settings.database_path, readonly=True) as db:
             return [dict(row) for row in db.execute(sql, tuple(params))]
 
-    def open_alerts_by_severity(self) -> dict[str, int]:
+    def open_alerts_by_severity(self, since: str | None = None) -> dict[str, int]:
+        sql = "SELECT severity, COUNT(*) FROM alerts WHERE status IN ('new','analyzed')"
+        params = []
+        if since:
+            sql += " AND ts>=?"
+            params.append(since)
+        sql += " GROUP BY severity"
         with connect(self.settings.database_path, readonly=True) as db:
-            rows = db.execute("SELECT severity, COUNT(*) FROM alerts WHERE status IN ('new','analyzed') GROUP BY severity")
+            rows = db.execute(sql, tuple(params))
             return {row[0]: int(row[1]) for row in rows}
 
     def live_status(self) -> dict:

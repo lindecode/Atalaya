@@ -1,4 +1,4 @@
-﻿# Copyright (c) 2026 LindeCode S.A.S.
+# Copyright (c) 2026 LindeCode S.A.S.
 # This Source Code Form is subject to the terms of the Mozilla Public
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
@@ -9,7 +9,7 @@ import streamlit as st
 
 from bootstrap import build_automation_config_service
 from infrastructure.logging_config import configure_logging
-from infrastructure.sqlite.queries import SQLiteQueryRepository
+from infrastructure.sqlite.queries import SQLiteQueryRepository, since_hours
 from interfaces.gui.components import apply_style
 from settings import Settings
 from shared.about import DISPLAY_NAME, ICON_PATH
@@ -36,7 +36,10 @@ def _alerts_page_title(lang: str, settings: Settings) -> str:
     try:
         if not settings.database_path.exists():
             return base
-        count = sum(SQLiteQueryRepository(settings).open_alerts_by_severity().values())
+        # Alertas abiertas dentro de la ventana de trabajo activa (24h por defecto)
+        from interfaces.gui.common import selected_window_hours
+        window_hours = selected_window_hours()
+        count = sum(SQLiteQueryRepository(settings).open_alerts_by_severity(since=since_hours(window_hours)).values())
         if count <= 0:
             return base
         badge = "99+" if count > 99 else str(count)
