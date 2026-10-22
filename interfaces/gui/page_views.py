@@ -907,6 +907,16 @@ def _set_status(repository, alert_ids, status: str, note: str | None):
     refresh_data()
 
 
+def _clear_alert_selection(key_prefix: str | None = None):
+    """Signals that table selections should be cleared on the next rerun."""
+    st.session_state["_reset_alert_selection"] = True
+    if "id" in st.query_params:
+        try:
+            del st.query_params["id"]
+        except Exception:
+            pass
+
+
 def _alert_detail(repository, query, row: dict, key_prefix: str = "alert"):
     """Everything about one alert: what the rule means, its evidence, the LLM's view and the triage actions."""
     with st.container(border=True):
@@ -950,18 +960,26 @@ def _alert_detail(repository, query, row: dict, key_prefix: str = "alert"):
         note = st.text_input("Nota", key=f"note-{key_prefix}-{row['id']}")
         a, b, c = st.columns(3)
         if a.button("Confirmar" if lang != "en" else "Confirm", key=f"confirm-{key_prefix}-{row['id']}", icon=":material/check_circle:"):
-            _set_status(repository, [row["id"]], "confirmed", note); st.rerun()
+            _clear_alert_selection(key_prefix)
+            _set_status(repository, [row["id"]], "confirmed", note)
+            st.rerun()
         if row["status"] == "dismissed":
             reactivate_lbl = t("alerts.reactivate_btn", lang=lang, default="Reactivar alerta")
             if b.button(reactivate_lbl, key=f"reactivate-{key_prefix}-{row['id']}", icon=":material/replay:"):
+                _clear_alert_selection(key_prefix)
                 _set_status(repository, [row["id"]], "new", note or t("alerts.reactivated_note", lang=lang, default="Reactivada manualmente"))
                 st.rerun()
         else:
             if b.button("Descartar" if lang != "en" else "Dismiss", key=f"dismiss-{key_prefix}-{row['id']}", icon=":material/cancel:"):
-                _set_status(repository, [row["id"]], "dismissed", note); st.rerun()
+                _clear_alert_selection(key_prefix)
+                _set_status(repository, [row["id"]], "dismissed", note)
+                st.rerun()
         if row["rule_id"] in BASELINE_RULES and c.button("Aprobar como normal" if lang != "en" else "Approve baseline", key=f"approve-{key_prefix}-{row['id']}",
                                                          icon=":material/verified:"):
-            repository.approve_alert(row["id"], SystemClock().now_iso()); refresh_data(); st.rerun()
+            _clear_alert_selection(key_prefix)
+            repository.approve_alert(row["id"], SystemClock().now_iso())
+            refresh_data()
+            st.rerun()
 
 
 def _bulk_actions(repository, selected: list[dict]):
@@ -971,28 +989,38 @@ def _bulk_actions(repository, selected: list[dict]):
         a, b, c = st.columns(3)
         ids = [row["id"] for row in selected]
         if a.button("Confirmar seleccionadas", key="bulk-confirm", icon=":material/check_circle:"):
-            _set_status(repository, ids, "confirmed", note); st.rerun()
+            _clear_alert_selection()
+            _set_status(repository, ids, "confirmed", note)
+            st.rerun()
         all_dismissed = all(row["status"] == "dismissed" for row in selected)
         if all_dismissed:
             if b.button("Reactivar seleccionadas", key="bulk-reactivate", icon=":material/replay:"):
-                _set_status(repository, ids, "new", note or "Reactivadas en lote"); st.rerun()
+                _clear_alert_selection()
+                _set_status(repository, ids, "new", note or "Reactivadas en lote")
+                st.rerun()
         else:
             if b.button("Descartar seleccionadas", key="bulk-dismiss", icon=":material/cancel:"):
-                _set_status(repository, ids, "dismissed", note); st.rerun()
+                _clear_alert_selection()
+                _set_status(repository, ids, "dismissed", note)
+                st.rerun()
         approvable = [row["id"] for row in selected if row["rule_id"] in BASELINE_RULES]
         if approvable and c.button(f"Aprobar como normal ({len(approvable)})", key="bulk-approve",
                                    icon=":material/verified:", help="Solo las de reglas con baseline: "
                                    + ", ".join(sorted(BASELINE_RULES))):
+            _clear_alert_selection()
             now = SystemClock().now_iso()
             for alert_id in approvable:
                 try:
                     repository.approve_alert(alert_id, now)
                 except (KeyError, ValueError):
                     continue  # already covered by an earlier approval in this batch
-            refresh_data(); st.rerun()
+            refresh_data()
+            st.rerun()
 
 
 def _render_alerts_table(repository, query, rows: list[dict], curr_status_names: dict, lang: str, requested: str | None, key_prefix: str = "alerts"):
+    if st.session_state.get("_reset_alert_selection"):
+        st.session_state.pop(f"{key_prefix}-table", None)
     if len(rows) > MAX_ALERTS_SHOWN:
         st.caption(f"Showing {MAX_ALERTS_SHOWN} of {len(rows)} alerts; use filters to narrow down." if lang == "en" else f"Mostrando {MAX_ALERTS_SHOWN} de {len(rows)} alertas; use los filtros para acotar.")
     shown_rows = rows[:MAX_ALERTS_SHOWN]
@@ -1022,8 +1050,6 @@ def _render_alerts_table(repository, query, rows: list[dict], curr_status_names:
     target = selected[0] if selected else None
     if target is None and requested and str(requested).isdigit():
         target = query.alert(int(requested))
-    if target is None and shown_rows and key_prefix == "alerts":
-        target = shown_rows[0]
     if target:
         _alert_detail(repository, query, target, key_prefix=key_prefix)
 
@@ -1036,6 +1062,10 @@ def _alert_matches(row: dict, term: str) -> bool:
 
 
 def alerts():
+    if st.session_state.pop("_reset_alert_selection", False):
+        for key in list(st.session_state.keys()):
+            if key.endswith("-table"):
+                st.session_state.pop(key, None)
     _, repository, query, since = context()
     lang = st.session_state.get("language") or "es"
     hero("🚨 Alertas", "Lo que detectaron las reglas, con su evidencia y la explicación del LLM.", page_key="alerts", lang=lang)
@@ -1457,8 +1487,48 @@ def files():
         with st.expander("Details" if lang == "en" else "Detalle", icon=":material/table:"):
             table(rows, key="file_events", view="file_events", lang=lang,
                   on_pick=lambda record: path_actions(record, "file-event", lang))
+    _file_lock_inspector(lang)
     _duplicate_files(query, since, lang)
     _reputation_panel(settings, query, lang)
+
+
+def _file_lock_inspector(lang: str):
+    tr = lambda es, en: en if lang == "en" else es
+    with st.expander(tr("🔍 ¿Quién usa este archivo? (Inspeccionar bloqueos)",
+                        "🔍 Who is using this file? (Inspect locks)"), icon=":material/lock_open:"):
+        st.caption(tr("Consulte qué procesos tienen un archivo o carpeta abierto o bloqueado usando el Restart Manager nativo de Windows.",
+                      "Check which processes hold an open handle or lock on a file/folder using native Windows Restart Manager."))
+        col_input, col_btn = st.columns([5, 1], vertical_alignment="bottom")
+        target_path = col_input.text_input(
+            tr("Ruta del archivo o carpeta", "File or folder path"),
+            placeholder=r"C:\ejemplo\documento.docx",
+            key="lock-inspect-path"
+        )
+        inspect_clicked = col_btn.button(tr("Inspeccionar", "Inspect"), width="stretch", icon=":material/search:")
+        if inspect_clicked and target_path:
+            p = Path(target_path.strip().strip('"'))
+            if not p.exists():
+                st.warning(tr(f"El archivo o carpeta no existe: {p}", f"The file or folder does not exist: {p}"))
+            else:
+                from infrastructure.windows.file_locks import inspect_file_locks
+                locks = inspect_file_locks(p)
+                if not locks:
+                    st.success(tr("Ningún proceso tiene bloqueado este archivo. Está libre para modificar, mover o eliminar.",
+                                  "No process is locking this file. It is free to modify, move or delete."))
+                else:
+                    st.error(tr(f"{len(locks)} proceso(s) tienen este archivo en uso:",
+                                f"{len(locks)} process(es) have this file in use:"))
+                    rows = [{
+                        tr("Proceso", "Process"): item["name"],
+                        "PID": item["pid"],
+                        tr("Tipo", "Type"): item["app_type"] if lang == "es" else item["app_type_en"],
+                        tr("Usuario", "User"): item.get("user") or "—",
+                        tr("Ruta ejecutable", "Executable path"): item.get("path") or "—",
+                    } for item in locks]
+                    st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
+                    st.caption(tr("Para finalizar uno de estos procesos desde PowerShell, use:",
+                                  "To terminate one of these processes from PowerShell, use:"))
+                    st.code("\n".join(f"Stop-Process -Id {item['pid']}  # {item['name']}" for item in locks), language="powershell")
 
 
 def _duplicate_files(query, since: str, lang: str):
@@ -1966,6 +2036,8 @@ def _features(settings):
                                          format_func=lambda x: lang_labels.get(x, x), key="settings-lang-select", label_visibility="collapsed")
         if selected_lang != current_lang:
             st.session_state["language"] = selected_lang
+            if system.context_menu_enabled():
+                system.set_context_menu(True, lang=selected_lang)
             save(language=selected_lang)
 
     # Periodic analysis: the Windows scheduled task, not a preference
@@ -2001,6 +2073,19 @@ def _features(settings):
     if changed is not None:
         ok, message = system.set_startup(changed)
         (st.success if ok else st.error)(message or ("Hecho" if ok else "No se pudo cambiar el inicio automático"))
+        if ok:
+            st.rerun()
+
+    ctx_menu = system.context_menu_enabled()
+    title_ctx = "Windows context menu" if current_lang == "en" else "Menú contextual de Windows"
+    desc_ctx = ("Add the option «Who is using this file? (Atalaya)» to the right-click menu in Windows Explorer for any file or folder, opening a native dialog with locking processes."
+                if current_lang == "en" else
+                "Añade la opción «¿Quién usa este archivo? (Atalaya)» al menú de clic derecho del Explorador de Windows en cualquier archivo o carpeta, abriendo un diálogo nativo con los procesos bloqueadores.")
+    status_ctx = (":green[● Enabled]" if current_lang == "en" else ":green[● Activado]") if ctx_menu else (":gray[● Disabled]" if current_lang == "en" else ":gray[● Desactivado]")
+    changed = _feature(title_ctx, desc_ctx, status_ctx, ctx_menu, "context-menu")
+    if changed is not None:
+        ok, message = system.set_context_menu(changed, lang=current_lang)
+        (st.success if ok else st.error)(message or ("Done" if current_lang == "en" else "Hecho"))
         if ok:
             st.rerun()
 

@@ -1,4 +1,4 @@
-﻿# Copyright (c) 2026 LindeCode S.A.S.
+# Copyright (c) 2026 LindeCode S.A.S.
 # This Source Code Form is subject to the terms of the Mozilla Public
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
@@ -66,12 +66,15 @@ def test_alert_workflow_and_xss_literal(tmp_path, monkeypatch):
         {"path": payload}, (EvidenceRef("file_event", 1, {"id": 1, "path": payload}),), "fixture",
     )])[0]
 
-    alert_app = AppTest.from_file(ROOT / "interfaces/gui/views/03_Alertas.py", default_timeout=30).run()
+    alert_app = AppTest.from_file(ROOT / "interfaces/gui/views/03_Alertas.py", default_timeout=30)
+    alert_app.query_params["id"] = str(alert_id)
+    alert_app.run()
     assert not alert_app.exception
     # Shown literally inside a dataframe cell (never rendered as HTML)
     assert payload in alert_app.dataframe(key="alerts-table").value["Resumen"].iloc[0]
     confirm = next(button for button in alert_app.button if button.label == "Confirmar")
     confirm.click().run()
+    assert alert_app.session_state.get("alerts-table", {}).get("selection", {}).get("rows", []) == []
     with connect(database, readonly=True) as db:
         assert db.execute("SELECT status FROM alerts WHERE id=?", (alert_id,)).fetchone()[0] == "confirmed"
 
