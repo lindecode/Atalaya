@@ -8,7 +8,8 @@
     DESKTOP_SHORTCUT=1|0  acceso directo en el escritorio (por defecto 1)
     AUTOSTART=1|0         iniciar con Windows junto al reloj, con el monitor de archivos (por defecto 0)
     CYCLE=1|0             analisis periodico cada 5 minutos (por defecto 1)
-  Ejemplo: msiexec /i Atalaya-1.0.0.msi /qn AUTOSTART=1
+    CONTEXT_MENU=1|0      menu contextual del Explorador de Windows (por defecto 0)
+  Ejemplo: msiexec /i Atalaya-1.0.0.msi /qn AUTOSTART=1 CONTEXT_MENU=1
 -->
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs" xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
   <Package Name="Atalaya" Manufacturer="LindeCode" Version="$(var.AppVersion)" Language="3082" Codepage="1252"
@@ -26,6 +27,7 @@
     <Property Id="DESKTOP_SHORTCUT" Value="1" />
     <Property Id="AUTOSTART" Value="0" />
     <Property Id="CYCLE" Value="1" />
+    <Property Id="CONTEXT_MENU" Value="0" />
     <!-- Carpeta instalada, guardada en HKCU: RemoveFolderEx la vacia al desinstalar (incluye __pycache__) -->
     <Property Id="APPFOLDER">
       <RegistrySearch Id="AppFolderSearch" Root="HKCU" Key="Software\LindeCode\Atalaya" Name="InstallDir" Type="raw" />
@@ -48,6 +50,7 @@
       <ComponentRef Id="MenuShortcuts" />
       <ComponentRef Id="DesktopShortcut" />
       <ComponentRef Id="StartupShortcut" />
+      <ComponentRef Id="ContextMenuComponent" />
     </Feature>
 
     <Component Id="InstallDirRecord" Directory="INSTALLFOLDER" Guid="{3B0F9E1D-6C2A-4F57-9E41-7D0B5A2C8E13}">
@@ -88,6 +91,26 @@
       <Shortcut Id="StartupAppShortcut" Name="Atalaya" Target="[INSTALLFOLDER]runtime\pythonw.exe"
                 Arguments="main.py tray --no-browser --monitor" WorkingDirectory="INSTALLFOLDER" Icon="AtalayaIcon" />
       <RegistryValue Root="HKCU" Key="Software\LindeCode\Atalaya" Name="StartupShortcut" Type="integer" Value="1"
+                     KeyPath="yes" />
+    </Component>
+    <!-- Menu contextual en el Explorador de Windows: ¿Quién usa este archivo? -->
+    <Component Id="ContextMenuComponent" Directory="INSTALLFOLDER" Condition="CONTEXT_MENU = 1"
+               Guid="{B2A4C6E8-1F3D-4B57-9C2A-8E4D1A7B9F3C}">
+      <RegistryKey Root="HKCU" Key="Software\Classes\*\shell\AtalayaLockFinder">
+        <RegistryValue Type="string" Value="¿Quién usa este archivo? (Atalaya)" />
+        <RegistryValue Name="Icon" Type="string" Value="[INSTALLFOLDER]assets\icon.ico" />
+        <RegistryKey Key="command">
+          <RegistryValue Type="string" Value="&quot;[INSTALLFOLDER]runtime\pythonw.exe&quot; &quot;[INSTALLFOLDER]main.py&quot; lock-inspect &quot;%1&quot;" />
+        </RegistryKey>
+      </RegistryKey>
+      <RegistryKey Root="HKCU" Key="Software\Classes\Directory\shell\AtalayaLockFinder">
+        <RegistryValue Type="string" Value="¿Quién usa este archivo? (Atalaya)" />
+        <RegistryValue Name="Icon" Type="string" Value="[INSTALLFOLDER]assets\icon.ico" />
+        <RegistryKey Key="command">
+          <RegistryValue Type="string" Value="&quot;[INSTALLFOLDER]runtime\pythonw.exe&quot; &quot;[INSTALLFOLDER]main.py&quot; lock-inspect &quot;%1&quot;" />
+        </RegistryKey>
+      </RegistryKey>
+      <RegistryValue Root="HKCU" Key="Software\LindeCode\Atalaya" Name="ContextMenu" Type="integer" Value="1"
                      KeyPath="yes" />
     </Component>
 

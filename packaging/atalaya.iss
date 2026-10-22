@@ -47,8 +47,18 @@ Name: "spanish"; MessagesFile: "compiler:Languages\Spanish.isl"
 
 [Tasks]
 Name: "desktopicon"; Description: "Crear un acceso directo en el escritorio"; GroupDescription: "Accesos directos:"
+Name: "contextmenu"; Description: "Añadir «¿Quién usa este archivo?» al menú contextual del Explorador de Windows"; GroupDescription: "Integración con Windows:"; Flags: unchecked
 Name: "autostart"; Description: "Iniciar Atalaya en segundo plano al entrar en Windows (icono junto al reloj, con el monitor de archivos)"; GroupDescription: "Inicio automático:"; Flags: unchecked
 Name: "cycle"; Description: "Analizar el equipo automáticamente cada 5 minutos (recomendado; se cambia en Sistema > Ajustes)"; GroupDescription: "Análisis periódico:"
+
+[Registry]
+Root: HKCU; Subkey: "Software\Classes\*\shell\AtalayaLockFinder"; ValueType: string; ValueData: "¿Quién usa este archivo? (Atalaya)"; Tasks: contextmenu; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Classes\*\shell\AtalayaLockFinder"; ValueType: string; ValueName: "Icon"; ValueData: "{app}\assets\icon.ico"; Tasks: contextmenu
+Root: HKCU; Subkey: "Software\Classes\*\shell\AtalayaLockFinder\command"; ValueType: string; ValueData: """{app}\runtime\pythonw.exe"" ""{app}\main.py"" lock-inspect ""%1"""; Tasks: contextmenu
+
+Root: HKCU; Subkey: "Software\Classes\Directory\shell\AtalayaLockFinder"; ValueType: string; ValueData: "¿Quién usa este archivo? (Atalaya)"; Tasks: contextmenu; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Classes\Directory\shell\AtalayaLockFinder"; ValueType: string; ValueName: "Icon"; ValueData: "{app}\assets\icon.ico"; Tasks: contextmenu
+Root: HKCU; Subkey: "Software\Classes\Directory\shell\AtalayaLockFinder\command"; ValueType: string; ValueData: """{app}\runtime\pythonw.exe"" ""{app}\main.py"" lock-inspect ""%1"""; Tasks: contextmenu
 
 [Files]
 Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs

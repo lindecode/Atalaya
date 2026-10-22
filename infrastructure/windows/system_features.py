@@ -1,4 +1,4 @@
-﻿# Copyright (c) 2026 LindeCode S.A.S.
+# Copyright (c) 2026 LindeCode S.A.S.
 # This Source Code Form is subject to the terms of the Mozilla Public
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
@@ -125,3 +125,16 @@ def open_permissions_setup() -> tuple[bool, str]:
     except (OSError, subprocess.SubprocessError) as exc:
         return False, f"{type(exc).__name__}: {exc}"
     return completed.returncode == 0, (completed.stderr or "").strip()[:300]
+
+
+def context_menu_enabled() -> bool:
+    """True if the Windows Explorer context menu entry for Atalaya lock inspector is registered."""
+    from infrastructure.windows.context_menu import is_context_menu_registered
+    return is_context_menu_registered()
+
+
+def set_context_menu(enabled: bool, lang: str | None = None) -> tuple[bool, str]:
+    """Enables or disables the Windows Explorer context menu entry for Atalaya."""
+    from infrastructure.windows.context_menu import set_context_menu_registered
+    return set_context_menu_registered(enabled, lang=lang)
+

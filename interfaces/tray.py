@@ -1,4 +1,4 @@
-﻿# Copyright (c) 2026 LindeCode S.A.S.
+# Copyright (c) 2026 LindeCode S.A.S.
 # This Source Code Form is subject to the terms of the Mozilla Public
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
@@ -298,6 +298,20 @@ class TrayController:
         finally:
             self.collecting = False
 
+    def inspect_file_lock(self) -> None:
+        def _pick_and_show():
+            import tkinter as tk
+            from tkinter import filedialog
+            root = tk.Tk()
+            root.withdraw()
+            target = filedialog.askopenfilename(title="Seleccione el archivo a inspeccionar")
+            root.destroy()
+            if target:
+                from interfaces.native.lock_dialog import show_lock_dialog
+                show_lock_dialog(target)
+
+        threading.Thread(target=_pick_and_show, daemon=True).start()
+
     def check_alerts(self) -> None:
         try:
             new = self.alerts.poll()
@@ -459,6 +473,7 @@ def run_tray(open_browser: bool = True, monitor: bool = False, force_browser: bo
         pystray.MenuItem("Abrir Atalaya", action(controller.open_panel), default=True),
         pystray.MenuItem(lambda item: controller.status_text().split(" · ", 1)[1], None, enabled=False),
         pystray.Menu.SEPARATOR,
+        pystray.MenuItem("¿Quién usa un archivo?...", action(controller.inspect_file_lock)),
         pystray.MenuItem("Recolectar y analizar ahora", action(controller.collect_now),
                          enabled=lambda item: not controller.collecting),
         pystray.MenuItem("Monitor de archivos", action(controller.toggle_monitor),

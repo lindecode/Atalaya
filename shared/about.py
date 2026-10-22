@@ -1,4 +1,4 @@
-﻿# Copyright (c) 2026 LindeCode S.A.S.
+# Copyright (c) 2026 LindeCode S.A.S.
 # This Source Code Form is subject to the terms of the Mozilla Public
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
@@ -17,7 +17,8 @@ REPOSITORY_URL = "https://github.com/lindecode/Atalaya"
 COMPANY_URL = "https://lindecode.cloud"
 COPYRIGHT = f"© 2026 {AUTHOR}. Código bajo MPL-2.0; marcas no incluidas."
 
-ASSETS_DIR = Path(__file__).resolve().parent.parent / "assets"
+PROJECT_DIR = Path(__file__).resolve().parent.parent
+ASSETS_DIR = PROJECT_DIR / "assets"
 ICON_PATH = ASSETS_DIR / "icon.png"
 AUTHOR_LOGO_PATH = ASSETS_DIR / "lindecode.jpeg"
 # Sidebar header per theme; regenerate with packaging\wordmark.py

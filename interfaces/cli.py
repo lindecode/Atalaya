@@ -1,4 +1,4 @@
-﻿# Copyright (c) 2026 LindeCode S.A.S.
+# Copyright (c) 2026 LindeCode S.A.S.
 # This Source Code Form is subject to the terms of the Mozilla Public
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
@@ -111,6 +111,17 @@ def _parser() -> argparse.ArgumentParser:
     approve.add_argument("kind")
     approve.add_argument("value")
     baseline.add_parser("learn", help="Aprueba todo lo observado hasta ahora y descarta las alertas que cubre")
+    lock_inspect = commands.add_parser("lock-inspect", help="Muestra qué procesos tienen un archivo bloqueado o abierto")
+    lock_inspect.add_argument("path", help="Ruta al archivo o carpeta")
+    lock_inspect.add_argument("--cli", action="store_true", help="Muestra el resultado en la consola en lugar de abrir el diálogo nativo")
+    lock_inspect.add_argument("--kill", action="store_true", help="Finaliza automáticamente los procesos que bloquean el archivo")
+
+    ctx_menu = commands.add_parser("context-menu", help="Administra la opción del menú contextual de Windows")
+    ctx_menu.add_argument("--lang", choices=("es", "en"), help="Idioma de la etiqueta ('es' o 'en')")
+    ctx_menu_group = ctx_menu.add_mutually_exclusive_group(required=True)
+    ctx_menu_group.add_argument("--enable", action="store_true", help="Activa el menú contextual")
+    ctx_menu_group.add_argument("--disable", action="store_true", help="Desactiva el menú contextual")
+    ctx_menu_group.add_argument("--status", action="store_true", help="Muestra si está activado")
     return parser
 
 
@@ -419,4 +430,36 @@ def main(argv: Sequence[str] | None = None) -> int:
         repository.approve_baseline(args.kind, args.value, SystemClock().now_iso())
         print(f"Baseline aprobada: {args.kind}={args.value}")
         return 0
+    if args.command == "lock-inspect":
+        from infrastructure.windows.file_locks import inspect_file_locks, terminate_lock_process
+        locks = inspect_file_locks(args.path)
+        if args.kill and locks:
+            for p in locks:
+                ok, msg = terminate_lock_process(p["pid"], force=True)
+                print(f"[{'OK' if ok else 'ERROR'}] {msg}")
+            return 0
+        if args.cli:
+            if not locks:
+                print(f"Ningún proceso tiene bloqueado el archivo: {args.path}")
+                return 0
+            print(f"{len(locks)} proceso(s) bloqueando {args.path}:")
+            for p in locks:
+                print(f"  - PID: {p['pid']} | {p['name']} | Tipo: {p['app_type']} | Ruta: {p.get('path') or '—'}")
+            return 0
+        from interfaces.native.lock_dialog import show_lock_dialog
+        show_lock_dialog(args.path)
+        return 0
+    if args.command == "context-menu":
+        from infrastructure.windows.context_menu import is_context_menu_registered, set_context_menu_registered
+        if args.status:
+            registered = is_context_menu_registered()
+            print(f"Menú contextual: {'Activado' if registered else 'Desactivado'}")
+            return 0
+        ok, msg = set_context_menu_registered(enable=bool(args.enable), lang=getattr(args, "lang", None))
+        print(f"[{'OK' if ok else 'ERROR'}] {msg}")
+        return 0 if ok else 1
     raise AssertionError(args.command)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
