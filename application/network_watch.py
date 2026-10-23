@@ -1,4 +1,4 @@
-﻿# Copyright (c) 2026 LindeCode S.A.S.
+# Copyright (c) 2026 LindeCode S.A.S.
 # This Source Code Form is subject to the terms of the Mozilla Public
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
@@ -13,7 +13,7 @@ from __future__ import annotations
 import ipaddress
 import time
 from collections import defaultdict, deque
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Callable, Iterable
 
 from domain import dev
@@ -31,6 +31,7 @@ class Notice:
     lport: int | None
     process_name: str | None
     detail: str
+    remote_name: str | None = None
 
     def title(self, lang: str = "es") -> str:
         en = lang == "en"
@@ -46,13 +47,14 @@ class Notice:
     def message(self, lang: str = "es") -> str:
         en = lang == "en"
         process = self.process_name or "?"
+        remote = f"{self.remote_ip} ({self.remote_name})" if (self.remote_name and self.remote_ip) else self.remote_ip
         if self.kind == "client":
-            return (f"{self.remote_ip} → port {self.lport} ({process})" if en
-                    else f"{self.remote_ip} → puerto {self.lport} ({process})")
+            return (f"{remote} → port {self.lport} ({process})" if en
+                    else f"{remote} → puerto {self.lport} ({process})")
         if self.kind == "ping":
-            return f"{self.remote_ip} " + ("checked whether this computer exists" if en else "comprobó si este equipo existe")
+            return f"{remote} " + ("checked whether this computer exists" if en else "comprobó si este equipo existe")
         if self.kind == "scan":
-            return f"{self.remote_ip}: {self.detail}"
+            return f"{remote}: {self.detail}"
         if self.kind == "docker":
             return f"{process}: {self.detail}"
         return (f"{process} listens on port {self.lport} ({self.detail})" if en
@@ -149,3 +151,77 @@ class NetworkWatcher:
                 notices.append(Notice(ts, "scan", network, remote, None, None,
                                       f"{len(ports)} puertos en {SCAN_SECONDS // 60} min"))
         return notices
+
+
+class HostResolver:
+    """Resolves IP hostnames with local-first lookup, reverse DNS fallback, and thread-safe caching."""
+
+    def __init__(self, repository=None, query_repo=None, lookup: Callable[[str], list[str]] | None = None,
+                 now_iso: Callable[[], str] | None = None, timeout: float = 1.5):
+        self.repository, self.query_repo = repository, query_repo
+        self.lookup = lookup
+        self.now_iso = now_iso
+        self.timeout = timeout
+        self._cache: dict[str, str | None] = {}
+        import threading
+        self._lock = threading.Lock()
+
+    def resolve(self, ip: str | None, config: object | None = None) -> str | None:
+        if not ip or (config is not None and not getattr(config, "resolve_ip_hostnames", True)):
+            return None
+        with self._lock:
+            if ip in self._cache:
+                return self._cache[ip]
+
+        # 1. Local DB first (labels, dns_cache, hosts, past reverse_dns)
+        if self.query_repo:
+            try:
+                entries = self.query_repo.ip_names([ip])
+                entry = entries.get(ip)
+                if entry:
+                    name = None
+                    if entry.get("label"):
+                        name = entry["label"]
+                    else:
+                        for source in ("dns_cache", "hosts", "reverse_dns"):
+                            for item in entry.get("names", []):
+                                if item.get("source") == source and item.get("name"):
+                                    name = item["name"]
+                                    break
+                            if name:
+                                break
+                    if name:
+                        with self._lock:
+                            self._cache[ip] = name
+                        return name
+            except Exception:
+                pass
+
+        # 2. Reverse lookup
+        lookup = self.lookup
+        if lookup is None:
+            try:
+                from infrastructure.windows.ip_names import reverse_lookup
+                lookup = reverse_lookup
+            except ImportError:
+                lookup = None
+
+        found_name = None
+        if lookup is not None:
+            try:
+                try:
+                    names = lookup(ip, timeout=self.timeout)
+                except TypeError:
+                    names = lookup(ip)
+                if names:
+                    found_name = names[0]
+                    if self.repository:
+                        now = self.now_iso() if self.now_iso else time.strftime("%Y-%m-%dT%H:%M:%S+00:00")
+                        self.repository.save_ip_names(ip, names, "reverse_dns", now)
+            except Exception:
+                pass
+
+        with self._lock:
+            self._cache[ip] = found_name
+        return found_name
+

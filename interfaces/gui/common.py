@@ -88,7 +88,22 @@ def ai_status() -> dict:
     except Exception as exc:  # Ollama down or unreachable: the rest of the GUI still works
         return {"provider": provider, "ready": False, "roles": roles, "error": f"{type(exc).__name__}: {exc}",
                 "chat_tools": None}
-    chat = available.get(roles["chat"])
+
+    def _find_model(target: str | None) -> dict | None:
+        if not target:
+            return None
+        if target in available:
+            return available[target]
+        for alt in (f"{target}:latest", target.removesuffix(":latest")):
+            if alt in available:
+                return available[alt]
+        target_f = target.casefold()
+        for k, v in available.items():
+            if k.casefold() == target_f or k.removesuffix(":latest").casefold() == target_f.removesuffix(":latest"):
+                return v
+        return None
+
+    chat = _find_model(roles.get("chat"))
     return {"provider": provider, "ready": chat is not None, "roles": roles, "chat_tools": chat["tools"] if chat else None,
             "error": None if chat else f"{roles['chat']} no está descargado"}
 

@@ -67,6 +67,15 @@ def _notices(settings, since: str) -> list[dict]:
         return []
 
 
+def _names(settings) -> dict[str, str]:
+    from infrastructure.sqlite.queries import SQLiteQueryRepository
+    from interfaces.gui.network import name_map
+    try:
+        return name_map(SQLiteQueryRepository(settings).ip_names())
+    except Exception:
+        return {}
+
+
 def _uptime(started: str | None, lang: str) -> str:
     if not started:
         return "—"
@@ -132,6 +141,7 @@ def development_page():
         since = since_hours(window_hours)
         rows = dev_view.servers(snapshot, include_all=include_all, port_names=_docker_names())
         notices = _notices(settings, since)
+        names = _names(settings)
         _kpis(rows, notices, tr)
         _review(settings, snapshot, rows, since, lang, tr)
         map_tab, servers_tab, docker_tab_, ssh_tab_, timeline_tab, languages_tab, notices_tab = st.tabs([
@@ -141,7 +151,7 @@ def development_page():
             ":material/code: " + tr("Lenguajes", "Languages"),
             ":material/notifications: " + tr("Avisos de red", "Network notices")])
         with map_tab:
-            _map(rows, notices, local_clients, lang, tr)
+            _map(rows, notices, local_clients, lang, tr, names=names)
         with servers_tab:
             _servers(rows, lang, tr)
         with docker_tab_:
@@ -155,7 +165,7 @@ def development_page():
         with languages_tab:
             _languages(snapshot, lang, tr)
         with notices_tab:
-            _notice_history(notices, lang, tr)
+            _notice_history(notices, lang, tr, names=names)
 
     body()
 
@@ -213,12 +223,12 @@ def _kpis(rows, notices, tr):
     e.metric(tr("Avisos de red", "Network notices"), len(notices))
 
 
-def _map(rows, notices, local_clients, lang, tr):
+def _map(rows, notices, local_clients, lang, tr, names: dict[str, str] | None = None):
     if not rows:
         empty(tr("No hay servidores de desarrollo en marcha ni puertos expuestos.",
                  "No development servers running and no exposed ports."))
         return
-    graph = dev_view.graph(rows, notices, lang=lang, include_local_clients=local_clients)
+    graph = dev_view.graph(rows, notices, lang=lang, include_local_clients=local_clients, names=names)
     legend([(tr("Solo este equipo", "This computer only"), dev_view.SCOPE_COLORS[dev.SCOPE_LOCAL]),
             (tr("Red local", "Local network"), dev_view.SCOPE_COLORS[dev.SCOPE_LAN]),
             (tr("Todas las redes", "Every network"), dev_view.SCOPE_COLORS[dev.SCOPE_ALL]),
@@ -234,10 +244,10 @@ def _map(rows, notices, local_clients, lang, tr):
                             label=tr("Mapa de servidores y clientes", "Server and client map"))
     st.session_state["dev-map-selected"] = selected
     with right:
-        _detail(selected, rows, notices, lang, tr)
+        _detail(selected, rows, notices, lang, tr, names=names)
 
 
-def _detail(selected, rows, notices, lang, tr):
+def _detail(selected, rows, notices, lang, tr, names: dict[str, str] | None = None):
     server = next((row for row in rows if row["id"] == selected), None)
     if server:
         with st.container(border=True):
@@ -264,8 +274,10 @@ def _detail(selected, rows, notices, lang, tr):
         return
     if selected and selected.startswith("c:"):
         ip = selected[2:]
+        name = (names or {}).get(ip)
         with st.container(border=True):
-            st.markdown(f"**`{ip.replace('`', '')}`**")
+            header = f"**`{ip.replace('`', '')}`**" + (f" · **{name}**" if name else "")
+            st.markdown(header)
             origin = dev.origin(ip)
             st.caption({"lan": tr("Red local", "Local network"), "internet": "Internet",
                         "local": tr("Este equipo", "This computer")}.get(origin or "", "?"))
@@ -411,7 +423,7 @@ def _port_lookup(snapshot, port: int, lang, tr):
                 st.code(f"taskkill /PID {int(pid)} /F", language="batch")
 
 
-def _notice_history(notices, lang, tr):
+def _notice_history(notices, lang, tr, names: dict[str, str] | None = None):
     if not notices:
         empty(tr("Sin avisos de red en la ventana. Los genera Atalaya junto al reloj (icono de la bandeja).",
                  "No network notices in the window. Atalaya next to the clock (tray icon) creates them."))
@@ -422,7 +434,10 @@ def _notice_history(notices, lang, tr):
     counts = frame.groupby(["hora", "tipo"]).size().reset_index(name="total")
     chart(px.bar(counts, x="hora", y="total", color="tipo", labels={"hora": "", "total": "", "tipo": ""}),
           key="dev-notices-chart")
+    name_lookup = names or {}
     table([{tr("Fecha", "Date"): n["ts"], tr("Tipo", "Kind"): NOTICE_KINDS.get(n["kind"], (n["kind"],) * 2)[lang == "en"],
-            tr("Red", "Network"): n.get("network"), "IP": n.get("remote_ip"), tr("Puerto", "Port"): n.get("lport"),
+            tr("Red", "Network"): n.get("network"),
+            "IP": f"{n.get('remote_ip')} ({name_lookup[n['remote_ip']]})" if n.get("remote_ip") in name_lookup else n.get("remote_ip"),
+            tr("Puerto", "Port"): n.get("lport"),
             tr("Proceso", "Process"): n.get("process_name"), tr("Detalle", "Detail"): n.get("detail")} for n in notices],
           key="dev-notices", lang=lang, dates=(tr("Fecha", "Date"),))

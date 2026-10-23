@@ -1,4 +1,4 @@
-﻿# Copyright (c) 2026 LindeCode S.A.S.
+# Copyright (c) 2026 LindeCode S.A.S.
 # This Source Code Form is subject to the terms of the Mozilla Public
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
@@ -34,6 +34,7 @@ class AutomationConfig:
     network_notifications: bool = True  # live: connections to my servers (LAN and Internet), pings, scans
     trusted_ips: str = ""               # comma-separated IPs or networks that never notify (e.g. my phone)
     docker_scout: bool = False          # Docker Scout sends an image's package list to Docker: opt-in only
+    resolve_ip_hostnames: bool = True   # reverse DNS resolution for detected IPs and port scans
 
     def validated(self) -> "AutomationConfig":
         if self.profile not in {"quick", "standard", "deep"}: raise ValueError("Perfil inválido")

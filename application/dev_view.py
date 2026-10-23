@@ -165,7 +165,7 @@ def _short(text: str, limit: int = 16) -> str:
 
 
 def graph(server_rows: list[dict], history: list[dict] | None = None, lang: str = "es",
-          include_local_clients: bool = False) -> dict:
+          include_local_clients: bool = False, names: dict[str, str] | None = None) -> dict:
     """Radial node map: this computer in the centre, servers on a ring, their clients outside.
 
     `history` holds earlier notices (kind 'client') so a client that already left still shows, dashed.
@@ -213,8 +213,12 @@ def graph(server_rows: list[dict], history: list[dict] | None = None, lang: str 
             offset = 0 if len(ips) == 1 else -spread + 2 * spread * index / (len(ips) - 1)
             angle = angles[server_id] + offset
             origin = next(link["origin"] for (other, sid), link in links.items() if other == ip)
-            nodes.append({"id": f"c:{ip}", "kind": "client", "label": ip, "color": ORIGIN_COLORS.get(origin or "", "#94a3b8"),
-                          "x": round(outer * math.cos(angle), 1), "y": round(outer * math.sin(angle), 1), "r": 9})
+            sub_label = (names or {}).get(ip)
+            node_data = {"id": f"c:{ip}", "kind": "client", "label": ip, "color": ORIGIN_COLORS.get(origin or "", "#94a3b8"),
+                         "x": round(outer * math.cos(angle), 1), "y": round(outer * math.sin(angle), 1), "r": 9}
+            if sub_label:
+                node_data["sub"] = sub_label
+            nodes.append(node_data)
     for (ip, server_id), link in links.items():
         edges.append({"from": f"c:{ip}", "to": server_id, "color": ORIGIN_COLORS.get(link["origin"] or "", "#94a3b8"),
                       "width": min(1 + link["count"], 5), "dashed": not link["live"]})

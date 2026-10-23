@@ -1,4 +1,4 @@
-﻿# Copyright (c) 2026 LindeCode S.A.S.
+# Copyright (c) 2026 LindeCode S.A.S.
 # This Source Code Form is subject to the terms of the Mozilla Public
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
@@ -40,7 +40,13 @@ class ModelService:
 
     def select(self, name: str, role: str = "chat") -> dict[str, Any]:
         if role not in ROLE_PREFERENCES: raise ValueError(f"Rol de modelo inválido: {role}")
-        model = next((item for item in self.available() if item["name"] == name), None)
+        available = self.available()
+        model = next((item for item in available if item["name"] == name), None)
+        if model is None:
+            model = next((item for item in available
+                          if item["name"] == f"{name}:latest"
+                          or item["name"].removesuffix(":latest") == name.removesuffix(":latest")
+                          or item["name"].casefold() == name.casefold()), None)
         if model is None:
             raise ValueError(f"El modelo {name!r} no está instalado o disponible en el proveedor local")
         embedding = "embedding" in model.get("capabilities", ()) or not model["chat"]
@@ -49,7 +55,7 @@ class ModelService:
         if role != "embedding" and not model["chat"]:
             raise ValueError(f"{name} es un modelo de embeddings y no puede analizar ni conversar")
         self.repository.initialize()
-        self.repository.set_preference(ROLE_PREFERENCES[role], name, self.clock.now_iso())
+        self.repository.set_preference(ROLE_PREFERENCES[role], model["name"], self.clock.now_iso())
         return model
 
     def recommendations(self) -> dict[str, dict[str, Any] | None]:

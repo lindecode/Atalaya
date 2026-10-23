@@ -1,4 +1,4 @@
-﻿# Copyright (c) 2026 LindeCode S.A.S.
+# Copyright (c) 2026 LindeCode S.A.S.
 # This Source Code Form is subject to the terms of the Mozilla Public
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
@@ -109,8 +109,23 @@ def _ollama_roles(settings):
                            "No hay un modelo compatible instalado.")
             continue
         current = model_service.current(role)
+
+        def _match_index(target, candidate_list):
+            if not target or not candidate_list:
+                return 0 if candidate_list else None
+            if target in candidate_list:
+                return candidate_list.index(target)
+            for alt in (f"{target}:latest", target.removesuffix(":latest")):
+                if alt in candidate_list:
+                    return candidate_list.index(alt)
+            target_f = target.casefold()
+            for i, cand in enumerate(candidate_list):
+                if cand.casefold() == target_f or cand.removesuffix(":latest").casefold() == target_f.removesuffix(":latest"):
+                    return i
+            return 0
+
         selected = column.selectbox(ROLE_NAMES[role], names,
-                                    index=names.index(current) if current in names else None,
+                                    index=_match_index(current, names),
                                     placeholder="Seleccione un modelo",
                                     key=f"model-role-{role}",
                                     format_func=lambda name: f"{name} · {by_name[name]['parameters'] or '?'}"
@@ -200,6 +215,25 @@ def _ollama_install_panel(settings):
                 refresh_ai_status()
 
     if ollama_installed():
+        try:
+            from bootstrap import build_model_service
+            installed_models = build_model_service(settings).available()
+        except Exception:
+            installed_models = []
+
+        if installed_models:
+            st.markdown("**Modelos detectados en Ollama**")
+            st.dataframe(pd.DataFrame([{
+                "Modelo": m["name"],
+                "Parámetros": m.get("parameters") or "—",
+                "Tamaño": f"{m.get('size_gb', 0):.1f} GB",
+                "Cuantización": m.get("quantization") or "—",
+                "Chat / Análisis": "Sí" if m.get("chat") else "No",
+                "Tools": "Sí" if m.get("tools") else "No",
+                "Embeddings": "Sí" if "embedding" in m.get("capabilities", ()) or not m.get("chat") else "No",
+            } for m in installed_models]), hide_index=True, width="stretch")
+            st.caption(f"{len(installed_models)} modelo(s) detectado(s) localmente. Se configuran por función en la pestaña «Modelos por función».")
+
         st.markdown("**Recomendación y descarga de modelos**")
         hardware, advised = _ollama_recommendations()
         catalog = {spec.name: spec for spec in OLLAMA_CATALOG}

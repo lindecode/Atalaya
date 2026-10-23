@@ -1,4 +1,4 @@
-﻿# Copyright (c) 2026 LindeCode S.A.S.
+# Copyright (c) 2026 LindeCode S.A.S.
 # This Source Code Form is subject to the terms of the Mozilla Public
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
@@ -37,6 +37,9 @@ def test_model_selection_is_persisted_and_validated(tmp_path):
     with pytest.raises(ValueError, match="embeddings"):
         service.select("all-minilm:latest")
     service.select("all-minilm:latest", "embedding")
+    assert ModelService(repository, Catalog(), Clock(), settings).current("embedding") == "all-minilm:latest"
+    # Flexible matching without :latest suffix
+    service.select("all-minilm", "embedding")
     assert ModelService(repository, Catalog(), Clock(), settings).current("embedding") == "all-minilm:latest"
     with pytest.raises(ValueError, match="no genera embeddings"):
         service.select("qwen3.5:4b", "embedding")

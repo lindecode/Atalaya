@@ -1,4 +1,4 @@
-﻿# Copyright (c) 2026 LindeCode S.A.S.
+# Copyright (c) 2026 LindeCode S.A.S.
 # This Source Code Form is subject to the terms of the Mozilla Public
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
@@ -33,9 +33,11 @@ class Executable:
 
 def test_configuration_round_trip_and_validation():
     repository = Repository(); service = AutomationConfigService(repository, Clock())
-    expected = AutomationConfig("standard", 48, True, False, 15, 4, 96, 60, False)
+    expected = AutomationConfig("standard", 48, True, False, 15, 4, 96, 60, False, resolve_ip_hostnames=False)
     service.save(expected)
-    assert service.load() == expected
+    loaded = service.load()
+    assert loaded == expected
+    assert loaded.resolve_ip_hostnames is False
     with pytest.raises(ValueError): service.save(replace(expected, analysis_window_hours=0))
 
 

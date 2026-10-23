@@ -1,4 +1,4 @@
-﻿# Copyright (c) 2026 LindeCode S.A.S.
+# Copyright (c) 2026 LindeCode S.A.S.
 # This Source Code Form is subject to the terms of the Mozilla Public
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
@@ -86,7 +86,7 @@ class OllamaAnalyzer:
             messages=[{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": prompt}],
             format=AnalysisOutput.model_json_schema(),
             think=False,
-            options={"temperature": 0.1, "top_p": 0.8, "top_k": 20, "seed": 42},
+            options={"temperature": 0.1, "top_p": 0.8, "top_k": 20, "seed": 42, "num_ctx": 8192, "num_predict": 4096},
         )
         parsed = AnalysisOutput.model_validate_json(response.message.content)
         cleaned = parsed.model_dump()

@@ -1,4 +1,4 @@
-﻿# Copyright (c) 2026 LindeCode S.A.S.
+# Copyright (c) 2026 LindeCode S.A.S.
 # This Source Code Form is subject to the terms of the Mozilla Public
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
@@ -111,3 +111,72 @@ def test_loop_stores_everything_and_notifies_only_when_enabled(tmp_path):
     loop.config, loop.loaded_at = SimpleNamespace(network_notifications=False, trusted_ips="", language="es"), loop.monotonic()
     loop.step()
     assert toasts == [] and len(store.recent("2026-01-01")) == 10
+
+
+def test_notice_message_formats_with_remote_name():
+    client_notice = Notice(NOW, "client", "lan", "192.168.1.50", 8080, "python.exe", "", remote_name="my-laptop")
+    assert client_notice.message("es") == "192.168.1.50 (my-laptop) → puerto 8080 (python.exe)"
+    assert client_notice.message("en") == "192.168.1.50 (my-laptop) → port 8080 (python.exe)"
+
+    ping_notice = Notice(NOW, "ping", "lan", "192.168.1.1", None, None, "", remote_name="router.local")
+    assert ping_notice.message("es") == "192.168.1.1 (router.local) comprobó si este equipo existe"
+    assert ping_notice.message("en") == "192.168.1.1 (router.local) checked whether this computer exists"
+
+    scan_notice = Notice(NOW, "scan", "internet", "45.1.2.3", None, None, "20 puertos en 2 min", remote_name="scanner.org")
+    assert scan_notice.message("es") == "45.1.2.3 (scanner.org): 20 puertos en 2 min"
+    assert scan_notice.message("en") == "45.1.2.3 (scanner.org): 20 puertos en 2 min"
+
+
+def test_host_resolver_uses_cache_and_db_and_lookup():
+    from application.network_watch import HostResolver
+
+    # 1. Config with resolve_ip_hostnames=False returns None immediately
+    resolver = HostResolver(lookup=lambda ip: ["resolved.host"])
+    assert resolver.resolve("192.168.1.50", config=SimpleNamespace(resolve_ip_hostnames=False)) is None
+
+    # 2. Local DB hit
+    class FakeQueryRepo:
+        def ip_names(self, ips):
+            if "192.168.1.10" in ips:
+                return {"192.168.1.10": {"label": "NAS", "names": []}}
+            return {}
+
+    lookup_called = []
+    saved_names = []
+    class FakeRepo:
+        def save_ip_names(self, ip, names, source, ts):
+            saved_names.append((ip, names, source))
+
+    resolver = HostResolver(repository=FakeRepo(), query_repo=FakeQueryRepo(),
+                            lookup=lambda ip, timeout=1.5: lookup_called.append(ip) or ["reverse.host"])
+    # 192.168.1.10 resolves from FakeQueryRepo without calling lookup
+    assert resolver.resolve("192.168.1.10") == "NAS"
+    assert lookup_called == []
+
+    # 192.168.1.20 not in FakeQueryRepo -> calls lookup and saves to repo
+    assert resolver.resolve("192.168.1.20") == "reverse.host"
+    assert lookup_called == ["192.168.1.20"]
+    assert saved_names == [("192.168.1.20", ["reverse.host"], "reverse_dns")]
+
+    # Second call for 192.168.1.20 uses in-memory cache
+    lookup_called.clear()
+    assert resolver.resolve("192.168.1.20") == "reverse.host"
+    assert lookup_called == []
+
+
+def test_network_watch_loop_enriches_notices_with_resolved_hostnames(tmp_path):
+    from application.network_watch import HostResolver
+    settings = replace(Settings(), database_path=tmp_path / "n2.db")
+    SQLiteRepository(settings).initialize()
+    store = SQLiteNetworkNotices(settings)
+    notices = [Notice(NOW, "scan", "internet", "45.1.2.3", None, None, "15 puertos en 2 min")]
+    toasts = []
+    config = SimpleNamespace(network_notifications=True, resolve_ip_hostnames=True, trusted_ips="", language="es")
+    resolver = HostResolver(lookup=lambda ip, timeout=1.5: ["scanner.test"])
+    loop = NetworkWatchLoop(SimpleNamespace(poll=lambda: notices, trusted=()), store,
+                            lambda title, message: toasts.append((title, message)), lambda: config,
+                            resolver=resolver)
+    result = loop.step()
+    assert result[0].remote_name == "scanner.test"
+    assert "45.1.2.3 (scanner.test): 15 puertos en 2 min" in toasts[0][1]
+

@@ -1,4 +1,4 @@
-﻿# Copyright (c) 2026 LindeCode S.A.S.
+# Copyright (c) 2026 LindeCode S.A.S.
 # This Source Code Form is subject to the terms of the Mozilla Public
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
@@ -76,3 +76,18 @@ def test_vscode_and_config_forwards_are_tied_to_the_live_session():
     assert "reverse" in session["tunnels"]                     # RemoteForward from "Host *" applies too
     assert ssh_view.forward_for_port(snapshot, 8090)[0] == "vps"
     assert ssh_view.forward_for_port(snapshot, 3000) is None  # saved by VS Code but not open now
+
+
+def test_ssh_tab_detail_renders_without_keyerror():
+    from interfaces.gui.ssh_tab import _detail
+
+    data = ssh_view.model(HISTORY, SNAPSHOT, {"187.77.15.126": "vps.example"})
+    sessions, inbound = data["sessions"], data["inbound"]
+    tr = lambda es, en: es
+
+    # Selecting an SSH server session node must not raise KeyError: 'listeners'
+    _detail("s:187.77.15.126:2222", sessions, inbound, "es", tr)
+    _detail("t:187.77.15.126:2222:dynamic:63251", sessions, inbound, "es", tr)
+    _detail("i:192.168.1.40:22", sessions, inbound, "es", tr)
+    _detail("host", sessions, inbound, "es", tr)
+    _detail(None, sessions, inbound, "es", tr)

@@ -139,9 +139,11 @@ class NetworkWatchLoop:
     CONFIG_SECONDS = 60
 
     def __init__(self, watcher, store, notify: Callable[[str, str], None], load_config: Callable[[], object],
-                 interval: float = 5.0, monotonic: Callable[[], float] = time.monotonic):
+                 interval: float = 5.0, monotonic: Callable[[], float] = time.monotonic,
+                 resolver=None):
         self.watcher, self.store, self.notify, self.load_config = watcher, store, notify, load_config
         self.interval, self.monotonic = interval, monotonic
+        self.resolver = resolver
         self.config, self.loaded_at = None, None
 
     def _refresh_config(self) -> None:
@@ -159,6 +161,16 @@ class NetworkWatchLoop:
         notices = self.watcher.poll()
         if not notices:
             return []
+        if getattr(self.config, "resolve_ip_hostnames", True) and getattr(self, "resolver", None):
+            from dataclasses import replace
+            enriched = []
+            for notice in notices:
+                if notice.remote_ip and not notice.remote_name:
+                    name = self.resolver.resolve(notice.remote_ip, self.config)
+                    if name:
+                        notice = replace(notice, remote_name=name)
+                enriched.append(notice)
+            notices = enriched
         self.store.add(notices)
         if getattr(self.config, "network_notifications", True):
             lang = getattr(self.config, "language", "es")
@@ -181,8 +193,8 @@ class NetworkWatchLoop:
 
 def build_network_watch(settings: Settings, notify: Callable[[str, str], None]) -> tuple[NetworkWatchLoop, NetworkWatchLoop]:
     """The network loop (every 5 s) and the Docker loop (every 30 s); both store notices and share the switch."""
-    from application.network_watch import NetworkWatcher
-    from bootstrap import build_automation_config_service
+    from application.network_watch import HostResolver, NetworkWatcher
+    from bootstrap import build_automation_config_service, build_query_repository, build_repository
     from infrastructure.clock import SystemClock
     from infrastructure.sqlite.network_notices import SQLiteNetworkNotices
     from infrastructure.windows import live_network
@@ -205,8 +217,11 @@ def build_network_watch(settings: Settings, notify: Callable[[str, str], None]) 
         store.prune()
     except Exception:
         log.exception("network notices prune failed")
+    repo = build_repository(settings)
+    query_repo = build_query_repository(settings)
+    resolver = HostResolver(repository=repo, query_repo=query_repo, now_iso=clock.now_iso)
     load = build_automation_config_service(settings).load
-    return NetworkWatchLoop(watcher, store, notify, load), NetworkWatchLoop(containers, store, notify, load, interval=30)
+    return NetworkWatchLoop(watcher, store, notify, load, resolver=resolver), NetworkWatchLoop(containers, store, notify, load, interval=30)
 
 
 class TrayController:

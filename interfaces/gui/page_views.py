@@ -925,8 +925,17 @@ def _alert_detail(repository, query, row: dict, key_prefix: str = "alert"):
                 f"{format_local_datetime(row['ts'])}")
         if row.get("status_note"):
             st.text(f"Nota: {row['status_note']}")
-        from interfaces.gui.rule_help import rule_help
         lang = st.session_state.get("language") or "es"
+        if row.get("entity"):
+            entity = str(row["entity"])
+            entity_label = "Entity" if lang == "en" else "Entidad"
+            name = None
+            if _valid_ip(entity):
+                names_dict = query.ip_names([entity])
+                name, _ = network.best_name(names_dict.get(entity))
+            display = f"`{plain_label(entity)}`" + (f" ({plain_label(name)})" if name else "")
+            st.markdown(f"**{entity_label}:** {display}")
+        from interfaces.gui.rule_help import rule_help
         rule = rule_help(row["rule_id"], lang=lang)
         if rule:
             left, right = st.columns(2)
@@ -2127,6 +2136,16 @@ def _features(settings):
                        config.network_notifications, "network")
     if changed is not None:
         save(network_notifications=changed)
+
+    title_dns = "Resolver nombres de host (DNS inverso)" if current_lang != "en" else "Resolve hostnames (Reverse DNS)"
+    desc_dns = ("Resuelve automáticamente en segundo plano el nombre de host de IPs detectadas en escaneos de puertos, "
+                "conexiones y pings, mostrándolo junto a la IP en notificaciones, alertas y vistas de red." if current_lang != "en" else
+                "Automatically resolves hostnames in the background for IPs detected in port scans, "
+                "connections, and pings, displaying it alongside the IP in notifications, alerts, and network views.")
+    status_dns = (":green[● Activado]" if config.resolve_ip_hostnames else ":gray[● Desactivado]") if current_lang != "en" else (":green[● Enabled]" if config.resolve_ip_hostnames else ":gray[● Disabled]")
+    changed = _feature(title_dns, desc_dns, status_dns, config.resolve_ip_hostnames, "resolve-hostnames")
+    if changed is not None:
+        save(resolve_ip_hostnames=changed)
     changed = _feature("Docker Scout", "Busca vulnerabilidades conocidas en sus imágenes desde la pestaña Docker de "
                        "Desarrollo, solo cuando usted lo pide. Envía la lista de paquetes de la imagen al servicio de "
                        "Docker, por eso está desactivado por defecto.",

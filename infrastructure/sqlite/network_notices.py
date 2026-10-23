@@ -1,4 +1,4 @@
-﻿# Copyright (c) 2026 LindeCode S.A.S.
+# Copyright (c) 2026 LindeCode S.A.S.
 # This Source Code Form is subject to the terms of the Mozilla Public
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
@@ -28,7 +28,8 @@ class SQLiteNetworkNotices:
             return
         with self._connect() as db:
             db.executemany("""INSERT INTO network_notices(ts, kind, network, remote_ip, lport, process_name, detail)
-                              VALUES (?, ?, ?, ?, ?, ?, ?)""", [astuple(notice) for notice in notices])
+                              VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                           [(n.ts, n.kind, n.network, n.remote_ip, n.lport, n.process_name, n.detail) for n in notices])
 
     def recent(self, since: str, limit: int = 500) -> list[dict]:
         with self._connect(readonly=True) as db:

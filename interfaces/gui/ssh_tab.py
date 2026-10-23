@@ -1,4 +1,4 @@
-﻿# Copyright (c) 2026 LindeCode S.A.S.
+# Copyright (c) 2026 LindeCode S.A.S.
 # This Source Code Form is subject to the terms of the Mozilla Public
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at https://mozilla.org/MPL/2.0/.
@@ -113,17 +113,27 @@ def _detail(selected, sessions, inbound, lang, tr):
     if session:
         with st.container(border=True):
             st.markdown(f"**`{str(session['remote']).replace('`', '')}:{session['port']}`**")
-            if session["name"]:
-                st.text(session["name"])
-            st.caption({"lan": tr("Red local", "Local network"), "internet": "Internet"}.get(session["origin"], "?")
-                       + " · " + (tr("conectado ahora", "connected now") if session["live"] else
-                                  tr("última vez ", "last seen ") + _when(session["last_seen"])))
-            for tunnel in session["tunnels"]:
+            name = session.get("alias") or session.get("name")
+            if name:
+                st.text(name)
+            st.caption({"lan": tr("Red local", "Local network"), "internet": "Internet"}.get(session.get("origin"), "?")
+                       + " · " + (tr("conectado ahora", "connected now") if session.get("live") else
+                                  tr("última vez ", "last seen ") + _when(session.get("last_seen"))))
+            for tunnel in session.get("tunnels", []):
                 st.text(ssh_view.TUNNEL_LABELS.get(tunnel, (tunnel, tunnel))[lang == "en"])
-            for listener in session["listeners"]:
-                st.text(tr(f"Puerto local :{listener['port']} en {listener['address']} · {listener['users']} apps conectadas",
-                           f"Local port :{listener['port']} on {listener['address']} · {listener['users']} apps connected"))
-            for risk in session["risks"]:
+            for f in session.get("forwards", []):
+                if f.get("kind") == "remote":
+                    st.text(tr(f"Túnel inverso :{f['listen']} en el servidor",
+                               f"Reverse tunnel :{f['listen']} on server"))
+                elif f.get("active"):
+                    scope = dev.SCOPE_LABELS.get(f.get("scope"), ("local", "local"))[lang == "en"]
+                    users = f" · {f['users']} " + tr("apps conectadas", "apps connected") if f.get("users") is not None else ""
+                    st.text(tr(f"Puerto local :{f['listen']} ({scope}){users}",
+                               f"Local port :{f['listen']} ({scope}){users}"))
+            for listener in session.get("listeners", []):
+                st.text(tr(f"Puerto local :{listener['port']} en {listener.get('address', '127.0.0.1')} · {listener.get('users', 0)} apps conectadas",
+                           f"Local port :{listener['port']} on {listener.get('address', '127.0.0.1')} · {listener.get('users', 0)} apps connected"))
+            for risk in session.get("risks", []):
                 st.warning(risk["text"][lang == "en"], icon=":material/warning:")
         return
     tunnel = next(((s, f) for s in sessions for f in s.get("forwards", [])
@@ -145,6 +155,21 @@ def _detail(selected, sessions, inbound, lang, tr):
                               f"Opened by {item['owner'] or '?'} · {item['users']} connections now · "
                               f"listens on {dev.SCOPE_LABELS[item['scope']][1].lower()}"))
             st.caption(tr("Origen: ", "Source: ") + item["via"])
+        return
+    inbound_item = next((i for i in inbound if f"i:{i['remote']}:{i['port']}" == selected), None)
+    if inbound_item:
+        with st.container(border=True):
+            st.markdown(f"**`{str(inbound_item['remote']).replace('`', '')}:{inbound_item['port']}`**")
+            if inbound_item.get("name"):
+                st.text(inbound_item["name"])
+            st.caption({"lan": tr("Red local", "Local network"), "internet": "Internet"}.get(inbound_item.get("origin"), "?")
+                       + " · " + tr("Conexión entrante a su servidor SSH", "Inbound connection to your SSH server"))
+            st.caption(tr("Última vez visto: ", "Last seen: ") + _when(inbound_item.get("last_seen")))
+        return
+    if selected == "host":
+        with st.container(border=True):
+            st.markdown("**" + tr("Este equipo (PC)", "This computer (PC)") + "**")
+            st.caption(tr("Punto central de conexiones y túneles SSH.", "Central point for SSH connections and tunnels."))
         return
     st.info(tr("Haga clic en un servidor del mapa.", "Click a server on the map."), icon=":material/touch_app:")
 

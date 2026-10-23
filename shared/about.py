@@ -11,7 +11,7 @@ from pathlib import Path
 
 APP_NAME = "Atalaya"
 DISPLAY_NAME = "Atalaya by LindeCode"
-APP_VERSION = "1.0.0"
+APP_VERSION = "1.0.1"
 AUTHOR = "LindeCode"
 REPOSITORY_URL = "https://github.com/lindecode/Atalaya"
 COMPANY_URL = "https://lindecode.cloud"
