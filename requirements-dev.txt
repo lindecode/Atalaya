@@ -1,3 +1,3 @@
 # Desarrollo y tests: dependencias de ejecución + pytest.
 -r requirements.txt
-pytest>=8.3,<10
+pytest>=9.2.0,<10
