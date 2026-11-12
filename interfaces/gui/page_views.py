@@ -1376,7 +1376,7 @@ def alerts():
 
             df_raw_tl = pd.DataFrame(tl_data)
             df_grouped = df_raw_tl.groupby(["hour", "status"]).size().reset_index(name="count")
-            df_grouped.sort_values(by="hour", inplace=True)
+            df_grouped = df_grouped.sort_values(by="hour")
 
             color_map = {
                 "Activa": "#EF4444", "Active": "#EF4444",
