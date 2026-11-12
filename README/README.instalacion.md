@@ -67,7 +67,7 @@ Para **desinstalar**, ve a *Configuración > Aplicaciones > Atalaya*. Te ofrece 
 ## Opción 3 · Desde el código fuente (desarrollo)
 
 ```powershell
-winget install Python.Python.3.13      # si no tienes Python 3.11+
+winget install Python.Python.3.15      # si no tienes Python 3.11+
 winget install Ollama.Ollama           # recomendado
 git clone <repositorio> Atalaya
 cd Atalaya

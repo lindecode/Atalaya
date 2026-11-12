@@ -1,9 +1,9 @@
 {
   "python": {
-    "version": "3.13.13",
-    "url": "https://www.python.org/ftp/python/3.13.13/python-3.13.13-embed-amd64.zip",
-    "sha256": "8766a8775746235e23cf5aee5027ab1060bb981d93110577adcf3508aa0cbd55",
-    "note": "SHA-256 verificado contra la API de python.org (api/v2/downloads/release_file). Al cambiar de versión, actualizar los tres campos y regenerar requirements.lock.txt con la misma versión menor."
+    "version": "3.15.2",
+    "url": "https://www.python.org/ftp/python/3.15.2/python-3.15.2-embed-amd64.zip",
+    "sha256": "d012f3aa29cf07436dae8aea1fec0fd195c2612a0b059b1f915ae0afb9ad1f62",
+    "note": "SHA-256 verificado contra python.org/downloads/release/python-3152/. Al cambiar de versión, actualizar los tres campos y regenerar requirements.lock.txt con la misma versión menor."
   },
   "innosetup": {
     "minimum": "6.3",
