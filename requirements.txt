@@ -4,7 +4,7 @@
 # Herramientas de desarrollo y tests: requirements-dev.txt.
 psutil>=6.1,<8                              # conexiones y procesos
 pywin32>=308; sys_platform == "win32"       # Visor de eventos (Security, RDP, Sysmon) y firma Authenticode
-watchdog>=6,<7                              # monitor de archivos en vivo
+watchdog>=7.1.0,<8                              # monitor de archivos en vivo
 ollama>=0.6,<1                              # cliente del LLM local
 pydantic>=2.7,<3                            # validación de la salida del LLM
 streamlit>=1.41,<2                          # interfaz gráfica local
