@@ -1,4 +1,4 @@
-﻿# Funciones compartidas por los lanzadores de start\. Se carga con: . "$PSScriptRoot\comun.ps1"
+# Funciones compartidas por los lanzadores de start\. Se carga con: . "$PSScriptRoot\comun.ps1"
 $ErrorActionPreference = 'Stop'
 
 $Root = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)   # start\lib -> start -> Atalaya
@@ -20,10 +20,19 @@ function Write-Fallo([string]$texto) { Write-Host "  [x]  $texto" -ForegroundCol
 
 function Find-VenvPython {
     # runtime\: Python incluido por el instalador o el ZIP portable. .venv\: instalacion desde el codigo fuente.
-    foreach ($candidate in @((Join-Path $Root 'runtime\python.exe'), (Join-Path $Root '.venv\Scripts\python.exe'))) {
-        if (Test-Path $candidate) { return $candidate }
+    $prev = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        foreach ($candidate in @((Join-Path $Root 'runtime\python.exe'), (Join-Path $Root '.venv\Scripts\python.exe'))) {
+            if (Test-Path $candidate) {
+                & $candidate -c "import sys" *> $null
+                if ($LASTEXITCODE -eq 0) { return $candidate }
+            }
+        }
+        return $null
+    } finally {
+        $ErrorActionPreference = $prev
     }
-    return $null
 }
 
 function Test-BundledRuntime { Test-Path (Join-Path $Root 'runtime\python.exe') }

@@ -1,4 +1,4 @@
-﻿# Instalador de Atalaya: entorno de Python, dependencias, Ollama y modelos, base de datos,
+# Instalador de Atalaya: entorno de Python, dependencias, Ollama y modelos, base de datos,
 # indice RAG, accesos directos e inicio automatico. Se puede repetir: cada paso detecta lo ya hecho.
 param(
     [switch]$Si,                 # aceptar todas las preguntas con su valor por defecto
@@ -28,18 +28,23 @@ function Test-Pip([string]$exe) {
 }
 
 function Find-BasePython {
-    # Python >= 3.11 (la herramienta usa tomllib). Se ignora el alias de la Microsoft Store.
+    # Usa primero el Python >= 3.11 x64 activo en el ambiente del S.O. (py o python en PATH, sin alias de Store).
     $ErrorActionPreference = 'Continue'   # en PowerShell 5.1, 2>$null con 'Stop' convierte stderr en error
     $launcher = Get-Command py -ErrorAction SilentlyContinue
     if ($launcher) {
-        foreach ($version in '3.13', '3.12', '3.11') {
-            $exe = & py "-$version" -c "import sys; print(sys.executable)" 2>$null
-            if ($LASTEXITCODE -eq 0 -and $exe) { return $exe.Trim() }
+        $exe = & py -c "import struct,sys; sys.exit(0 if sys.version_info >= (3,11) and struct.calcsize('P') == 8 else 1)" *> $null
+        if ($LASTEXITCODE -eq 0) {
+            $exePath = (& py -c "import sys; print(sys.executable)" 2>$null)
+            if ($LASTEXITCODE -eq 0 -and $exePath) { return $exePath.Trim() }
+        }
+        foreach ($version in '3.16', '3.15', '3.14', '3.13', '3.12', '3.11') {
+            $exePath = (& py "-$version" -c "import struct,sys; print(sys.executable) if struct.calcsize('P') == 8 else sys.exit(1)" 2>$null)
+            if ($LASTEXITCODE -eq 0 -and $exePath) { return $exePath.Trim() }
         }
     }
     foreach ($command in Get-Command python -All -ErrorAction SilentlyContinue) {
         if ($command.Source -match 'WindowsApps') { continue }
-        & $command.Source -c "import sys; sys.exit(0 if sys.version_info >= (3, 11) else 1)" 2>$null
+        & $command.Source -c "import struct,sys; sys.exit(0 if sys.version_info >= (3, 11) and struct.calcsize('P') == 8 else 1)" 2>$null
         if ($LASTEXITCODE -eq 0) { return $command.Source }
     }
     return $null
@@ -57,24 +62,32 @@ Write-Host "Carpeta: $Root"
 
 # 1. Python -------------------------------------------------------------------------------------
 Write-Paso "Entorno de Python"
+$venvDir = Join-Path $Root '.venv'
 $python = Find-VenvPython
+if ($python -and -not (Test-PythonRuntime $python)) {
+    Write-Aviso "El entorno existente no usa Python 3.11+ de 64 bits; se recreara con el Python del ambiente."
+    $python = $null
+}
 if ($python) {
-    if (-not (Test-PythonRuntime $python)) {
-        throw "El entorno existente no usa Python 3.11+ de 64 bits. Renombre o elimine .venv y repita la instalacion."
-    }
     Write-Ok "Entorno existente: $python"
 } else {
     $base = Find-BasePython
     if (-not $base) {
         Write-Aviso "No se encontro Python 3.11 o superior."
-        if (-not $SinRed -and (Get-Command winget -ErrorAction SilentlyContinue) -and (Confirm-Paso "Instalar Python 3.12 con winget?" $true $Si)) {
-            winget install --id Python.Python.3.12 -e --accept-package-agreements --accept-source-agreements
+        if (-not $SinRed -and (Get-Command winget -ErrorAction SilentlyContinue) -and (Confirm-Paso "Instalar Python 3.15 con winget?" $true $Si)) {
+            winget install --id Python.Python.3.15 -e --accept-package-agreements --accept-source-agreements
             $base = Find-BasePython
         }
         if (-not $base) { throw "Instale Python 3.11+ desde https://www.python.org y vuelva a ejecutar el instalador." }
     }
+    if (Test-Path $venvDir) {
+        Write-Aviso "Limpiando .venv previo incompatible o apuntando a una version anterior de Python..."
+        Stop-VenvProcesses $venvDir
+        Start-Sleep -Milliseconds 400
+        Remove-Item -LiteralPath $venvDir -Recurse -Force
+    }
     Write-Ok "Python base: $base"
-    & $base -m venv (Join-Path $Root '.venv')
+    & $base -m venv $venvDir
     if ($LASTEXITCODE) { throw "No se pudo crear el entorno virtual" }
     $python = Find-VenvPython
     if (-not $python -or -not (Test-PythonRuntime $python)) { throw "El entorno creado no es Python 3.11+ x64" }

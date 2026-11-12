@@ -1,9 +1,9 @@
-﻿# Regenera requirements.lock.txt: resuelve requirements.txt en un entorno limpio y fija todas las versiones
+# Regenera requirements.lock.txt: resuelve requirements.txt en un entorno limpio y fija todas las versiones
 # (incluidas las dependencias indirectas). Ejecutar al cambiar requirements.txt y revisar el diff antes del commit.
 #
 # Por defecto respeta las versiones ya fijadas (el lock actual actua como restriccion): solo se resuelve lo
 # nuevo y nada cambia de version sin querer. -Actualizar resuelve todo de cero (subida deliberada; probar despues).
-param([string]$Python = 'py -3.13', [switch]$Actualizar)
+param([string]$Python = 'py', [switch]$Actualizar)
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 $lock = Join-Path $root 'requirements.lock.txt'
