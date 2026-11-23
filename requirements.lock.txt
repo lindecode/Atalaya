@@ -19,8 +19,8 @@ Jinja2==3.1.6
 jsonschema==4.26.0
 jsonschema-specifications==2025.9.1
 MarkupSafe==3.0.4
-narwhals==2.28.0
-numpy==2.5.4
+narwhals==2.29.0
+numpy==2.5.5
 ollama==0.6.3
 packaging==26.3
 pandas==3.1.1
@@ -31,12 +31,12 @@ proxy_tools==0.1.0
 psutil==7.2.2
 pyarrow==26.0.1
 pycparser==3.12
-pydantic_core==2.50.4
-pydantic==2.14.3
+pydantic_core==2.50.5
+pydantic==2.14.4
 pydeck==0.9.3
 pystray==0.19.5
 python-dateutil==4.0.0
-python-multipart==0.0.33
+python-multipart==0.0.34
 pythonnet==3.2.1
 pywebview==6.2.1
 pywin32==312

@@ -6,7 +6,7 @@ psutil>=6.1,<8                              # conexiones y procesos
 pywin32>=308; sys_platform == "win32"       # Visor de eventos (Security, RDP, Sysmon) y firma Authenticode
 watchdog>=6,<7                              # monitor de archivos en vivo
 ollama>=0.6,<1                              # cliente del LLM local
-pydantic>=2.7,<3                            # validación de la salida del LLM
+pydantic>=2.14.4,<3                            # validación de la salida del LLM
 streamlit>=1.41,<2                          # interfaz gráfica local
 pystray>=0.19,<1                            # icono en el área de notificación (segundo plano)
 pywebview>=6,<7; sys_platform == "win32"    # ventana propia de Atalaya (WebView2); sin ella, el navegador
